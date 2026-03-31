@@ -1,0 +1,28 @@
+[app]
+name = "caliberate"
+environment = "development"
+instance_id = "local"
+
+[paths]
+data_dir = "./data"
+cache_dir = "./cache"
+log_dir = "./logs"
+tmp_dir = "./tmp"
+
+[logging]
+level = "info"
+json = false
+stdout = true
+file_enabled = false
+file_max_size_mb = 50
+file_max_backups = 5
+
+[db]
+sqlite_path = "./data/caliberate.db"
+pool_size = 4
+busy_timeout_ms = 5000
+
+[runtime]
+worker_threads = 4
+max_blocking_threads = 64
+shutdown_timeout_ms = 5000
