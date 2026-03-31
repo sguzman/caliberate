@@ -1,6 +1,17 @@
-[package]
-name = "caliberate"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+[workspace]
+members = [
+    "crates/app",
+    "crates/core",
+    "crates/db",
+    "crates/library",
+    "crates/assets",
+    "crates/conversion",
+    "crates/server",
+    "crates/device",
+    "crates/plugins",
+    "crates/gui",
+    "crates/jobs",
+    "crates/metadata",
+    "crates/formats",
+]
+resolver = "2"

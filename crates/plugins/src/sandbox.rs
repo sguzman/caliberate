@@ -1,0 +1,1 @@
+//! Plugin sandboxing and permissions.

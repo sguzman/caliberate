@@ -1,6 +1,6 @@
 # Core Roadmap
 
-- [ ] Define baseline crate structure and module boundaries
+- [x] Define baseline crate structure and module boundaries
 - [ ] Define config schema contracts and defaults
 - [ ] Implement config loader with validation and error reporting
 - [ ] Implement tracing bootstrap with structured fields and spans
