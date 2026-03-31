@@ -6,3 +6,27 @@
 - [x] Implement a minimal CLI entrypoint with `--config` override and a `check-config` command
 - [x] Wire `main.rs` to call the CLI and config bootstrap
 - [x] Define `[metrics]` config keys and defaults
+- [ ] Add smoke tests for config parsing and logging initialization
+- [ ] Inventory Calibre CLI surface in `tmp`
+- [ ] Define Rust CLI command map and parity targets
+- [ ] Implement base CLI framework with global flags and config selection
+- [ ] Implement `calibredb` binary scaffold
+- [ ] Implement `calibre-server` binary scaffold
+- [ ] Inventory Calibre DB schemas in `tmp` for metadata, notes, and FTS
+- [ ] Define Rust-side schema compatibility targets and versioning
+- [ ] Implement SQLite connection management and busy-timeout behavior
+- [ ] Inventory Calibre content server/OPDS behavior in `tmp`
+- [ ] Define server parity targets (HTTP APIs, OPDS, auth)
+- [ ] Define library filesystem layout parity goals
+- [ ] Implement asset storage abstraction and path policy
+- [ ] Inventory Calibre import pipeline behavior in `tmp`
+- [ ] Define ingest policy for copy vs reference modes
+- [ ] Implement ingest pipeline with pluggable storage strategies
+- [ ] Implement metadata extraction for supported formats
+- [ ] Inventory Calibre GUI feature set and major views in `tmp`
+- [ ] Define GUI parity targets and feature mapping
+- [ ] Implement core window shell and application lifecycle
+- [ ] Inventory Calibre conversion pipeline in `tmp`
+- [ ] Define conversion target parity matrix
+- [ ] Define Rust test harness structure and fixtures
+- [ ] Add CLI regression tests for parity commands
