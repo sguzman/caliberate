@@ -1,6 +1,7 @@
 [app]
 name = "caliberate"
 environment = "development"
+mode = "dev"
 instance_id = "local"
 
 [paths]
