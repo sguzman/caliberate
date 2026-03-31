@@ -27,3 +27,8 @@ busy_timeout_ms = 5000
 worker_threads = 4
 max_blocking_threads = 64
 shutdown_timeout_ms = 5000
+
+[metrics]
+enabled = false
+endpoint = ""
+namespace = "caliberate"

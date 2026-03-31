@@ -12,6 +12,7 @@ pub struct ControlPlane {
     pub logging: LoggingConfig,
     pub db: DbConfig,
     pub runtime: RuntimeConfig,
+    pub metrics: MetricsConfig,
 }
 
 impl ControlPlane {
@@ -99,6 +100,16 @@ pub struct RuntimeConfig {
     pub shutdown_timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default = "default_metrics_namespace")]
+    pub namespace: String,
+}
+
 fn default_data_dir() -> PathBuf {
     PathBuf::from("./data")
 }
@@ -129,4 +140,8 @@ fn default_file_max_size_mb() -> u64 {
 
 fn default_file_max_backups() -> u64 {
     5
+}
+
+fn default_metrics_namespace() -> String {
+    "caliberate".to_string()
 }

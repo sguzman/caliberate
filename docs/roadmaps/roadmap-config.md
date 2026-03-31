@@ -6,3 +6,4 @@
 - [x] Define `[logging]` keys: `level`, `json`, `stdout`, `file_enabled`, `file_max_size_mb`, `file_max_backups`
 - [x] Define `[db]` keys: `sqlite_path`, `pool_size`, `busy_timeout_ms`
 - [x] Define `[runtime]` keys: `worker_threads`, `max_blocking_threads`, `shutdown_timeout_ms`
+- [x] Define `[metrics]` keys: `enabled`, `endpoint`, `namespace`
