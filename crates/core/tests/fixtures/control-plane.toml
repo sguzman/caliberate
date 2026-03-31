@@ -1,8 +1,8 @@
 [app]
 name = "caliberate"
-environment = "development"
+environment = "test"
 mode = "dev"
-instance_id = "local"
+instance_id = "test"
 
 [paths]
 data_dir = "./data"
@@ -14,7 +14,7 @@ library_dir = "./library"
 [logging]
 level = "info"
 json = false
-stdout = true
+stdout = false
 file_enabled = false
 file_max_size_mb = 50
 file_max_backups = 5
@@ -25,9 +25,9 @@ pool_size = 4
 busy_timeout_ms = 5000
 
 [runtime]
-worker_threads = 4
-max_blocking_threads = 64
-shutdown_timeout_ms = 5000
+worker_threads = 1
+max_blocking_threads = 2
+shutdown_timeout_ms = 100
 
 [metrics]
 enabled = false
@@ -35,8 +35,8 @@ endpoint = ""
 namespace = "caliberate"
 
 [formats]
-supported = ["epub", "mobi", "azw", "azw3", "pdf"]
-archive_formats = ["zip", "rar", "7z"]
+supported = ["epub"]
+archive_formats = ["zip"]
 
 [ingest]
 default_mode = "copy"

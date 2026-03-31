@@ -5,4 +5,6 @@ edition = "2024"
 
 [dependencies]
 caliberate-core = { path = "../core" }
+caliberate-assets = { path = "../assets" }
+caliberate-metadata = { path = "../metadata" }
 tracing = "0.1.44"

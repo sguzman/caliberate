@@ -1,8 +1,8 @@
 mod cli;
 mod error;
 
+use caliberate_app::bootstrap::init as bootstrap_init;
 use caliberate_core::config::ControlPlane;
-use caliberate_core::{logging, metrics};
 use clap::Parser;
 use cli::{Cli, Command};
 use error::{AppError, AppResult};
@@ -11,9 +11,8 @@ use tokio::runtime::{Builder, Runtime};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let config = ControlPlane::load_from_path(&cli.config)?;
-    let _logging_guard = logging::init(&config)?;
-    let _metrics = metrics::init(&config);
+    let bootstrap = bootstrap_init(&cli.config)?;
+    let config = bootstrap.config;
 
     tracing::info!(
         component = "app",

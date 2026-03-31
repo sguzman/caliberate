@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 caliberate-core = { path = "../core" }
+eframe = "0.34.1"
 tracing = "0.1.44"

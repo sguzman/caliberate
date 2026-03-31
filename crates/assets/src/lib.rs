@@ -2,4 +2,5 @@
 
 pub mod compression;
 pub mod policy;
+pub mod storage;
 pub mod stats;

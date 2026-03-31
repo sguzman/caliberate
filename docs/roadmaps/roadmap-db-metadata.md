@@ -1,8 +1,8 @@
 # DB & Metadata Roadmap
 
-- [ ] Inventory Calibre DB schemas in `tmp` for metadata, notes, and FTS
-- [ ] Define Rust-side schema compatibility targets and versioning
-- [ ] Implement SQLite connection management and busy-timeout behavior
+- [x] Inventory Calibre DB schemas in `tmp` for metadata, notes, and FTS
+- [x] Define Rust-side schema compatibility targets and versioning
+- [x] Implement SQLite connection management and busy-timeout behavior
 - [ ] Implement metadata store schema migrations
 - [ ] Implement notes store schema migrations
 - [ ] Implement FTS schema and indexing pipeline

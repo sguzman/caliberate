@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 caliberate-core = { path = "../core" }
 tracing = "0.1.44"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
