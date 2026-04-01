@@ -17,6 +17,7 @@ pub struct ControlPlane {
     pub formats: FormatsConfig,
     pub ingest: IngestConfig,
     pub assets: AssetsConfig,
+    pub fts: FtsConfig,
 }
 
 impl ControlPlane {
@@ -66,6 +67,26 @@ impl ControlPlane {
         if !(1..=22).contains(&self.assets.compression_level) {
             return Err(CoreError::ConfigValidate(
                 "assets.compression_level must be between 1 and 22".to_string(),
+            ));
+        }
+        if self.fts.tokenizer.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "fts.tokenizer must not be empty".to_string(),
+            ));
+        }
+        if self.fts.tokenizer != "unicode61" {
+            return Err(CoreError::ConfigValidate(
+                "fts.tokenizer must be 'unicode61'".to_string(),
+            ));
+        }
+        if self.fts.min_query_len == 0 {
+            return Err(CoreError::ConfigValidate(
+                "fts.min_query_len must be greater than 0".to_string(),
+            ));
+        }
+        if self.fts.result_limit == 0 {
+            return Err(CoreError::ConfigValidate(
+                "fts.result_limit must be greater than 0".to_string(),
             ));
         }
         Ok(())
@@ -221,6 +242,32 @@ pub struct AssetsConfig {
     pub compression_level: i32,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct FtsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_fts_tokenizer")]
+    pub tokenizer: String,
+    #[serde(default = "default_fts_rebuild_on_migrate")]
+    pub rebuild_on_migrate: bool,
+    #[serde(default = "default_fts_min_query_len")]
+    pub min_query_len: usize,
+    #[serde(default = "default_fts_result_limit")]
+    pub result_limit: usize,
+}
+
+impl Default for FtsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tokenizer: default_fts_tokenizer(),
+            rebuild_on_migrate: default_fts_rebuild_on_migrate(),
+            min_query_len: default_fts_min_query_len(),
+            result_limit: default_fts_result_limit(),
+        }
+    }
+}
+
 fn default_data_dir() -> PathBuf {
     PathBuf::from("./data")
 }
@@ -299,6 +346,22 @@ fn default_asset_hash_algorithm() -> String {
 
 fn default_asset_compression_level() -> i32 {
     3
+}
+
+fn default_fts_tokenizer() -> String {
+    "unicode61".to_string()
+}
+
+fn default_fts_rebuild_on_migrate() -> bool {
+    true
+}
+
+fn default_fts_min_query_len() -> usize {
+    2
+}
+
+fn default_fts_result_limit() -> usize {
+    100
 }
 
 fn default_server_host() -> String {

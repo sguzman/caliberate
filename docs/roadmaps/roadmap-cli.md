@@ -12,6 +12,8 @@
 - [x] Add `calibredb assets verify` command
 - [x] Add `calibredb assets compact` command
 - [x] Add `calibredb extract-archive` command
+- [x] Add `calibredb fts status` command
+- [x] Add `calibredb fts rebuild` command
 - [ ] Implement conversion commands parity set
 - [ ] Implement device commands parity set
 - [ ] Implement server/OPDS commands parity set

@@ -1,0 +1,32 @@
+# Tranche 004
+
+- [x] Add `[fts]` config section to control-plane defaults
+- [x] Add `FtsConfig` to core config loader
+- [x] Add validation for FTS tokenizer and limits
+- [x] Define FTS default settings and helpers
+- [x] Update config test fixture for FTS section
+- [x] Store FTS config on `Database` struct
+- [x] Add `Database::open_with_fts` helper
+- [x] Add `Database::open_path_with_fts` helper
+- [x] Implement FTS schema creation for books
+- [x] Implement FTS triggers for insert/update/delete
+- [x] Ensure FTS schema on migrate when enabled
+- [x] Add `ensure_fts_schema` helper
+- [x] Add `rebuild_fts` helper
+- [x] Add `fts_count` helper
+- [x] Implement FTS search query path
+- [x] Add search fallback to LIKE for short queries
+- [x] Apply FTS result limit in searches
+- [x] Wire `calibredb` to use FTS-aware DB opening
+- [x] Add `calibredb fts status` command
+- [x] Add `calibredb fts rebuild` command
+- [x] Add DB FTS search test
+- [x] Add DB FTS rebuild test
+- [x] Add DB min-query fallback test
+- [x] Update config roadmap for FTS keys
+- [x] Update DB roadmap for FTS pipeline completion
+- [x] Update CLI roadmap for FTS commands
+- [x] Update testing roadmap for FTS tests
+- [x] Guard FTS tokenizer to `unicode61` only
+- [x] Add FTS config section to control-plane file
+- [x] Create tranche 004 record

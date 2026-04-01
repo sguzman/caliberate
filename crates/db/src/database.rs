@@ -1,17 +1,18 @@
 //! Database API with migrations and basic operations.
 
 use crate::backend;
-use caliberate_core::config::DbConfig;
+use caliberate_core::config::{DbConfig, FtsConfig};
 use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug)]
 pub struct Database {
     conn: Connection,
+    fts: FtsConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -38,15 +39,33 @@ pub struct AssetRow {
 
 impl Database {
     pub fn open(config: &DbConfig) -> CoreResult<Self> {
+        Self::open_with_fts(config, &FtsConfig::default())
+    }
+
+    pub fn open_with_fts(config: &DbConfig, fts: &FtsConfig) -> CoreResult<Self> {
         let conn = backend::sqlite::open(config)?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            fts: fts.clone(),
+        };
         db.migrate()?;
         Ok(db)
     }
 
     pub fn open_path<P: AsRef<Path>>(path: P, busy_timeout_ms: u64) -> CoreResult<Self> {
+        Self::open_path_with_fts(path, busy_timeout_ms, &FtsConfig::default())
+    }
+
+    pub fn open_path_with_fts<P: AsRef<Path>>(
+        path: P,
+        busy_timeout_ms: u64,
+        fts: &FtsConfig,
+    ) -> CoreResult<Self> {
         let conn = backend::sqlite::open_with_timeout(path, busy_timeout_ms)?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            fts: fts.clone(),
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -91,11 +110,17 @@ impl Database {
                         std::io::Error::new(std::io::ErrorKind::Other, err),
                     )
                 })?;
+            if self.fts.enabled && self.fts.rebuild_on_migrate {
+                self.rebuild_fts()?;
+            }
             info!(
                 component = "db",
                 version = SCHEMA_VERSION,
                 "schema migrated"
             );
+        }
+        if self.fts.enabled {
+            self.ensure_fts_schema()?;
         }
 
         Ok(())
@@ -133,6 +158,9 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
+        if self.fts.enabled {
+            self.ensure_fts_schema()?;
+        }
         Ok(())
     }
 
@@ -196,6 +224,15 @@ impl Database {
     }
 
     pub fn search_books(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
+        if self.fts.enabled && query.chars().count() >= self.fts.min_query_len {
+            if let Ok(results) = self.search_books_fts(query) {
+                return Ok(results);
+            }
+        }
+        self.search_books_like(query)
+    }
+
+    pub fn search_books_like(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
         let mut stmt = self
             .conn
             .prepare("SELECT id, title, format, path FROM books WHERE title LIKE ?1 ORDER BY id")
@@ -227,6 +264,51 @@ impl Database {
             results.push(row.map_err(|err| {
                 CoreError::Io(
                     "read search books".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn search_books_fts(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
+        let limit = self.fts.result_limit as i64;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT b.id, b.title, b.format, b.path
+                 FROM books_fts f
+                 JOIN books b ON b.id = f.rowid
+                 WHERE books_fts MATCH ?1
+                 LIMIT ?2",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare fts search".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map(params![query, limit], |row| {
+                Ok(BookRecord {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    format: row.get(2)?,
+                    path: row.get(3)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query fts search".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read fts search".to_string(),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?);
@@ -347,5 +429,74 @@ impl Database {
             )
         })?;
         Ok(deleted)
+    }
+
+    pub fn ensure_fts_schema(&self) -> CoreResult<()> {
+        if self.fts.tokenizer != "unicode61" {
+            return Err(CoreError::ConfigValidate(
+                "fts.tokenizer must be 'unicode61'".to_string(),
+            ));
+        }
+        let ddl = format!(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+                title,
+                format,
+                path,
+                content='books',
+                content_rowid='id',
+                tokenize='{}'
+            );
+            CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
+                INSERT INTO books_fts(rowid, title, format, path)
+                VALUES (new.id, new.title, new.format, new.path);
+            END;
+            CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, format, path)
+                VALUES('delete', old.id, old.title, old.format, old.path);
+            END;
+            CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
+                INSERT INTO books_fts(books_fts, rowid, title, format, path)
+                VALUES('delete', old.id, old.title, old.format, old.path);
+                INSERT INTO books_fts(rowid, title, format, path)
+                VALUES (new.id, new.title, new.format, new.path);
+            END;",
+            self.fts.tokenizer
+        );
+        self.conn.execute_batch(&ddl).map_err(|err| {
+            CoreError::Io(
+                "create fts schema".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn rebuild_fts(&self) -> CoreResult<()> {
+        if !self.fts.enabled {
+            return Err(CoreError::ConfigValidate("fts is disabled".to_string()));
+        }
+        self.ensure_fts_schema()?;
+        self.conn
+            .execute("INSERT INTO books_fts(books_fts) VALUES('rebuild')", [])
+            .map_err(|err| {
+                CoreError::Io(
+                    "rebuild fts".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    pub fn fts_count(&self) -> CoreResult<i64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM books_fts", [], |row| row.get(0))
+            .map_err(|err| {
+                CoreError::Io(
+                    "read fts count".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(count)
     }
 }

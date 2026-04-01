@@ -46,6 +46,10 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: AssetsCommand,
     },
+    Fts {
+        #[command(subcommand)]
+        command: FtsCommand,
+    },
     Info,
 }
 
@@ -64,6 +68,12 @@ enum AssetsCommand {
         #[arg(long, default_value_t = false)]
         apply: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum FtsCommand {
+    Status,
+    Rebuild,
 }
 
 impl From<IngestModeValue> for IngestMode {
@@ -85,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!(component = "calibredb", "configuration check passed");
         }
         Some(CalibredbCommand::Init) => {
-            let _db = Database::open(&config.db)?;
+            let _db = Database::open_with_fts(&config.db, &config.fts)?;
             println!(
                 "Database initialized at {}",
                 config.db.sqlite_path.display()
@@ -100,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let result = ingestor.ingest(request)?;
 
-            let db = Database::open(&config.db)?;
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
             let created_at = time::OffsetDateTime::now_utc().format(
                 &time::format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]Z")?,
             )?;
@@ -148,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Extracted to {}", extracted.display());
         }
         Some(CalibredbCommand::List) => {
-            let db = Database::open(&config.db)?;
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
             for book in db.list_books()? {
                 println!(
                     "{}\t{}\t{}\t{}",
@@ -157,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(CalibredbCommand::Search { query }) => {
-            let db = Database::open(&config.db)?;
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
             for book in db.search_books(&query)? {
                 println!(
                     "{}\t{}\t{}\t{}",
@@ -166,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(CalibredbCommand::Assets { command }) => {
-            let mut db = Database::open(&config.db)?;
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
             let assets = db.list_assets()?;
             let descriptors = assets
                 .iter()
@@ -232,6 +242,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "Dry run: pass --apply to delete orphan files and prune missing records"
                         );
                     }
+                }
+            }
+        }
+        Some(CalibredbCommand::Fts { command }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            match command {
+                FtsCommand::Status => {
+                    println!("FTS enabled: {}", config.fts.enabled);
+                    println!("FTS tokenizer: {}", config.fts.tokenizer);
+                    if config.fts.enabled {
+                        let count = db.fts_count()?;
+                        println!("FTS indexed rows: {}", count);
+                    }
+                }
+                FtsCommand::Rebuild => {
+                    db.rebuild_fts()?;
+                    println!("FTS index rebuilt");
                 }
             }
         }
