@@ -15,3 +15,4 @@
 - [x] Add DB book deletion test
 - [ ] Add GUI integration test scaffolding
 - [x] Add OPDS download tests
+- [x] Add conversion pipeline tests

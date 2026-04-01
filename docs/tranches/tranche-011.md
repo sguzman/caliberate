@@ -1,0 +1,32 @@
+# Tranche 011
+
+- [x] Add conversion config section to core control-plane schema
+- [x] Add conversion defaults in core config
+- [x] Add conversion validation for max input bytes and output format
+- [x] Add conversion config to control-plane.toml
+- [x] Add conversion config to control-plane fixture
+- [x] Add conversion settings struct
+- [x] Add conversion settings builder from config
+- [x] Add conversion settings format overrides
+- [x] Add conversion pipeline report struct
+- [x] Add conversion pipeline input format detection
+- [x] Add conversion pipeline max input size guard
+- [x] Add conversion pipeline passthrough execution
+- [x] Add conversion format converter stub
+- [x] Add conversion job request struct
+- [x] Add conversion job status enum
+- [x] Add conversion job runner
+- [x] Add conversion build_request helper
+- [x] Add conversion test for passthrough copy
+- [x] Add conversion test for unsupported format
+- [x] Add conversion test for max input size guard
+- [x] Add conversion test for job runner status
+- [x] Add conversion dev dependency on tempfile
+- [x] Add ebook-convert binary
+- [x] Add ebook-convert config gate
+- [x] Add ebook-convert input/output format overrides
+- [x] Add app dependency on conversion crate
+- [x] Update conversion roadmap
+- [x] Update CLI roadmap
+- [x] Update testing roadmap
+- [x] Create tranche 011 record

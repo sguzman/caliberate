@@ -71,6 +71,14 @@ compression_level = 3
 delete_files_on_remove = false
 delete_reference_files = false
 
+[conversion]
+enabled = true
+allow_passthrough = true
+max_input_bytes = 104857600
+default_output_format = "epub"
+temp_dir = "./tmp/conversion"
+output_dir = "./output/conversion"
+
 [fts]
 enabled = false
 tokenizer = "unicode61"

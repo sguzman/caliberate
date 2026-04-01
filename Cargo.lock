@@ -662,6 +662,7 @@ name = "caliberate-app"
 version = "0.1.0"
 dependencies = [
  "caliberate-assets",
+ "caliberate-conversion",
  "caliberate-core",
  "caliberate-db",
  "caliberate-gui",
@@ -692,6 +693,7 @@ name = "caliberate-conversion"
 version = "0.1.0"
 dependencies = [
  "caliberate-core",
+ "tempfile",
  "tracing",
 ]
 

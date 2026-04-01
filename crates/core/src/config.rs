@@ -18,6 +18,7 @@ pub struct ControlPlane {
     pub ingest: IngestConfig,
     pub assets: AssetsConfig,
     pub library: LibraryConfig,
+    pub conversion: ConversionConfig,
     pub fts: FtsConfig,
 }
 
@@ -93,6 +94,16 @@ impl ControlPlane {
         if self.fts.result_limit == 0 {
             return Err(CoreError::ConfigValidate(
                 "fts.result_limit must be greater than 0".to_string(),
+            ));
+        }
+        if self.conversion.max_input_bytes == 0 {
+            return Err(CoreError::ConfigValidate(
+                "conversion.max_input_bytes must be greater than 0".to_string(),
+            ));
+        }
+        if self.conversion.default_output_format.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.default_output_format must not be empty".to_string(),
             ));
         }
         Ok(())
@@ -223,6 +234,22 @@ pub struct LibraryConfig {
     pub delete_files_on_remove: bool,
     #[serde(default = "default_library_delete_reference_files")]
     pub delete_reference_files: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConversionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_conversion_allow_passthrough")]
+    pub allow_passthrough: bool,
+    #[serde(default = "default_conversion_max_input_bytes")]
+    pub max_input_bytes: u64,
+    #[serde(default = "default_conversion_default_output_format")]
+    pub default_output_format: String,
+    #[serde(default = "default_conversion_temp_dir")]
+    pub temp_dir: PathBuf,
+    #[serde(default = "default_conversion_output_dir")]
+    pub output_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -477,4 +504,24 @@ fn default_library_delete_files() -> bool {
 
 fn default_library_delete_reference_files() -> bool {
     false
+}
+
+fn default_conversion_allow_passthrough() -> bool {
+    true
+}
+
+fn default_conversion_max_input_bytes() -> u64 {
+    104_857_600
+}
+
+fn default_conversion_default_output_format() -> String {
+    "epub".to_string()
+}
+
+fn default_conversion_temp_dir() -> PathBuf {
+    PathBuf::from("./tmp/conversion")
+}
+
+fn default_conversion_output_dir() -> PathBuf {
+    PathBuf::from("./output/conversion")
 }

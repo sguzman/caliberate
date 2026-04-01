@@ -19,5 +19,7 @@
 - [x] Add `calibredb fts status` command
 - [x] Add `calibredb fts rebuild` command
 - [ ] Implement conversion commands parity set
+- [x] Add `ebook-convert` binary scaffold
+- [x] Add `ebook-convert` conversion wiring
 - [ ] Implement device commands parity set
 - [ ] Implement server/OPDS commands parity set
