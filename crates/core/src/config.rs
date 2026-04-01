@@ -53,6 +53,11 @@ impl ControlPlane {
                 "server.url_prefix must start with '/'".to_string(),
             ));
         }
+        if self.server.download_max_bytes == 0 {
+            return Err(CoreError::ConfigValidate(
+                "server.download_max_bytes must be greater than 0".to_string(),
+            ));
+        }
         if self.assets.hash_algorithm.trim().is_empty() {
             return Err(CoreError::ConfigValidate(
                 "assets.hash_algorithm must not be empty".to_string(),
@@ -174,6 +179,12 @@ pub struct ServerConfig {
     pub auth_mode: ServerAuthMode,
     #[serde(default)]
     pub api_keys: Vec<String>,
+    #[serde(default = "default_server_download_enabled")]
+    pub download_enabled: bool,
+    #[serde(default = "default_server_download_max_bytes")]
+    pub download_max_bytes: u64,
+    #[serde(default = "default_server_download_allow_external")]
+    pub download_allow_external: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -358,6 +369,18 @@ fn default_metrics_namespace() -> String {
 
 fn default_server_auth_mode() -> ServerAuthMode {
     ServerAuthMode::Bearer
+}
+
+fn default_server_download_enabled() -> bool {
+    true
+}
+
+fn default_server_download_max_bytes() -> u64 {
+    104_857_600
+}
+
+fn default_server_download_allow_external() -> bool {
+    false
 }
 
 fn default_supported_formats() -> Vec<String> {

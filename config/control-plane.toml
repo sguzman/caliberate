@@ -36,6 +36,9 @@ url_prefix = ""
 enable_auth = false
 auth_mode = "bearer"
 api_keys = []
+download_enabled = true
+download_max_bytes = 104857600
+download_allow_external = false
 
 [metrics]
 enabled = false

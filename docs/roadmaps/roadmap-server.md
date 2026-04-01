@@ -15,4 +15,10 @@
 - [x] Add API key list support in server config
 - [x] Add auth tests for server endpoints
 - [x] Add OPDS feed test coverage
+- [x] Add OPDS book entry endpoint
+- [x] Add OPDS download endpoint
+- [x] Add OPDS download content-type mapping
+- [x] Add OPDS download size guard
+- [x] Add OPDS download external path guard
+- [x] Add OPDS download tests
 - [x] Implement server configuration and runtime controls

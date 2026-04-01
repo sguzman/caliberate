@@ -1,0 +1,32 @@
+# Tranche 010
+
+- [x] Add server download enabled config field
+- [x] Add server download max bytes config field
+- [x] Add server download allow external config field
+- [x] Add server download defaults in core config
+- [x] Add server download validation for max bytes
+- [x] Add server download keys to control-plane.toml
+- [x] Add server download keys to control-plane fixture
+- [x] Update config roadmap with download keys
+- [x] Add tokio-util io dependency for streaming downloads
+- [x] Add OPDS book entry handler
+- [x] Add OPDS download handler
+- [x] Add OPDS download route wiring
+- [x] Add OPDS download content-type mapping helper
+- [x] Add OPDS acquisition link in book entry feed
+- [x] Add OPDS download size guard
+- [x] Add OPDS download external path guard
+- [x] Add OPDS download enabled guard
+- [x] Add OPDS download content-length header
+- [x] Prefer copied assets when selecting download path
+- [x] Add OPDS download path allowance helper
+- [x] Add OPDS book entry route
+- [x] Add OPDS download success test
+- [x] Add OPDS download external block test
+- [x] Update server roadmap with download items
+- [x] Update testing roadmap with download tests
+- [x] Add OPDS entry feed acquisition link type mapping
+- [x] Add book format content-type defaults
+- [x] Add download path selection fallback to book path
+- [x] Add DB open handling inside download handler
+- [x] Create tranche 010 record

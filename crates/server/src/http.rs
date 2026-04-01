@@ -31,6 +31,8 @@ pub fn router(state: ServerState) -> Router {
         .route("/health", get(health))
         .route("/opds", get(opds::opds_root))
         .route("/opds/books", get(opds::opds_books))
+        .route("/opds/books/{id}", get(opds::opds_book_entry))
+        .route("/opds/books/{id}/download", get(opds::opds_book_download))
         .route("/opds/search", get(opds::opds_search))
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(

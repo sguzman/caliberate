@@ -14,3 +14,4 @@
 - [x] Add server auth and OPDS feed tests
 - [x] Add DB book deletion test
 - [ ] Add GUI integration test scaffolding
+- [x] Add OPDS download tests
