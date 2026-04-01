@@ -7,6 +7,10 @@
 - [x] Implement `calibre-server` binary scaffold
 - [x] Implement `calibredb` init/add/list/search stubs
 - [ ] Implement library management commands parity set
+- [x] Add `calibredb show` command for book details
+- [x] Add `calibredb remove` command for books
+- [x] Add `calibredb remove` file deletion controls
+- [x] Add `calibredb show` asset listing output
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

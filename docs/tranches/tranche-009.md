@@ -1,0 +1,32 @@
+# Tranche 009
+
+- [x] Add library config section to control-plane schema
+- [x] Add library delete defaults in core config
+- [x] Add library delete policy keys to control-plane.toml
+- [x] Add library delete policy keys to control-plane fixture
+- [x] Update config roadmap with library delete keys
+- [x] Add delete summary struct to database API
+- [x] Add database get_book lookup API
+- [x] Add database list_assets_for_book API
+- [x] Add database delete_book_with_assets API
+- [x] Ensure book deletion removes assets in one transaction
+- [x] Ensure book deletion returns summary counts
+- [x] Add db dev dependency on tempfile
+- [x] Add DB test for book deletion cleanup
+- [x] Add calibredb show subcommand
+- [x] Add calibredb remove subcommand
+- [x] Add calibredb remove delete_files flag
+- [x] Add calibredb remove delete_reference_files flag
+- [x] Add calibredb remove file deletion helper
+- [x] Add calibredb show asset listing output
+- [x] Add calibredb show missing-book handling
+- [x] Add calibredb remove deletion summary output
+- [x] Wire calibredb remove to list assets for book
+- [x] Wire calibredb remove to delete book + assets API
+- [x] Wire calibredb remove to library delete policy
+- [x] Wire calibredb show to book lookup API
+- [x] Update CLI roadmap with show/remove items
+- [x] Update DB roadmap with book/asset APIs
+- [x] Update testing roadmap with DB delete test
+- [x] Update control-plane with library delete policy knobs
+- [x] Create tranche 009 record

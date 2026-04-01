@@ -29,6 +29,18 @@ enum CalibredbCommand {
         #[arg(long)]
         mode: Option<IngestModeValue>,
     },
+    Show {
+        #[arg(long)]
+        id: i64,
+    },
+    Remove {
+        #[arg(long)]
+        id: i64,
+        #[arg(long, default_value_t = false)]
+        delete_files: bool,
+        #[arg(long, default_value_t = false)]
+        delete_reference_files: bool,
+    },
     ExtractArchive {
         #[arg(long)]
         path: PathBuf,
@@ -153,6 +165,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
 
             println!("Added book {id}");
+        }
+        Some(CalibredbCommand::Show { id }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let Some(book) = db.get_book(id)? else {
+                println!("Book not found: {id}");
+                return Ok(());
+            };
+            println!("Book {id}");
+            println!("Title: {}", book.title);
+            println!("Format: {}", book.format);
+            println!("Path: {}", book.path);
+
+            let assets = db.list_assets_for_book(id)?;
+            if assets.is_empty() {
+                println!("Assets: none");
+            } else {
+                println!("Assets:");
+                for asset in assets {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}\t{}",
+                        asset.id,
+                        asset.storage_mode,
+                        asset.stored_path,
+                        asset.source_path.as_deref().unwrap_or("-"),
+                        asset.size_bytes,
+                        asset.stored_size_bytes
+                    );
+                }
+            }
+        }
+        Some(CalibredbCommand::Remove {
+            id,
+            delete_files,
+            delete_reference_files,
+        }) => {
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            let assets = db.list_assets_for_book(id)?;
+            let delete_files = delete_files || config.library.delete_files_on_remove;
+            let delete_reference_files =
+                delete_reference_files || config.library.delete_reference_files;
+
+            if delete_files {
+                delete_asset_files(&assets, delete_reference_files)?;
+            }
+
+            let summary = db.delete_book_with_assets(id)?;
+            if !summary.book_deleted {
+                println!("Book not found: {id}");
+            } else {
+                println!("Deleted book {id} and {} assets", summary.assets_deleted);
+            }
         }
         Some(CalibredbCommand::ExtractArchive {
             path,
@@ -283,6 +346,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+fn delete_asset_files(
+    assets: &[caliberate_db::database::AssetRow],
+    delete_reference_files: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for asset in assets {
+        let should_delete = match asset.storage_mode.as_str() {
+            "copy" => true,
+            "reference" => delete_reference_files,
+            _ => false,
+        };
+        if !should_delete {
+            continue;
+        }
+        let path = std::path::Path::new(&asset.stored_path);
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    }
     Ok(())
 }
 

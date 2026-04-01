@@ -16,3 +16,4 @@
 - [x] Define `[fts]` keys: `enabled`, `tokenizer`, `rebuild_on_migrate`, `min_query_len`, `result_limit`
 - [x] Define `[server]` keys: `host`, `port`, `url_prefix`, `enable_auth`
 - [x] Define `[server]` keys: `auth_mode`, `api_keys`
+- [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`

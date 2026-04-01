@@ -24,6 +24,12 @@ pub struct BookRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct DeleteSummary {
+    pub assets_deleted: usize,
+    pub book_deleted: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct AssetRow {
     pub id: i64,
     pub book_id: i64,
@@ -223,6 +229,29 @@ impl Database {
         Ok(results)
     }
 
+    pub fn get_book(&self, id: i64) -> CoreResult<Option<BookRecord>> {
+        self.conn
+            .query_row(
+                "SELECT id, title, format, path FROM books WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(BookRecord {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        format: row.get(2)?,
+                        path: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query book".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
+    }
+
     pub fn search_books(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
         if self.fts.enabled && query.chars().count() >= self.fts.min_query_len {
             if let Ok(results) = self.search_books_fts(query) {
@@ -401,6 +430,54 @@ impl Database {
         Ok(results)
     }
 
+    pub fn list_assets_for_book(&self, book_id: i64) -> CoreResult<Vec<AssetRow>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, book_id, storage_mode, stored_path, source_path, size_bytes, stored_size_bytes, checksum, is_compressed, created_at
+                 FROM assets WHERE book_id = ?1 ORDER BY id",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list assets for book".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map(params![book_id], |row| {
+                let is_compressed: i64 = row.get(8)?;
+                Ok(AssetRow {
+                    id: row.get(0)?,
+                    book_id: row.get(1)?,
+                    storage_mode: row.get(2)?,
+                    stored_path: row.get(3)?,
+                    source_path: row.get(4)?,
+                    size_bytes: row.get::<_, i64>(5)? as u64,
+                    stored_size_bytes: row.get::<_, i64>(6)? as u64,
+                    checksum: row.get(7)?,
+                    is_compressed: is_compressed != 0,
+                    created_at: row.get(9)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list assets for book".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list assets for book".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
     pub fn delete_assets(&mut self, ids: &[i64]) -> CoreResult<usize> {
         if ids.is_empty() {
             return Ok(0);
@@ -429,6 +506,42 @@ impl Database {
             )
         })?;
         Ok(deleted)
+    }
+
+    pub fn delete_book_with_assets(&mut self, book_id: i64) -> CoreResult<DeleteSummary> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin book deletion transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let assets_deleted = tx
+            .execute("DELETE FROM assets WHERE book_id = ?1", params![book_id])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete book assets".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let book_deleted = tx
+            .execute("DELETE FROM books WHERE id = ?1", params![book_id])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete book".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?
+            > 0;
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit book deletion".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(DeleteSummary {
+            assets_deleted: assets_deleted as usize,
+            book_deleted,
+        })
     }
 
     pub fn ensure_fts_schema(&self) -> CoreResult<()> {

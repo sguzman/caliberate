@@ -6,6 +6,8 @@
 - [x] Implement metadata schema migration runner with minimal books table
 - [ ] Expand metadata schema migrations to full Calibre parity
 - [x] Implement database API (open, migrate, add, list, search)
+- [x] Implement database API for book lookup and deletion
+- [x] Implement database API for listing assets by book
 - [x] Implement asset tracking schema and APIs for storage policies
 - [ ] Implement notes store schema migrations
 - [x] Implement FTS schema and indexing pipeline

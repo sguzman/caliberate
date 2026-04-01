@@ -17,6 +17,7 @@ pub struct ControlPlane {
     pub formats: FormatsConfig,
     pub ingest: IngestConfig,
     pub assets: AssetsConfig,
+    pub library: LibraryConfig,
     pub fts: FtsConfig,
 }
 
@@ -203,6 +204,14 @@ pub struct FormatsConfig {
     pub supported: Vec<String>,
     #[serde(default = "default_archive_formats")]
     pub archive_formats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LibraryConfig {
+    #[serde(default = "default_library_delete_files")]
+    pub delete_files_on_remove: bool,
+    #[serde(default = "default_library_delete_reference_files")]
+    pub delete_reference_files: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -437,4 +446,12 @@ fn default_ingest_background_workers() -> usize {
 
 fn default_ingest_background_queue_capacity() -> usize {
     64
+}
+
+fn default_library_delete_files() -> bool {
+    false
+}
+
+fn default_library_delete_reference_files() -> bool {
+    false
 }

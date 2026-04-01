@@ -64,6 +64,10 @@ hash_on_ingest = true
 verify_checksum = true
 compression_level = 3
 
+[library]
+delete_files_on_remove = false
+delete_reference_files = false
+
 [fts]
 enabled = false
 tokenizer = "unicode61"

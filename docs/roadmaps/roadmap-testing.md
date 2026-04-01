@@ -12,4 +12,5 @@
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests
+- [x] Add DB book deletion test
 - [ ] Add GUI integration test scaffolding
