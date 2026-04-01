@@ -7,5 +7,5 @@
 
 Policy goals
 - Support copy and reference ingest modes.
-- Support archive reference ingestion with on-demand extraction.
+- Support archive reference ingestion with on-demand extraction (ZIP now; RAR/7Z later).
 - Preserve duplicate detection and conflict policy parity.

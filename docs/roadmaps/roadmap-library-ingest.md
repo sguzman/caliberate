@@ -6,7 +6,8 @@
 - [x] Implement metadata extraction for supported formats
 - [x] Implement ingest for archive references (zip) with metadata preview
 - [ ] Expand archive ingest to rar/7z with extraction
-- [ ] Implement on-demand extraction for referenced archives
+- [x] Implement on-demand extraction for referenced ZIP archives
+- [ ] Implement on-demand extraction for referenced RAR/7Z archives
 - [x] Implement duplicate policy handling for asset ingestion
 - [ ] Expand duplicate detection and conflict policy
 - [ ] Implement background ingest job wiring

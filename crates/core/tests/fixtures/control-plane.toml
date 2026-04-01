@@ -52,3 +52,7 @@ duplicate_policy = "error"
 [assets]
 compress_raw_assets = true
 compress_metadata_db = false
+hash_algorithm = "sha256"
+hash_on_ingest = true
+verify_checksum = true
+compression_level = 3

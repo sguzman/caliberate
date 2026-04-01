@@ -1,9 +1,12 @@
 //! Ingest pipeline and import policies.
 
+use caliberate_assets::storage::{AssetRecord, AssetStore, StorageMode};
 use caliberate_core::config::{ControlPlane, IngestMode};
 use caliberate_core::error::{CoreError, CoreResult};
-use caliberate_metadata::extract::{extract_archive_preview, extract_basic, ArchivePreview, BasicMetadata};
-use caliberate_assets::storage::{AssetRecord, AssetStore, StorageMode};
+use caliberate_metadata::extract::{
+    ArchivePreview, BasicMetadata, extract_archive_entry_to_temp, extract_archive_preview,
+    extract_basic,
+};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
@@ -67,5 +70,23 @@ impl Ingestor {
         let mut result = self.ingest(request)?;
         result.archive_preview = Some(preview);
         Ok(result)
+    }
+
+    pub fn extract_archive_on_demand(
+        &self,
+        archive_path: &Path,
+        entry_name: &str,
+    ) -> CoreResult<std::path::PathBuf> {
+        if !self.config.ingest.archive_reference_enabled {
+            return Err(CoreError::ConfigValidate(
+                "archive reference ingestion disabled".to_string(),
+            ));
+        }
+        extract_archive_entry_to_temp(
+            archive_path,
+            entry_name,
+            &self.config.paths.tmp_dir,
+            &self.config.formats,
+        )
     }
 }

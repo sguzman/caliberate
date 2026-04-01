@@ -3,10 +3,10 @@
 use crate::config::{AppMode, ControlPlane};
 use crate::error::{CoreError, CoreResult};
 use std::fs;
-use time::format_description;
 use time::OffsetDateTime;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
+use time::format_description;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 pub struct LoggingGuard {
     _file_guard: Option<tracing_appender::non_blocking::WorkerGuard>,

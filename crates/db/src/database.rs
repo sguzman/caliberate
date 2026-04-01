@@ -3,11 +3,11 @@
 use crate::backend;
 use caliberate_core::config::DbConfig;
 use caliberate_core::error::{CoreError, CoreResult};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug)]
 pub struct Database {
@@ -20,6 +20,20 @@ pub struct BookRecord {
     pub title: String,
     pub format: String,
     pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetRow {
+    pub id: i64,
+    pub book_id: i64,
+    pub storage_mode: String,
+    pub stored_path: String,
+    pub source_path: Option<String>,
+    pub size_bytes: u64,
+    pub stored_size_bytes: u64,
+    pub checksum: Option<String>,
+    pub is_compressed: bool,
+    pub created_at: String,
 }
 
 impl Database {
@@ -77,7 +91,11 @@ impl Database {
                         std::io::Error::new(std::io::ErrorKind::Other, err),
                     )
                 })?;
-            info!(component = "db", version = SCHEMA_VERSION, "schema migrated");
+            info!(
+                component = "db",
+                version = SCHEMA_VERSION,
+                "schema migrated"
+            );
         }
 
         Ok(())
@@ -92,7 +110,22 @@ impl Database {
                     format TEXT NOT NULL,
                     path TEXT NOT NULL,
                     created_at TEXT NOT NULL
-                );",
+                );
+                CREATE TABLE IF NOT EXISTS assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    storage_mode TEXT NOT NULL,
+                    stored_path TEXT NOT NULL,
+                    source_path TEXT,
+                    size_bytes INTEGER NOT NULL,
+                    stored_size_bytes INTEGER NOT NULL,
+                    checksum TEXT,
+                    is_compressed INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(book_id) REFERENCES books(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_assets_book_id ON assets(book_id);
+                CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);",
             )
             .map_err(|err| {
                 CoreError::Io(
@@ -103,7 +136,13 @@ impl Database {
         Ok(())
     }
 
-    pub fn add_book(&self, title: &str, format: &str, path: &str, created_at: &str) -> CoreResult<i64> {
+    pub fn add_book(
+        &self,
+        title: &str,
+        format: &str,
+        path: &str,
+        created_at: &str,
+    ) -> CoreResult<i64> {
         self.conn
             .execute(
                 "INSERT INTO books (title, format, path, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -193,5 +232,120 @@ impl Database {
             })?);
         }
         Ok(results)
+    }
+
+    pub fn add_asset(
+        &self,
+        book_id: i64,
+        storage_mode: &str,
+        stored_path: &str,
+        source_path: Option<&str>,
+        size_bytes: u64,
+        stored_size_bytes: u64,
+        checksum: Option<&str>,
+        is_compressed: bool,
+        created_at: &str,
+    ) -> CoreResult<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO assets (book_id, storage_mode, stored_path, source_path, size_bytes, stored_size_bytes, checksum, is_compressed, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    book_id,
+                    storage_mode,
+                    stored_path,
+                    source_path,
+                    size_bytes as i64,
+                    stored_size_bytes as i64,
+                    checksum,
+                    if is_compressed { 1 } else { 0 },
+                    created_at
+                ],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert asset".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_assets(&self) -> CoreResult<Vec<AssetRow>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, book_id, storage_mode, stored_path, source_path, size_bytes, stored_size_bytes, checksum, is_compressed, created_at
+                 FROM assets ORDER BY id",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list assets".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let is_compressed: i64 = row.get(8)?;
+                Ok(AssetRow {
+                    id: row.get(0)?,
+                    book_id: row.get(1)?,
+                    storage_mode: row.get(2)?,
+                    stored_path: row.get(3)?,
+                    source_path: row.get(4)?,
+                    size_bytes: row.get::<_, i64>(5)? as u64,
+                    stored_size_bytes: row.get::<_, i64>(6)? as u64,
+                    checksum: row.get(7)?,
+                    is_compressed: is_compressed != 0,
+                    created_at: row.get(9)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list assets".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list assets".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn delete_assets(&mut self, ids: &[i64]) -> CoreResult<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin asset deletion transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let mut deleted = 0;
+        for id in ids {
+            deleted += tx
+                .execute("DELETE FROM assets WHERE id = ?1", params![id])
+                .map_err(|err| {
+                    CoreError::Io(
+                        "delete asset".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+        }
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit asset deletion".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(deleted)
     }
 }

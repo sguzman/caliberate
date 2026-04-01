@@ -1,0 +1,32 @@
+# Tranche 003
+
+- [x] Add assets config hashing/compression tuning in control-plane
+- [x] Validate assets hash/compression settings in config loader
+- [x] Implement SHA-256 hashing helper for assets
+- [x] Implement zstd compression/decompression helpers
+- [x] Extend asset records with checksum + compression metadata
+- [x] Wire asset store to hash assets on ingest
+- [x] Wire asset store to compress copied assets
+- [x] Add asset integrity verification (size + checksum)
+- [x] Add asset storage stats computation
+- [x] Add compaction planning for orphan files + missing records
+- [x] Add compaction apply routine to remove orphan files
+- [x] Add assets table + indexes to DB schema
+- [x] Add DB API for asset insert
+- [x] Add DB API for asset listing
+- [x] Add DB API for asset deletion
+- [x] Wire `calibredb add` to persist asset records
+- [x] Add `calibredb assets list` command
+- [x] Add `calibredb assets stats` command
+- [x] Add `calibredb assets verify` command
+- [x] Add `calibredb assets compact` command with apply
+- [x] Implement zip archive entry extraction function
+- [x] Implement on-demand archive extraction to temp path
+- [x] Wire library ingest on-demand archive extraction helper
+- [x] Add `calibredb extract-archive` command
+- [x] Add compression roundtrip test
+- [x] Add asset integrity tests
+- [x] Add compaction + stats test
+- [x] Add ingest copy/reference tests
+- [x] Add archive extraction test
+- [x] Update inventory docs for ingest/storage asset policies

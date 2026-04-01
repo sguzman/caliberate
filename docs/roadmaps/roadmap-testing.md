@@ -2,8 +2,9 @@
 
 - [x] Define Rust test harness structure and fixtures
 - [ ] Port Calibre DB tests for metadata and FTS parity
-- [ ] Add ingest pipeline tests (copy vs reference)
-- [ ] Add archive reference tests (metadata extraction, on-demand extraction)
+- [x] Add ingest pipeline tests (copy vs reference)
+- [x] Add archive reference tests (metadata extraction, on-demand extraction)
+- [x] Add asset storage tests (compression, integrity, compaction)
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test

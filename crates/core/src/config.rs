@@ -51,6 +51,23 @@ impl ControlPlane {
                 "server.url_prefix must start with '/'".to_string(),
             ));
         }
+        if self.assets.hash_algorithm.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "assets.hash_algorithm must not be empty".to_string(),
+            ));
+        }
+        if (self.assets.hash_on_ingest || self.assets.verify_checksum)
+            && self.assets.hash_algorithm != "sha256"
+        {
+            return Err(CoreError::ConfigValidate(
+                "assets.hash_algorithm must be 'sha256'".to_string(),
+            ));
+        }
+        if !(1..=22).contains(&self.assets.compression_level) {
+            return Err(CoreError::ConfigValidate(
+                "assets.compression_level must be between 1 and 22".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -194,6 +211,14 @@ pub struct AssetsConfig {
     pub compress_raw_assets: bool,
     #[serde(default)]
     pub compress_metadata_db: bool,
+    #[serde(default = "default_asset_hash_algorithm")]
+    pub hash_algorithm: String,
+    #[serde(default)]
+    pub hash_on_ingest: bool,
+    #[serde(default)]
+    pub verify_checksum: bool,
+    #[serde(default = "default_asset_compression_level")]
+    pub compression_level: i32,
 }
 
 fn default_data_dir() -> PathBuf {
@@ -260,6 +285,14 @@ fn default_archive_reference_enabled() -> bool {
 
 fn default_compress_raw_assets() -> bool {
     true
+}
+
+fn default_asset_hash_algorithm() -> String {
+    "sha256".to_string()
+}
+
+fn default_asset_compression_level() -> i32 {
+    3
 }
 
 fn default_server_host() -> String {

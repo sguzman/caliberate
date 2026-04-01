@@ -10,4 +10,5 @@
 - [x] Define `[formats]` keys: `supported`, `archive_formats`
 - [x] Define `[ingest]` keys: `default_mode`, `archive_reference_enabled`, `duplicate_policy`
 - [x] Define `[assets]` keys: `compress_raw_assets`, `compress_metadata_db`
+- [x] Define `[assets]` keys: `hash_algorithm`, `hash_on_ingest`, `verify_checksum`, `compression_level`
 - [x] Define `[server]` keys: `host`, `port`, `url_prefix`, `enable_auth`

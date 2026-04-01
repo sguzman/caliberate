@@ -1,6 +1,6 @@
 //! OPDS feed endpoints.
 
-use axum::http::{header, HeaderValue};
+use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 
 pub async fn opds_feed() -> Response {

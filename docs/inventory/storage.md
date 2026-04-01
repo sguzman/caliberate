@@ -9,3 +9,5 @@ Parity goals
 - Mirror Calibre naming conventions for author/title directories.
 - Preserve metadata sidecar generation behaviors where applicable.
 - Allow reference-only storage alongside copy mode.
+- Support optional zstd compression for copied raw assets while leaving the metadata DB uncompressed.
+- Track stored assets with integrity checks (size/checksum) and compaction routines.

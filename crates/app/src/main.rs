@@ -51,9 +51,7 @@ async fn run(cli: Cli, config: ControlPlane) -> AppResult<()> {
 
 async fn wait_for_shutdown(config: &ControlPlane) -> AppResult<()> {
     tracing::info!(component = "app", "waiting for shutdown signal");
-    tokio::signal::ctrl_c()
-        .await
-        .map_err(AppError::Signal)?;
+    tokio::signal::ctrl_c().await.map_err(AppError::Signal)?;
     tracing::info!(component = "app", "shutdown signal received");
 
     let timeout = Duration::from_millis(config.runtime.shutdown_timeout_ms);
