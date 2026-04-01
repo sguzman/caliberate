@@ -11,4 +11,5 @@
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
+- [x] Add server auth and OPDS feed tests
 - [ ] Add GUI integration test scaffolding

@@ -1,24 +1,14 @@
 //! HTTP server wiring.
 
-use crate::opds;
+use crate::{ServerState, auth, opds};
 use axum::{Router, routing::get};
-use caliberate_core::config::ControlPlane;
 use caliberate_core::error::{CoreError, CoreResult};
 use std::net::SocketAddr;
 use tracing::info;
 
-pub async fn run(config: &ControlPlane) -> CoreResult<()> {
-    let base = Router::new()
-        .route("/health", get(health))
-        .route("/opds", get(opds::opds_feed));
-
-    let app = if config.server.url_prefix.is_empty() {
-        base
-    } else {
-        Router::new().nest(&config.server.url_prefix, base)
-    };
-
-    let addr = format!("{}:{}", config.server.host, config.server.port)
+pub async fn run(state: ServerState) -> CoreResult<()> {
+    let app = router(state.clone());
+    let addr = format!("{}:{}", state.config.server.host, state.config.server.port)
         .parse::<SocketAddr>()
         .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
 
@@ -34,6 +24,25 @@ pub async fn run(config: &ControlPlane) -> CoreResult<()> {
             std::io::Error::new(std::io::ErrorKind::Other, err),
         )
     })
+}
+
+pub fn router(state: ServerState) -> Router {
+    let base = Router::new()
+        .route("/health", get(health))
+        .route("/opds", get(opds::opds_root))
+        .route("/opds/books", get(opds::opds_books))
+        .route("/opds/search", get(opds::opds_search))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ));
+
+    if state.config.server.url_prefix.is_empty() {
+        base
+    } else {
+        Router::new().nest(&state.config.server.url_prefix, base)
+    }
 }
 
 async fn health() -> &'static str {

@@ -169,6 +169,10 @@ pub struct ServerConfig {
     pub url_prefix: String,
     #[serde(default)]
     pub enable_auth: bool,
+    #[serde(default = "default_server_auth_mode")]
+    pub auth_mode: ServerAuthMode,
+    #[serde(default)]
+    pub api_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,6 +183,18 @@ pub struct MetricsConfig {
     pub endpoint: String,
     #[serde(default = "default_metrics_namespace")]
     pub namespace: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerAuthMode {
+    Bearer,
+}
+
+impl Default for ServerAuthMode {
+    fn default() -> Self {
+        ServerAuthMode::Bearer
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -329,6 +345,10 @@ fn default_file_max_backups() -> u64 {
 
 fn default_metrics_namespace() -> String {
     "caliberate".to_string()
+}
+
+fn default_server_auth_mode() -> ServerAuthMode {
+    ServerAuthMode::Bearer
 }
 
 fn default_supported_formats() -> Vec<String> {

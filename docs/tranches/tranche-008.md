@@ -1,0 +1,32 @@
+# Tranche 008
+
+- [x] Add server auth config defaults and enum
+- [x] Add server auth config fields to control plane
+- [x] Update control-plane fixture for server auth settings
+- [x] Add server dependency on database crate
+- [x] Add server router builder with shared state
+- [x] Add server state with DB handle
+- [x] Implement auth middleware for server
+- [x] Implement bearer token auth parsing
+- [x] Implement x-api-key auth parsing
+- [x] Log missing server API keys when auth enabled
+- [x] Add OPDS root feed endpoint
+- [x] Add OPDS books catalog endpoint
+- [x] Add OPDS search endpoint
+- [x] Add OPDS query struct
+- [x] Add OPDS XML escaping helper
+- [x] Add OPDS link helper
+- [x] Add OPDS base URL helper for url_prefix
+- [x] Add server auth test for public health when disabled
+- [x] Add server auth test for missing credentials
+- [x] Add server auth test for bearer token
+- [x] Add OPDS books feed test
+- [x] Add server dev dependency on tower
+- [x] Add server dev dependency on hyper
+- [x] Add server serde dependency for query parsing
+- [x] Update server roadmap with OPDS/auth items
+- [x] Update config roadmap with server auth keys
+- [x] Update testing roadmap with server tests
+- [x] Create server tests directory
+- [x] Ensure auth middleware wraps all server routes
+- [x] Create tranche 008 record

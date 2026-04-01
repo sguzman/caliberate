@@ -787,8 +787,15 @@ name = "caliberate-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "caliberate-core",
+ "caliberate-db",
+ "http-body-util",
+ "hyper",
+ "serde",
+ "tempfile",
  "tokio",
+ "tower",
  "tracing",
 ]
 

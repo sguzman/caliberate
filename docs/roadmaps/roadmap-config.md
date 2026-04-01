@@ -15,3 +15,4 @@
 - [x] Define `[assets]` keys: `hash_algorithm`, `hash_on_ingest`, `verify_checksum`, `compression_level`
 - [x] Define `[fts]` keys: `enabled`, `tokenizer`, `rebuild_on_migrate`, `min_query_len`, `result_limit`
 - [x] Define `[server]` keys: `host`, `port`, `url_prefix`, `enable_auth`
+- [x] Define `[server]` keys: `auth_mode`, `api_keys`
