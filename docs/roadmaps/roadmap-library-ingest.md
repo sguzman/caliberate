@@ -35,5 +35,18 @@
 - [x] Implement on-demand extraction for referenced ZIP archives
 - [x] Implement on-demand extraction for referenced RAR/7Z archives
 - [x] Implement duplicate policy handling for asset ingestion
-- [ ] Expand duplicate detection and conflict policy
-- [ ] Implement background ingest job wiring
+- [x] Define duplicate comparison modes (checksum, size)
+- [x] Add duplicate-identical policy config
+- [x] Add duplicate-compare policy config
+- [x] Implement duplicate comparison helper for asset storage
+- [x] Implement duplicate identical skip handling
+- [x] Implement duplicate conflict skip handling
+- [x] Add asset store outcome for skipped duplicates
+- [x] Propagate duplicate skips through ingest outcome
+- [x] Add CLI handling for duplicate skips
+- [x] Add duplicate skip tests (identical/conflict)
+- [x] Add background ingest queue config keys
+- [x] Add ingest job queue types and status model
+- [x] Implement ingest job enqueue and status lookup
+- [x] Implement ingest worker loop with tracing
+- [x] Add ingest job queue test

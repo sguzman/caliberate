@@ -9,6 +9,8 @@
 - [x] Define `[metrics]` keys: `enabled`, `endpoint`, `namespace`
 - [x] Define `[formats]` keys: `supported`, `archive_formats`
 - [x] Define `[ingest]` keys: `default_mode`, `archive_reference_enabled`, `duplicate_policy`
+- [x] Define `[ingest]` keys: `duplicate_identical_policy`, `duplicate_compare`
+- [x] Define `[ingest]` keys: `background_enabled`, `background_workers`, `background_queue_capacity`
 - [x] Define `[assets]` keys: `compress_raw_assets`, `compress_metadata_db`
 - [x] Define `[assets]` keys: `hash_algorithm`, `hash_on_ingest`, `verify_checksum`, `compression_level`
 - [x] Define `[fts]` keys: `enabled`, `tokenizer`, `rebuild_on_migrate`, `min_query_len`, `result_limit`

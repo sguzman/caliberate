@@ -1,6 +1,10 @@
 //! Ingest pipeline and import policies.
 
-use caliberate_assets::storage::{AssetRecord, AssetStore, StorageMode};
+pub mod jobs;
+
+use caliberate_assets::storage::{
+    AssetRecord, AssetStore, DuplicateSkipReason, StorageMode, StoreOutcome,
+};
 use caliberate_core::config::{ControlPlane, IngestMode};
 use caliberate_core::error::{CoreError, CoreResult};
 use caliberate_metadata::extract::{
@@ -24,9 +28,32 @@ pub struct IngestResult {
     pub archive_preview: Option<ArchivePreview>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IngestSkip {
+    pub metadata: BasicMetadata,
+    pub archive_preview: Option<ArchivePreview>,
+    pub existing_path: std::path::PathBuf,
+    pub reason: DuplicateSkipReason,
+}
+
+#[derive(Debug, Clone)]
+pub enum IngestOutcome {
+    Ingested(IngestResult),
+    Skipped(IngestSkip),
+}
+
 pub struct Ingestor {
     store: Arc<dyn AssetStore>,
     config: ControlPlane,
+}
+
+impl Clone for Ingestor {
+    fn clone(&self) -> Self {
+        Self {
+            store: Arc::clone(&self.store),
+            config: self.config.clone(),
+        }
+    }
 }
 
 impl Ingestor {
@@ -34,7 +61,7 @@ impl Ingestor {
         Self { store, config }
     }
 
-    pub fn ingest(&self, request: IngestRequest<'_>) -> CoreResult<IngestResult> {
+    pub fn ingest(&self, request: IngestRequest<'_>) -> CoreResult<IngestOutcome> {
         let mode = request.mode.unwrap_or(self.config.ingest.default_mode);
         let storage_mode = match mode {
             IngestMode::Copy => StorageMode::Copy,
@@ -42,7 +69,7 @@ impl Ingestor {
         };
 
         let metadata = extract_basic(request.source_path, &self.config.formats)?;
-        let asset = self.store.store(request.source_path, storage_mode)?;
+        let asset_outcome = self.store.store(request.source_path, storage_mode)?;
 
         info!(
             component = "ingest",
@@ -52,14 +79,25 @@ impl Ingestor {
             "ingest complete"
         );
 
-        Ok(IngestResult {
-            metadata,
-            asset,
-            archive_preview: None,
-        })
+        match asset_outcome {
+            StoreOutcome::Stored(asset) => Ok(IngestOutcome::Ingested(IngestResult {
+                metadata,
+                asset,
+                archive_preview: None,
+            })),
+            StoreOutcome::Skipped(skip) => Ok(IngestOutcome::Skipped(IngestSkip {
+                metadata,
+                archive_preview: None,
+                existing_path: skip.existing_path,
+                reason: skip.reason,
+            })),
+        }
     }
 
-    pub fn ingest_archive_reference(&self, request: IngestRequest<'_>) -> CoreResult<IngestResult> {
+    pub fn ingest_archive_reference(
+        &self,
+        request: IngestRequest<'_>,
+    ) -> CoreResult<IngestOutcome> {
         if !self.config.ingest.archive_reference_enabled {
             return Err(CoreError::ConfigValidate(
                 "archive reference ingestion disabled".to_string(),
@@ -67,9 +105,17 @@ impl Ingestor {
         }
 
         let preview = extract_archive_preview(request.source_path, &self.config.formats)?;
-        let mut result = self.ingest(request)?;
-        result.archive_preview = Some(preview);
-        Ok(result)
+        let outcome = self.ingest(request)?;
+        Ok(match outcome {
+            IngestOutcome::Ingested(mut result) => {
+                result.archive_preview = Some(preview);
+                IngestOutcome::Ingested(result)
+            }
+            IngestOutcome::Skipped(mut skip) => {
+                skip.archive_preview = Some(preview);
+                IngestOutcome::Skipped(skip)
+            }
+        })
     }
 
     pub fn extract_archive_on_demand(

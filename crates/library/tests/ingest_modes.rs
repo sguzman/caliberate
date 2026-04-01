@@ -1,6 +1,6 @@
 use caliberate_assets::storage::{LocalAssetStore, StorageMode};
 use caliberate_core::config::{ControlPlane, IngestMode};
-use caliberate_library::ingest::{IngestRequest, Ingestor};
+use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use std::fs;
 use tempfile::tempdir;
 
@@ -22,12 +22,15 @@ fn ingest_copy_and_reference_modes() {
     let store = LocalAssetStore::from_config(&config);
     let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
 
-    let copy_result = ingestor
+    let copy_outcome = ingestor
         .ingest(IngestRequest {
             source_path: &source_path,
             mode: Some(IngestMode::Copy),
         })
         .expect("copy ingest");
+    let IngestOutcome::Ingested(copy_result) = copy_outcome else {
+        panic!("copy ingest skipped");
+    };
     assert_eq!(copy_result.asset.storage_mode, StorageMode::Copy);
     assert!(
         copy_result
@@ -38,12 +41,15 @@ fn ingest_copy_and_reference_modes() {
     assert!(copy_result.asset.stored_path.exists());
     assert!(copy_result.asset.checksum.is_some());
 
-    let ref_result = ingestor
+    let ref_outcome = ingestor
         .ingest(IngestRequest {
             source_path: &source_path,
             mode: Some(IngestMode::Reference),
         })
         .expect("reference ingest");
+    let IngestOutcome::Ingested(ref_result) = ref_outcome else {
+        panic!("reference ingest skipped");
+    };
     assert_eq!(ref_result.asset.storage_mode, StorageMode::Reference);
     assert_eq!(ref_result.asset.stored_path, source_path);
     assert!(ref_result.asset.checksum.is_some());

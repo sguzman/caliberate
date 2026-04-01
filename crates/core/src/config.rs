@@ -197,6 +197,16 @@ pub struct IngestConfig {
     pub archive_reference_enabled: bool,
     #[serde(default = "default_duplicate_policy")]
     pub duplicate_policy: DuplicatePolicy,
+    #[serde(default = "default_duplicate_identical_policy")]
+    pub duplicate_identical_policy: DuplicatePolicy,
+    #[serde(default = "default_duplicate_compare")]
+    pub duplicate_compare: DuplicateCompare,
+    #[serde(default = "default_ingest_background_enabled")]
+    pub background_enabled: bool,
+    #[serde(default = "default_ingest_background_workers")]
+    pub background_workers: usize,
+    #[serde(default = "default_ingest_background_queue_capacity")]
+    pub background_queue_capacity: usize,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -223,6 +233,19 @@ pub enum DuplicatePolicy {
 impl Default for DuplicatePolicy {
     fn default() -> Self {
         DuplicatePolicy::Error
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DuplicateCompare {
+    Checksum,
+    Size,
+}
+
+impl Default for DuplicateCompare {
+    fn default() -> Self {
+        DuplicateCompare::Checksum
     }
 }
 
@@ -374,4 +397,24 @@ fn default_server_port() -> u16 {
 
 fn default_duplicate_policy() -> DuplicatePolicy {
     DuplicatePolicy::Error
+}
+
+fn default_duplicate_identical_policy() -> DuplicatePolicy {
+    DuplicatePolicy::Skip
+}
+
+fn default_duplicate_compare() -> DuplicateCompare {
+    DuplicateCompare::Checksum
+}
+
+fn default_ingest_background_enabled() -> bool {
+    false
+}
+
+fn default_ingest_background_workers() -> usize {
+    2
+}
+
+fn default_ingest_background_queue_capacity() -> usize {
+    64
 }

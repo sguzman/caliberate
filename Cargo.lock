@@ -756,6 +756,7 @@ dependencies = [
  "caliberate-assets",
  "caliberate-core",
  "caliberate-metadata",
+ "crossbeam-channel",
  "tempfile",
  "tracing",
 ]

@@ -1,0 +1,32 @@
+# Tranche 007
+
+- [x] Add duplicate compare enum to core config
+- [x] Add duplicate identical policy field to ingest config
+- [x] Add duplicate compare field to ingest config
+- [x] Add background ingest config fields
+- [x] Update control-plane ingest keys for duplicate/background settings
+- [x] Update core control-plane test fixture for duplicate/background settings
+- [x] Add crossbeam-channel dependency for ingest job queue
+- [x] Add asset store duplicate skip outcome types
+- [x] Implement duplicate comparison helper in asset store
+- [x] Implement identical duplicate handling in asset store
+- [x] Implement conflict duplicate handling in asset store
+- [x] Add duplicate skip tracing in asset store
+- [x] Update AssetStore trait to return store outcomes
+- [x] Add ingest outcome enum for stored vs skipped
+- [x] Add ingest skip payload with existing path and reason
+- [x] Propagate skipped duplicates through ingest pipeline
+- [x] Preserve ingest outcome for archive reference path
+- [x] Update CLI ingest flow to handle skipped duplicates
+- [x] Add ingest job queue module
+- [x] Add ingest job status model and handle
+- [x] Implement ingest job worker loop with tracing
+- [x] Implement ingest job queue enqueue and status lookup
+- [x] Add ingest job queue config constructor
+- [x] Add ingest job queue test
+- [x] Add duplicate skip test for identical inputs
+- [x] Add duplicate skip test for conflicting inputs
+- [x] Export ingest job queue module
+- [x] Update config roadmap ingest keys list
+- [x] Update library ingest roadmap with duplicate/job subitems
+- [x] Create tranche 007 record

@@ -48,6 +48,11 @@ archive_formats = ["zip", "rar", "7z", "zpaq"]
 default_mode = "copy"
 archive_reference_enabled = true
 duplicate_policy = "error"
+duplicate_identical_policy = "skip"
+duplicate_compare = "checksum"
+background_enabled = false
+background_workers = 2
+background_queue_capacity = 64
 
 [assets]
 compress_raw_assets = true

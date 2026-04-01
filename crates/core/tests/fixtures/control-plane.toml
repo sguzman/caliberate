@@ -48,6 +48,11 @@ archive_formats = ["zip"]
 default_mode = "copy"
 archive_reference_enabled = true
 duplicate_policy = "error"
+duplicate_identical_policy = "skip"
+duplicate_compare = "checksum"
+background_enabled = false
+background_workers = 1
+background_queue_capacity = 16
 
 [assets]
 compress_raw_assets = true

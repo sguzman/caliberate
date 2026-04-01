@@ -7,7 +7,7 @@ use caliberate_assets::stats::{
 use caliberate_assets::storage::{LocalAssetStore, StorageMode};
 use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
-use caliberate_library::ingest::{IngestRequest, Ingestor};
+use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use caliberate_metadata::extract::extract_archive_entry;
 
 #[derive(Debug, Parser)]
@@ -108,7 +108,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 source_path: &path,
                 mode: mode.map(Into::into),
             };
-            let result = ingestor.ingest(request)?;
+            let outcome = ingestor.ingest(request)?;
+            let result = match outcome {
+                IngestOutcome::Ingested(result) => result,
+                IngestOutcome::Skipped(skip) => {
+                    println!(
+                        "Skipped ingest; duplicate {:?} at {}",
+                        skip.reason,
+                        skip.existing_path.display()
+                    );
+                    return Ok(());
+                }
+            };
 
             let db = Database::open_with_fts(&config.db, &config.fts)?;
             let created_at = time::OffsetDateTime::now_utc().format(

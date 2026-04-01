@@ -7,6 +7,7 @@ edition = "2024"
 caliberate-core = { path = "../core" }
 caliberate-assets = { path = "../assets" }
 caliberate-metadata = { path = "../metadata" }
+crossbeam-channel = "0.5.15"
 tracing = "0.1.44"
 
 [dev-dependencies]
