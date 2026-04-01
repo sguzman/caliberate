@@ -2,11 +2,13 @@
 
 use caliberate_core::config::FormatsConfig;
 use caliberate_core::error::{CoreError, CoreResult};
+use sevenz_rust2::{ArchiveReader, Password};
 use std::fs;
 use std::path::Component;
 use std::path::{Path, PathBuf};
 use tempfile::Builder;
 use tracing::info;
+use unrar::Archive as RarArchive;
 use zip::ZipArchive;
 
 #[derive(Debug, Clone)]
@@ -67,24 +69,17 @@ pub fn extract_archive_preview(path: &Path, formats: &FormatsConfig) -> CoreResu
         )));
     }
 
-    if extension != "zip" {
-        return Err(CoreError::ConfigValidate(format!(
-            "archive format not supported yet: {extension}"
-        )));
-    }
-
-    let file =
-        fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
-    let mut archive =
-        ZipArchive::new(file).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
-    let mut entries = Vec::new();
-
-    for i in 0..archive.len() {
-        let file = archive
-            .by_index(i)
-            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
-        entries.push(file.name().to_string());
-    }
+    let entries = match extension.as_str() {
+        "zip" => list_zip_entries(path)?,
+        "7z" => list_7z_entries(path)?,
+        "rar" => list_rar_entries(path)?,
+        "zpaq" => list_zpaq_entries(path)?,
+        _ => {
+            return Err(CoreError::ConfigValidate(format!(
+                "archive format not supported yet: {extension}"
+            )));
+        }
+    };
 
     Ok(ArchivePreview {
         format: extension,
@@ -110,41 +105,17 @@ pub fn extract_archive_entry(
         )));
     }
 
-    if extension != "zip" {
-        return Err(CoreError::ConfigValidate(format!(
-            "archive format not supported yet: {extension}"
-        )));
-    }
-
-    let file =
-        fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
-    let mut archive =
-        ZipArchive::new(file).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
-    let mut entry = archive
-        .by_name(entry_name)
-        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
-
-    let entry_path = Path::new(entry.name());
-    if entry_path.is_absolute()
-        || entry_path
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(CoreError::ConfigValidate(
-            "archive entry contains invalid path".to_string(),
-        ));
-    }
-
-    let output_path = output_dir.join(entry_path);
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
-    }
-
-    let mut output = fs::File::create(&output_path)
-        .map_err(|err| CoreError::Io("create extracted file".to_string(), err))?;
-    std::io::copy(&mut entry, &mut output)
-        .map_err(|err| CoreError::Io("extract archive entry".to_string(), err))?;
+    let output_path = match extension.as_str() {
+        "zip" => extract_zip_entry(path, entry_name, output_dir)?,
+        "7z" => extract_7z_entry(path, entry_name, output_dir)?,
+        "rar" => extract_rar_entry(path, entry_name, output_dir)?,
+        "zpaq" => extract_zpaq_entry(path, entry_name, output_dir)?,
+        _ => {
+            return Err(CoreError::ConfigValidate(format!(
+                "archive format not supported yet: {extension}"
+            )));
+        }
+    };
 
     info!(
         component = "metadata",
@@ -169,4 +140,180 @@ pub fn extract_archive_entry_to_temp(
         .map_err(|err| CoreError::Io("create temp archive dir".to_string(), err))?;
     let temp_path = temp_dir.keep();
     extract_archive_entry(path, entry_name, &temp_path, formats)
+}
+
+fn list_zip_entries(path: &Path) -> CoreResult<Vec<String>> {
+    let file =
+        fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let mut entries = Vec::new();
+
+    for i in 0..archive.len() {
+        let file = archive
+            .by_index(i)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        entries.push(file.name().to_string());
+    }
+
+    Ok(entries)
+}
+
+fn list_7z_entries(path: &Path) -> CoreResult<Vec<String>> {
+    let reader = ArchiveReader::open(path, Password::empty())
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let entries = reader
+        .archive()
+        .files
+        .iter()
+        .filter(|entry| !entry.is_directory)
+        .map(|entry| entry.name.clone())
+        .collect();
+    Ok(entries)
+}
+
+fn list_rar_entries(path: &Path) -> CoreResult<Vec<String>> {
+    let mut entries = Vec::new();
+    let archive = RarArchive::new(path)
+        .open_for_listing()
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    for entry in archive {
+        let header = entry.map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        if header.is_file() {
+            entries.push(header.filename.to_string_lossy().into_owned());
+        }
+    }
+    Ok(entries)
+}
+
+fn list_zpaq_entries(path: &Path) -> CoreResult<Vec<String>> {
+    let is_unmodeled = zpars::zpaq_is_fully_unmodeled_file(path)
+        .map_err(|err| CoreError::ConfigValidate(format!("zpaq inspect failed: {err}")))?;
+    if !is_unmodeled {
+        return Err(CoreError::ConfigValidate(
+            "modeled zpaq archives are not supported yet".to_string(),
+        ));
+    }
+    let segments = zpars::extract_zpaq_unmodeled_file(path)
+        .map_err(|err| CoreError::ConfigValidate(format!("zpaq extraction failed: {err}")))?;
+    Ok(segments
+        .into_iter()
+        .map(|segment| segment.filename)
+        .collect())
+}
+
+fn extract_zip_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
+    let file =
+        fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let mut entry = archive
+        .by_name(entry_name)
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+
+    let entry_path = sanitize_archive_entry(entry.name())?;
+    let output_path = output_dir.join(entry_path);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
+    }
+
+    let mut output = fs::File::create(&output_path)
+        .map_err(|err| CoreError::Io("create extracted file".to_string(), err))?;
+    std::io::copy(&mut entry, &mut output)
+        .map_err(|err| CoreError::Io("extract archive entry".to_string(), err))?;
+    Ok(output_path)
+}
+
+fn extract_7z_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
+    let safe_entry = sanitize_archive_entry(entry_name)?;
+    let output_path = output_dir.join(&safe_entry);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
+    }
+    let mut reader = ArchiveReader::open(path, Password::empty())
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let data = reader
+        .read_file(entry_name)
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    fs::write(&output_path, data)
+        .map_err(|err| CoreError::Io("write extracted entry".to_string(), err))?;
+    Ok(output_path)
+}
+
+fn extract_rar_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
+    let safe_entry = sanitize_archive_entry(entry_name)?;
+    let output_path = output_dir.join(&safe_entry);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
+    }
+
+    let mut archive = RarArchive::new(path)
+        .open_for_processing()
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    loop {
+        let next = archive
+            .read_header()
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        let Some(open) = next else {
+            break;
+        };
+        let entry = open.entry();
+        if entry.is_file() && entry.filename.to_string_lossy() == entry_name {
+            open.extract_to(&output_path)
+                .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+            return Ok(output_path);
+        }
+        archive = open
+            .skip()
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    }
+
+    Err(CoreError::ConfigValidate(format!(
+        "archive entry not found: {entry_name}"
+    )))
+}
+
+fn extract_zpaq_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
+    let safe_entry = sanitize_archive_entry(entry_name)?;
+    let output_path = output_dir.join(&safe_entry);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
+    }
+    let is_unmodeled = zpars::zpaq_is_fully_unmodeled_file(path)
+        .map_err(|err| CoreError::ConfigValidate(format!("zpaq inspect failed: {err}")))?;
+    if !is_unmodeled {
+        return Err(CoreError::ConfigValidate(
+            "modeled zpaq archives are not supported yet".to_string(),
+        ));
+    }
+    let segments = zpars::extract_zpaq_unmodeled_file(path)
+        .map_err(|err| CoreError::ConfigValidate(format!("zpaq extraction failed: {err}")))?;
+    for segment in segments {
+        if segment.filename == entry_name {
+            fs::write(&output_path, segment.data)
+                .map_err(|err| CoreError::Io("write extracted entry".to_string(), err))?;
+            return Ok(output_path);
+        }
+    }
+    Err(CoreError::ConfigValidate(format!(
+        "archive entry not found: {entry_name}"
+    )))
+}
+
+fn sanitize_archive_entry(entry_name: &str) -> CoreResult<PathBuf> {
+    let entry_path = Path::new(entry_name);
+    if entry_path.is_absolute()
+        || entry_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(CoreError::ConfigValidate(
+            "archive entry contains invalid path".to_string(),
+        ));
+    }
+    Ok(entry_path.to_path_buf())
 }

@@ -5,10 +5,10 @@
 - [x] Implement ingest pipeline with pluggable storage strategies
 - [x] Implement metadata extraction for supported formats
 - [x] Implement ingest for archive references (zip) with metadata preview
-- [ ] Expand archive ingest to rar/7z with extraction
-- [ ] Add zpaq archive support using `tmp` reference implementation
+- [x] Expand archive ingest to rar/7z with extraction
+- [x] Add zpaq archive support using `tmp` reference implementation
 - [x] Implement on-demand extraction for referenced ZIP archives
-- [ ] Implement on-demand extraction for referenced RAR/7Z archives
+- [x] Implement on-demand extraction for referenced RAR/7Z archives
 - [x] Implement duplicate policy handling for asset ingestion
 - [ ] Expand duplicate detection and conflict policy
 - [ ] Implement background ingest job wiring

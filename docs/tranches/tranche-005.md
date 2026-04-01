@@ -1,0 +1,32 @@
+# Tranche 005
+
+- [x] Add sevenz-rust2 dependency for 7z handling
+- [x] Add unrar dependency for RAR handling
+- [x] Add zpars dependency for ZPAQ reference handling
+- [x] Add archive preview dispatch for 7z/rar/zpaq
+- [x] Implement 7z archive entry listing via ArchiveReader
+- [x] Implement RAR archive entry listing via unrar
+- [x] Implement ZPAQ archive entry listing via zpars
+- [x] Implement archive entry extraction dispatch for 7z/rar/zpaq
+- [x] Implement 7z entry extraction via ArchiveReader::read_file
+- [x] Implement RAR entry extraction via unrar processing
+- [x] Implement ZPAQ entry extraction via zpars segments
+- [x] Add shared archive entry sanitizer to prevent path traversal
+- [x] Guard ZPAQ modeled archives with explicit error
+- [x] Add 7z archive preview/extraction test
+- [x] Update ingest inventory doc for RAR/7Z/ZPAQ
+- [x] Mark ingest roadmap RAR/7Z extraction complete
+- [x] Mark ingest roadmap ZPAQ support complete
+- [x] Mark ingest roadmap RAR/7Z on-demand extraction complete
+- [x] Update testing roadmap for 7z test
+- [x] Ensure archive preview supports 7z/rar/zpaq
+- [x] Ensure archive extraction supports 7z/rar/zpaq
+- [x] Preserve zip behavior with shared sanitizer
+- [x] Add 7z preview entries using archive metadata
+- [x] Add rar preview entries using archive listing
+- [x] Add zpaq preview entries using extracted segments
+- [x] Add 7z extraction output dir creation
+- [x] Add rar extraction output dir creation
+- [x] Add zpaq extraction output dir creation
+- [x] Ensure on-demand extraction uses expanded archive support
+- [x] Create tranche 005 record

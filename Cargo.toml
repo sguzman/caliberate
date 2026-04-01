@@ -14,4 +14,5 @@ members = [
     "crates/metadata",
     "crates/formats",
 ]
+exclude = ["tmp/zpars"]
 resolver = "2"

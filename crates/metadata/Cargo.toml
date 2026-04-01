@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 caliberate-core = { path = "../core" }
+sevenz-rust2 = "0.20.2"
 tempfile = "3.27.0"
 tracing = "0.1.44"
+unrar = "0.5.8"
+zpars = { path = "../../tmp/zpars" }
 zip = "8.4.0"
