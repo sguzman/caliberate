@@ -41,8 +41,8 @@ endpoint = ""
 namespace = "caliberate"
 
 [formats]
-supported = ["epub", "mobi", "azw", "azw3", "pdf"]
-archive_formats = ["zip", "rar", "7z"]
+supported = ["epub", "mobi", "azw", "azw3", "pdf", "docx"]
+archive_formats = ["zip", "rar", "7z", "zpaq"]
 
 [ingest]
 default_mode = "copy"

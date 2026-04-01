@@ -268,11 +268,17 @@ fn default_supported_formats() -> Vec<String> {
         "azw".to_string(),
         "azw3".to_string(),
         "pdf".to_string(),
+        "docx".to_string(),
     ]
 }
 
 fn default_archive_formats() -> Vec<String> {
-    vec!["zip".to_string(), "rar".to_string(), "7z".to_string()]
+    vec![
+        "zip".to_string(),
+        "rar".to_string(),
+        "7z".to_string(),
+        "zpaq".to_string(),
+    ]
 }
 
 fn default_ingest_mode() -> IngestMode {
