@@ -7,5 +7,5 @@
 
 Policy goals
 - Support copy and reference ingest modes.
-- Support archive reference ingestion with on-demand extraction (ZIP, RAR, 7Z, ZPAQ).
+- Support archive reference ingestion with on-demand extraction (ZIP, RAR, 7Z). ZPAQ requires vendored reference code.
 - Preserve duplicate detection and conflict policy parity.

@@ -73,7 +73,11 @@ pub fn extract_archive_preview(path: &Path, formats: &FormatsConfig) -> CoreResu
         "zip" => list_zip_entries(path)?,
         "7z" => list_7z_entries(path)?,
         "rar" => list_rar_entries(path)?,
-        "zpaq" => list_zpaq_entries(path)?,
+        "zpaq" => {
+            return Err(CoreError::ConfigValidate(
+                "zpaq support requires vendored reference (not available in repo)".to_string(),
+            ));
+        }
         _ => {
             return Err(CoreError::ConfigValidate(format!(
                 "archive format not supported yet: {extension}"
@@ -109,7 +113,11 @@ pub fn extract_archive_entry(
         "zip" => extract_zip_entry(path, entry_name, output_dir)?,
         "7z" => extract_7z_entry(path, entry_name, output_dir)?,
         "rar" => extract_rar_entry(path, entry_name, output_dir)?,
-        "zpaq" => extract_zpaq_entry(path, entry_name, output_dir)?,
+        "zpaq" => {
+            return Err(CoreError::ConfigValidate(
+                "zpaq support requires vendored reference (not available in repo)".to_string(),
+            ));
+        }
         _ => {
             return Err(CoreError::ConfigValidate(format!(
                 "archive format not supported yet: {extension}"
@@ -186,22 +194,6 @@ fn list_rar_entries(path: &Path) -> CoreResult<Vec<String>> {
     Ok(entries)
 }
 
-fn list_zpaq_entries(path: &Path) -> CoreResult<Vec<String>> {
-    let is_unmodeled = zpars::zpaq_is_fully_unmodeled_file(path)
-        .map_err(|err| CoreError::ConfigValidate(format!("zpaq inspect failed: {err}")))?;
-    if !is_unmodeled {
-        return Err(CoreError::ConfigValidate(
-            "modeled zpaq archives are not supported yet".to_string(),
-        ));
-    }
-    let segments = zpars::extract_zpaq_unmodeled_file(path)
-        .map_err(|err| CoreError::ConfigValidate(format!("zpaq extraction failed: {err}")))?;
-    Ok(segments
-        .into_iter()
-        .map(|segment| segment.filename)
-        .collect())
-}
-
 fn extract_zip_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
     let file =
         fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
@@ -271,34 +263,6 @@ fn extract_rar_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreRe
             .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
     }
 
-    Err(CoreError::ConfigValidate(format!(
-        "archive entry not found: {entry_name}"
-    )))
-}
-
-fn extract_zpaq_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
-    let safe_entry = sanitize_archive_entry(entry_name)?;
-    let output_path = output_dir.join(&safe_entry);
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
-    }
-    let is_unmodeled = zpars::zpaq_is_fully_unmodeled_file(path)
-        .map_err(|err| CoreError::ConfigValidate(format!("zpaq inspect failed: {err}")))?;
-    if !is_unmodeled {
-        return Err(CoreError::ConfigValidate(
-            "modeled zpaq archives are not supported yet".to_string(),
-        ));
-    }
-    let segments = zpars::extract_zpaq_unmodeled_file(path)
-        .map_err(|err| CoreError::ConfigValidate(format!("zpaq extraction failed: {err}")))?;
-    for segment in segments {
-        if segment.filename == entry_name {
-            fs::write(&output_path, segment.data)
-                .map_err(|err| CoreError::Io("write extracted entry".to_string(), err))?;
-            return Ok(output_path);
-        }
-    }
     Err(CoreError::ConfigValidate(format!(
         "archive entry not found: {entry_name}"
     )))
