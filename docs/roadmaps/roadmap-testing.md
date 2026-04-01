@@ -8,6 +8,7 @@
 - [x] Add zpaq archive preview/extraction test
 - [x] Add asset storage tests (compression, integrity, compaction)
 - [x] Add DB FTS tests (search, rebuild, min length)
+- [x] Add DB metadata relation tests (authors, tags, series, identifiers, comments)
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
@@ -16,3 +17,4 @@
 - [ ] Add GUI integration test scaffolding
 - [x] Add OPDS download tests
 - [x] Add conversion pipeline tests
+- [x] Add calibre-server CLI URL builder tests

@@ -4,6 +4,7 @@
 - [x] Define ingest policy for copy vs reference modes
 - [x] Implement ingest pipeline with pluggable storage strategies
 - [x] Implement metadata extraction for supported formats
+- [x] Add basic author parsing from filename metadata
 - [x] Implement ingest for archive references (zip) with metadata preview
 - [x] Expand archive ingest to rar/7z with extraction
 - [x] Add zpaq archive support with unmodeled extraction

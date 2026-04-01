@@ -1,0 +1,32 @@
+# Tranche 013
+
+- [x] Bump DB schema version for metadata relations
+- [x] Add authors table to DB schema
+- [x] Add books_authors_link table and indexes
+- [x] Add tags table to DB schema
+- [x] Add books_tags_link table and indexes
+- [x] Add series table to DB schema
+- [x] Add books_series_link table and indexes
+- [x] Add identifiers table and indexes
+- [x] Add comments table to DB schema
+- [x] Add series and identifier metadata structs in DB API
+- [x] Add DB API for adding book authors
+- [x] Add DB API for listing book authors
+- [x] Add DB API for adding book tags
+- [x] Add DB API for listing book tags
+- [x] Add DB API for setting and reading book series
+- [x] Add DB API for adding and listing identifiers
+- [x] Add DB API for setting and reading comments
+- [x] Expand search_books_like to include metadata relations
+- [x] Extend BasicMetadata with authors/tags/series/identifiers/comments
+- [x] Add filename parser for title/author extraction
+- [x] Update calibredb add to persist metadata relations
+- [x] Update calibredb show to display metadata relations
+- [x] Add DB test for metadata relation roundtrip
+- [x] Add DB test for metadata search across relations
+- [x] Update DB & metadata roadmap with relation items
+- [x] Update library ingest roadmap with author parsing item
+- [x] Update testing roadmap with metadata relation tests
+- [x] Update CLI roadmap with metadata show/add items
+- [x] Fix calibre-server CLI subcommand match borrowing
+- [x] Create tranche 013 record

@@ -32,6 +32,7 @@ shutdown_timeout_ms = 5000
 [server]
 host = "127.0.0.1"
 port = 8080
+scheme = "http"
 url_prefix = ""
 enable_auth = false
 auth_mode = "bearer"

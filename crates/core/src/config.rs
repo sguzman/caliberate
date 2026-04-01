@@ -44,6 +44,16 @@ impl ControlPlane {
                 "server.host must not be empty".to_string(),
             ));
         }
+        if self.server.scheme.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "server.scheme must not be empty".to_string(),
+            ));
+        }
+        if self.server.scheme != "http" && self.server.scheme != "https" {
+            return Err(CoreError::ConfigValidate(
+                "server.scheme must be 'http' or 'https'".to_string(),
+            ));
+        }
         if self.server.port == 0 {
             return Err(CoreError::ConfigValidate(
                 "server.port must be greater than 0".to_string(),
@@ -182,6 +192,8 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default = "default_server_port")]
     pub port: u16,
+    #[serde(default = "default_server_scheme")]
+    pub scheme: String,
     #[serde(default)]
     pub url_prefix: String,
     #[serde(default)]
@@ -396,6 +408,10 @@ fn default_metrics_namespace() -> String {
 
 fn default_server_auth_mode() -> ServerAuthMode {
     ServerAuthMode::Bearer
+}
+
+fn default_server_scheme() -> String {
+    "http".to_string()
 }
 
 fn default_server_download_enabled() -> bool {

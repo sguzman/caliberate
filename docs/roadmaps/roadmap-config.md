@@ -14,7 +14,7 @@
 - [x] Define `[assets]` keys: `compress_raw_assets`, `compress_metadata_db`
 - [x] Define `[assets]` keys: `hash_algorithm`, `hash_on_ingest`, `verify_checksum`, `compression_level`
 - [x] Define `[fts]` keys: `enabled`, `tokenizer`, `rebuild_on_migrate`, `min_query_len`, `result_limit`
-- [x] Define `[server]` keys: `host`, `port`, `url_prefix`, `enable_auth`
+- [x] Define `[server]` keys: `host`, `port`, `scheme`, `url_prefix`, `enable_auth`
 - [x] Define `[server]` keys: `auth_mode`, `api_keys`
 - [x] Define `[server]` keys: `download_enabled`, `download_max_bytes`, `download_allow_external`
 - [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`

@@ -5,6 +5,9 @@
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table
 - [ ] Expand metadata schema migrations to full Calibre parity
+- [x] Add metadata relation tables (authors, tags, series, identifiers, comments)
+- [x] Add metadata relation APIs (authors, tags, series, identifiers, comments)
+- [x] Expand basic search to include metadata relations
 - [x] Implement database API (open, migrate, add, list, search)
 - [x] Implement database API for book lookup and deletion
 - [x] Implement database API for listing assets by book

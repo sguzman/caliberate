@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
             let created_at = time::OffsetDateTime::now_utc().format(
                 &time::format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]Z")?,
             )?;
@@ -163,6 +163,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result.asset.is_compressed,
                 &created_at,
             )?;
+            db.add_book_authors(id, &result.metadata.authors)?;
+            db.add_book_tags(id, &result.metadata.tags)?;
+            if let Some(series) = &result.metadata.series {
+                db.set_book_series(id, &series.name, series.index)?;
+            }
+            db.add_book_identifiers(id, &result.metadata.identifiers)?;
+            if let Some(comment) = &result.metadata.comment {
+                db.set_book_comment(id, comment)?;
+            }
 
             println!("Added book {id}");
         }
@@ -176,6 +185,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Title: {}", book.title);
             println!("Format: {}", book.format);
             println!("Path: {}", book.path);
+
+            let authors = db.list_book_authors(id)?;
+            if authors.is_empty() {
+                println!("Authors: none");
+            } else {
+                println!("Authors: {}", authors.join(", "));
+            }
+
+            let tags = db.list_book_tags(id)?;
+            if tags.is_empty() {
+                println!("Tags: none");
+            } else {
+                println!("Tags: {}", tags.join(", "));
+            }
+
+            if let Some(series) = db.get_book_series(id)? {
+                println!("Series: {} ({})", series.name, series.index);
+            } else {
+                println!("Series: none");
+            }
+
+            let identifiers = db.list_book_identifiers(id)?;
+            if identifiers.is_empty() {
+                println!("Identifiers: none");
+            } else {
+                println!("Identifiers:");
+                for identifier in identifiers {
+                    println!("  {}: {}", identifier.id_type, identifier.value);
+                }
+            }
+
+            if let Some(comment) = db.get_book_comment(id)? {
+                println!("Comment: {comment}");
+            } else {
+                println!("Comment: none");
+            }
 
             let assets = db.list_assets_for_book(id)?;
             if assets.is_empty() {

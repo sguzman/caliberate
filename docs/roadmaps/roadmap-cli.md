@@ -8,9 +8,11 @@
 - [x] Implement `calibredb` init/add/list/search stubs
 - [ ] Implement library management commands parity set
 - [x] Add `calibredb show` command for book details
+- [x] Add `calibredb show` output for authors/tags/series/identifiers/comments
 - [x] Add `calibredb remove` command for books
 - [x] Add `calibredb remove` file deletion controls
 - [x] Add `calibredb show` asset listing output
+- [x] Persist metadata relations during `calibredb add`
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command
@@ -23,3 +25,8 @@
 - [x] Add `ebook-convert` conversion wiring
 - [ ] Implement device commands parity set
 - [ ] Implement server/OPDS commands parity set
+- [x] Add `calibre-server health` command
+- [x] Add `calibre-server opds-root` command
+- [x] Add `calibre-server opds-books` command
+- [x] Add `calibre-server opds-search` command
+- [x] Add `calibre-server download` command

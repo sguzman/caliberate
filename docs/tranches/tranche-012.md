@@ -1,0 +1,32 @@
+# Tranche 012
+
+- [x] Add server scheme config field
+- [x] Add server scheme validation
+- [x] Add server scheme default
+- [x] Add server scheme to control-plane.toml
+- [x] Add server scheme to control-plane fixture
+- [x] Update config roadmap with server scheme
+- [x] Add reqwest dependency for server CLI
+- [x] Add urlencoding dependency for server CLI
+- [x] Add calibre-server CLI api_key flag
+- [x] Add calibre-server health subcommand
+- [x] Add calibre-server opds-root subcommand
+- [x] Add calibre-server opds-books subcommand
+- [x] Add calibre-server opds-search subcommand
+- [x] Add calibre-server download subcommand
+- [x] Add calibre-server client builder helper
+- [x] Add calibre-server auth header injection
+- [x] Add calibre-server base URL builder
+- [x] Handle url_prefix in base URL builder
+- [x] Add calibre-server download file writer
+- [x] Add calibre-server download status error handling
+- [x] Add calibre-server opds search URL encoding
+- [x] Add calibre-server CLI tests for base URL
+- [x] Add calibre-server CLI tests for prefix URL
+- [x] Update CLI roadmap with calibre-server commands
+- [x] Update testing roadmap with calibre-server CLI tests
+- [x] Ensure calibre-server commands return after execution
+- [x] Add CLI help entries for server commands
+- [x] Add base URL builder to use scheme config
+- [x] Use config api_keys as default CLI auth key
+- [x] Create tranche 012 record

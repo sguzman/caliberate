@@ -15,9 +15,20 @@ use zip::ZipArchive;
 #[derive(Debug, Clone)]
 pub struct BasicMetadata {
     pub title: String,
+    pub authors: Vec<String>,
     pub format: String,
     pub file_size: u64,
     pub source_path: PathBuf,
+    pub tags: Vec<String>,
+    pub series: Option<SeriesMetadata>,
+    pub identifiers: Vec<(String, String)>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SeriesMetadata {
+    pub name: String,
+    pub index: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -43,17 +54,22 @@ pub fn extract_basic(path: &Path, formats: &FormatsConfig) -> CoreResult<BasicMe
 
     let metadata =
         fs::metadata(path).map_err(|err| CoreError::Io("read metadata file".to_string(), err))?;
-    let title = path
+    let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+        .unwrap_or("unknown");
+    let (title, authors) = parse_title_and_authors(stem);
 
     Ok(BasicMetadata {
         title,
+        authors,
         format: extension,
         file_size: metadata.len(),
         source_path: path.to_path_buf(),
+        tags: Vec::new(),
+        series: None,
+        identifiers: Vec::new(),
+        comment: None,
     })
 }
 
@@ -302,4 +318,26 @@ fn sanitize_archive_entry(entry_name: &str) -> CoreResult<PathBuf> {
         ));
     }
     Ok(entry_path.to_path_buf())
+}
+
+fn parse_title_and_authors(stem: &str) -> (String, Vec<String>) {
+    if let Some((authors_raw, title_raw)) = stem.split_once(" - ") {
+        let authors = parse_authors(authors_raw);
+        let title = title_raw.trim();
+        if !authors.is_empty() && !title.is_empty() {
+            return (title.to_string(), authors);
+        }
+    }
+    (stem.to_string(), Vec::new())
+}
+
+fn parse_authors(raw: &str) -> Vec<String> {
+    let mut normalized = raw.replace(" and ", ",");
+    normalized = normalized.replace('&', ",");
+    normalized
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect()
 }
