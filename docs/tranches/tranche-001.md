@@ -7,26 +7,26 @@
 - [x] Wire `main.rs` to call the CLI and config bootstrap
 - [x] Define `[metrics]` config keys and defaults
 - [x] Add smoke tests for config parsing and logging initialization
-- [x] Inventory Calibre CLI surface in `tmp`
+- [x] Inventory Calibre CLI surface in Calibre reference source
 - [x] Define Rust CLI command map and parity targets
 - [x] Implement base CLI framework with global flags and config selection
 - [x] Implement `calibredb` binary scaffold
 - [x] Implement `calibre-server` binary scaffold
-- [x] Inventory Calibre DB schemas in `tmp` for metadata, notes, and FTS
+- [x] Inventory Calibre DB schemas in Calibre reference source for metadata, notes, and FTS
 - [x] Define Rust-side schema compatibility targets and versioning
 - [x] Implement SQLite connection management and busy-timeout behavior
-- [x] Inventory Calibre content server/OPDS behavior in `tmp`
+- [x] Inventory Calibre content server/OPDS behavior in Calibre reference source
 - [x] Define server parity targets (HTTP APIs, OPDS, auth)
 - [x] Define library filesystem layout parity goals
 - [x] Implement asset storage abstraction and path policy
-- [x] Inventory Calibre import pipeline behavior in `tmp`
+- [x] Inventory Calibre import pipeline behavior in Calibre reference source
 - [x] Define ingest policy for copy vs reference modes
 - [x] Implement ingest pipeline with pluggable storage strategies
 - [x] Implement metadata extraction for supported formats
-- [x] Inventory Calibre GUI feature set and major views in `tmp`
+- [x] Inventory Calibre GUI feature set and major views in Calibre reference source
 - [x] Define GUI parity targets and feature mapping
 - [x] Implement core window shell and application lifecycle
-- [x] Inventory Calibre conversion pipeline in `tmp`
+- [x] Inventory Calibre conversion pipeline in Calibre reference source
 - [x] Define conversion target parity matrix
 - [x] Define Rust test harness structure and fixtures
 - [x] Add CLI regression tests for parity commands

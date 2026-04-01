@@ -1,6 +1,6 @@
 # DB & Metadata Roadmap
 
-- [x] Inventory Calibre DB schemas in `tmp` for metadata, notes, and FTS
+- [x] Inventory Calibre DB schemas in Calibre reference source for metadata, notes, and FTS
 - [x] Define Rust-side schema compatibility targets and versioning
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table

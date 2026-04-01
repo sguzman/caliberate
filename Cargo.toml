@@ -13,6 +13,6 @@ members = [
     "crates/jobs",
     "crates/metadata",
     "crates/formats",
+    "crates/zpaq",
 ]
-exclude = ["tmp/zpars"]
 resolver = "2"

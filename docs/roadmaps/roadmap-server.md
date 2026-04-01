@@ -1,6 +1,6 @@
 # Server Roadmap
 
-- [x] Inventory Calibre content server/OPDS behavior in `tmp`
+- [x] Inventory Calibre content server/OPDS behavior in Calibre reference source
 - [x] Define server parity targets (HTTP APIs, OPDS, auth)
 - [x] Implement core HTTP server and routing
 - [x] Implement health endpoint

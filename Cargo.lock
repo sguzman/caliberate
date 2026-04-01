@@ -765,6 +765,7 @@ name = "caliberate-metadata"
 version = "0.1.0"
 dependencies = [
  "caliberate-core",
+ "caliberate-zpaq",
  "sevenz-rust2",
  "tempfile",
  "tracing",
@@ -787,6 +788,14 @@ dependencies = [
  "axum",
  "caliberate-core",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "caliberate-zpaq"
+version = "0.1.0"
+dependencies = [
+ "caliberate-core",
  "tracing",
 ]
 

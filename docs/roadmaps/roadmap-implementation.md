@@ -6,3 +6,6 @@
 - [x] Implement a minimal CLI entrypoint with `--config` override and a `check-config` command
 - [x] Wire `main.rs` to call the CLI and config bootstrap
 - [x] Add smoke tests for config parsing and logging initialization
+- [x] Remove reference-source temp path prefixes from inventory docs
+- [x] Remove reference-source temp path mentions from roadmap and tranche docs
+- [x] Remove workspace tmp exclude from root Cargo.toml

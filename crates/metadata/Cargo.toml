@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 caliberate-core = { path = "../core" }
+caliberate-zpaq = { path = "../zpaq" }
 sevenz-rust2 = "0.20.2"
 tempfile = "3.27.0"
 tracing = "0.1.44"

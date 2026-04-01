@@ -1,6 +1,6 @@
 # GUI Roadmap
 
-- [x] Inventory Calibre GUI feature set and major views in `tmp`
+- [x] Inventory Calibre GUI feature set and major views in Calibre reference source
 - [x] Define GUI parity targets and feature mapping
 - [x] Implement core window shell and application lifecycle
 - [x] Add GUI layout with library list + details pane

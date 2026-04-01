@@ -5,6 +5,7 @@
 - [x] Add ingest pipeline tests (copy vs reference)
 - [x] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add 7z archive preview/extraction test
+- [x] Add zpaq archive preview/extraction test
 - [x] Add asset storage tests (compression, integrity, compaction)
 - [x] Add DB FTS tests (search, rebuild, min length)
 - [x] Add CLI regression tests for parity commands

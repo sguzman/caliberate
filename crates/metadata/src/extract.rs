@@ -2,6 +2,7 @@
 
 use caliberate_core::config::FormatsConfig;
 use caliberate_core::error::{CoreError, CoreResult};
+use caliberate_zpaq::extract_unmodeled_file;
 use sevenz_rust2::{ArchiveReader, Password};
 use std::fs;
 use std::path::Component;
@@ -73,11 +74,7 @@ pub fn extract_archive_preview(path: &Path, formats: &FormatsConfig) -> CoreResu
         "zip" => list_zip_entries(path)?,
         "7z" => list_7z_entries(path)?,
         "rar" => list_rar_entries(path)?,
-        "zpaq" => {
-            return Err(CoreError::ConfigValidate(
-                "zpaq support requires vendored reference (not available in repo)".to_string(),
-            ));
-        }
+        "zpaq" => list_zpaq_entries(path)?,
         _ => {
             return Err(CoreError::ConfigValidate(format!(
                 "archive format not supported yet: {extension}"
@@ -113,11 +110,7 @@ pub fn extract_archive_entry(
         "zip" => extract_zip_entry(path, entry_name, output_dir)?,
         "7z" => extract_7z_entry(path, entry_name, output_dir)?,
         "rar" => extract_rar_entry(path, entry_name, output_dir)?,
-        "zpaq" => {
-            return Err(CoreError::ConfigValidate(
-                "zpaq support requires vendored reference (not available in repo)".to_string(),
-            ));
-        }
+        "zpaq" => extract_zpaq_entry(path, entry_name, output_dir)?,
         _ => {
             return Err(CoreError::ConfigValidate(format!(
                 "archive format not supported yet: {extension}"
@@ -194,6 +187,15 @@ fn list_rar_entries(path: &Path) -> CoreResult<Vec<String>> {
     Ok(entries)
 }
 
+fn list_zpaq_entries(path: &Path) -> CoreResult<Vec<String>> {
+    let segments = extract_unmodeled_file(path)?;
+    let entries = segments
+        .into_iter()
+        .map(|segment| segment.filename)
+        .collect();
+    Ok(entries)
+}
+
 fn extract_zip_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
     let file =
         fs::File::open(path).map_err(|err| CoreError::Io("open archive".to_string(), err))?;
@@ -266,6 +268,26 @@ fn extract_rar_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreRe
     Err(CoreError::ConfigValidate(format!(
         "archive entry not found: {entry_name}"
     )))
+}
+
+fn extract_zpaq_entry(path: &Path, entry_name: &str, output_dir: &Path) -> CoreResult<PathBuf> {
+    let safe_entry = sanitize_archive_entry(entry_name)?;
+    let output_path = output_dir.join(&safe_entry);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| CoreError::Io("create archive output dir".to_string(), err))?;
+    }
+
+    let segments = extract_unmodeled_file(path)?;
+    let segment = segments
+        .into_iter()
+        .find(|segment| segment.filename == entry_name)
+        .ok_or_else(|| {
+            CoreError::ConfigValidate(format!("archive entry not found: {entry_name}"))
+        })?;
+    fs::write(&output_path, segment.data)
+        .map_err(|err| CoreError::Io("write extracted entry".to_string(), err))?;
+    Ok(output_path)
 }
 
 fn sanitize_archive_entry(entry_name: &str) -> CoreResult<PathBuf> {

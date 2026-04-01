@@ -1,11 +1,5 @@
-# Library Ingest Roadmap
+# Tranche 006
 
-- [x] Inventory Calibre import pipeline behavior in Calibre reference source
-- [x] Define ingest policy for copy vs reference modes
-- [x] Implement ingest pipeline with pluggable storage strategies
-- [x] Implement metadata extraction for supported formats
-- [x] Implement ingest for archive references (zip) with metadata preview
-- [x] Expand archive ingest to rar/7z with extraction
 - [x] Add zpaq archive support with unmodeled extraction
 - [x] Add ZPAQ archive parsing crate scaffold
 - [x] Define ZPAQ block header and segment structs
@@ -32,8 +26,7 @@
 - [x] Ensure ZPAQ extraction creates output directories
 - [x] Add ZPAQ archive preview/extraction integration test
 - [x] Update ingest inventory doc for ZPAQ support
-- [x] Implement on-demand extraction for referenced ZIP archives
-- [x] Implement on-demand extraction for referenced RAR/7Z archives
-- [x] Implement duplicate policy handling for asset ingestion
-- [ ] Expand duplicate detection and conflict policy
-- [ ] Implement background ingest job wiring
+- [x] Add zpaq archive preview/extraction test
+- [x] Remove reference-source temp path prefixes from inventory docs
+- [x] Remove reference-source temp path mentions from roadmap and tranche docs
+- [x] Remove workspace tmp exclude from root Cargo.toml

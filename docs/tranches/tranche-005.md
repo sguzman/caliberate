@@ -2,15 +2,15 @@
 
 - [x] Add sevenz-rust2 dependency for 7z handling
 - [x] Add unrar dependency for RAR handling
-- [ ] Add zpaq reference integration (blocked: tmp not in repo)
+- [ ] Add zpaq reference integration (deferred)
 - [x] Add archive preview dispatch for 7z/rar
 - [x] Implement 7z archive entry listing via ArchiveReader
 - [x] Implement RAR archive entry listing via unrar
-- [ ] Implement ZPAQ archive entry listing (blocked: tmp not in repo)
+- [ ] Implement ZPAQ archive entry listing (deferred)
 - [x] Implement archive entry extraction dispatch for 7z/rar
 - [x] Implement 7z entry extraction via ArchiveReader::read_file
 - [x] Implement RAR entry extraction via unrar processing
-- [ ] Implement ZPAQ entry extraction (blocked: tmp not in repo)
+- [ ] Implement ZPAQ entry extraction (deferred)
 - [x] Add shared archive entry sanitizer to prevent path traversal
 - [x] Guard ZPAQ archives with explicit error (not yet supported)
 - [x] Add 7z archive preview/extraction test
