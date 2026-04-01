@@ -29,6 +29,12 @@ worker_threads = 4
 max_blocking_threads = 64
 shutdown_timeout_ms = 5000
 
+[server]
+host = "127.0.0.1"
+port = 8080
+url_prefix = ""
+enable_auth = false
+
 [metrics]
 enabled = false
 endpoint = ""
@@ -41,6 +47,7 @@ archive_formats = ["zip", "rar", "7z"]
 [ingest]
 default_mode = "copy"
 archive_reference_enabled = true
+duplicate_policy = "error"
 
 [assets]
 compress_raw_assets = true

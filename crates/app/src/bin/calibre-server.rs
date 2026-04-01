@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[command(name = "calibre-server", version, about = "Caliberate content server")]
@@ -28,8 +27,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => {}
     }
 
-    tracing::info!(component = "calibre-server", "server scaffolding active");
-    let timeout = Duration::from_millis(config.runtime.shutdown_timeout_ms);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(config.runtime.worker_threads)
         .max_blocking_threads(config.runtime.max_blocking_threads)
@@ -37,17 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_time()
         .build()?;
 
-    runtime.block_on(async move {
-        tracing::info!(component = "calibre-server", "waiting for shutdown signal");
-        tokio::signal::ctrl_c().await?;
-        tracing::info!(component = "calibre-server", "shutdown signal received");
-        tokio::time::timeout(timeout, async {
-            tracing::info!(component = "calibre-server", "shutdown complete");
-        })
-        .await
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "shutdown timeout"))?;
-        Ok::<(), std::io::Error>(())
-    })?;
+    runtime.block_on(async move { caliberate_server::run(&config).await })?;
 
     Ok(())
 }

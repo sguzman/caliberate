@@ -5,4 +5,6 @@
 - [ ] Add ingest pipeline tests (copy vs reference)
 - [ ] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add CLI regression tests for parity commands
+- [x] Add DB migration smoke test
+- [x] Add archive metadata preview test
 - [ ] Add GUI integration test scaffolding

@@ -12,6 +12,7 @@ pub struct ControlPlane {
     pub logging: LoggingConfig,
     pub db: DbConfig,
     pub runtime: RuntimeConfig,
+    pub server: ServerConfig,
     pub metrics: MetricsConfig,
     pub formats: FormatsConfig,
     pub ingest: IngestConfig,
@@ -33,6 +34,21 @@ impl ControlPlane {
         if self.paths.log_dir.as_os_str().is_empty() {
             return Err(CoreError::ConfigValidate(
                 "paths.log_dir must not be empty".to_string(),
+            ));
+        }
+        if self.server.host.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "server.host must not be empty".to_string(),
+            ));
+        }
+        if self.server.port == 0 {
+            return Err(CoreError::ConfigValidate(
+                "server.port must be greater than 0".to_string(),
+            ));
+        }
+        if !self.server.url_prefix.is_empty() && !self.server.url_prefix.starts_with('/') {
+            return Err(CoreError::ConfigValidate(
+                "server.url_prefix must start with '/'".to_string(),
             ));
         }
         Ok(())
@@ -106,6 +122,18 @@ pub struct RuntimeConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ServerConfig {
+    #[serde(default = "default_server_host")]
+    pub host: String,
+    #[serde(default = "default_server_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub url_prefix: String,
+    #[serde(default)]
+    pub enable_auth: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct MetricsConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -129,6 +157,8 @@ pub struct IngestConfig {
     pub default_mode: IngestMode,
     #[serde(default = "default_archive_reference_enabled")]
     pub archive_reference_enabled: bool,
+    #[serde(default = "default_duplicate_policy")]
+    pub duplicate_policy: DuplicatePolicy,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -141,6 +171,20 @@ pub enum IngestMode {
 impl Default for IngestMode {
     fn default() -> Self {
         IngestMode::Copy
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DuplicatePolicy {
+    Error,
+    Skip,
+    Overwrite,
+}
+
+impl Default for DuplicatePolicy {
+    fn default() -> Self {
+        DuplicatePolicy::Error
     }
 }
 
@@ -216,4 +260,16 @@ fn default_archive_reference_enabled() -> bool {
 
 fn default_compress_raw_assets() -> bool {
     true
+}
+
+fn default_server_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_server_port() -> u16 {
+    8080
+}
+
+fn default_duplicate_policy() -> DuplicatePolicy {
+    DuplicatePolicy::Error
 }

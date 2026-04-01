@@ -1,0 +1,32 @@
+# Tranche 002
+
+- [x] Define `[server]` config keys: `host`, `port`, `url_prefix`, `enable_auth`
+- [x] Define ingest duplicate policy config key
+- [x] Wire asset compression policy checks
+- [x] Implement archive metadata preview for ZIP
+- [x] Implement archive ingest path for previewed archives
+- [x] Implement asset duplicate detection (policy-driven)
+- [x] Implement metadata DB migration runner
+- [x] Implement minimal metadata schema (books table)
+- [x] Implement database API (open, migrate, add, list, search)
+- [x] Implement `calibredb init` command
+- [x] Implement `calibredb add` command (copy/reference)
+- [x] Implement `calibredb list` command
+- [x] Implement `calibredb search` command
+- [x] Implement `calibre-server` HTTP skeleton
+- [x] Implement health endpoint
+- [x] Implement OPDS feed skeleton endpoint
+- [x] Wire `calibre-server` binary to server run
+- [x] Add GUI layout with library list + details pane
+- [x] Add GUI placeholder list rendering
+- [x] Add config validation for new sections
+- [x] Add metadata zip preview test
+- [x] Add DB migration smoke test
+- [x] Add inventory docs for CLI/DB/server/ingest/storage/gui/conversion
+- [x] Update CLI roadmap for binaries and parity mapping
+- [x] Update DB roadmap for migrations + connection management
+- [x] Update server roadmap for parity targets
+- [x] Update ingest roadmap for policy + pipeline
+- [x] Update assets roadmap for storage abstraction
+- [x] Update GUI roadmap for core shell
+- [x] Update conversion roadmap for parity matrix

@@ -10,6 +10,7 @@ pub enum CoreError {
     ConfigLoad(PathBuf, io::Error),
     ConfigParse(String),
     ConfigValidate(String),
+    DuplicateAsset(PathBuf),
     Io(String, io::Error),
     LoggingInit(String),
 }
@@ -25,6 +26,9 @@ impl fmt::Display for CoreError {
             }
             CoreError::ConfigValidate(message) => {
                 write!(f, "invalid config: {message}")
+            }
+            CoreError::DuplicateAsset(path) => {
+                write!(f, "duplicate asset detected at {}", path.display())
             }
             CoreError::Io(context, err) => {
                 write!(f, "io error during {context}: {err}")

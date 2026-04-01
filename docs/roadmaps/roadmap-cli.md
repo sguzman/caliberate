@@ -5,6 +5,7 @@
 - [x] Implement base CLI framework with global flags and config selection
 - [x] Implement `calibredb` binary scaffold
 - [x] Implement `calibre-server` binary scaffold
+- [x] Implement `calibredb` init/add/list/search stubs
 - [ ] Implement library management commands parity set
 - [ ] Implement conversion commands parity set
 - [ ] Implement device commands parity set
