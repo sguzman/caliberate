@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 use std::path::PathBuf;
 
 use caliberate_assets::stats::{
@@ -64,6 +65,10 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: FtsCommand,
     },
+    ListCategories {
+        #[arg(long)]
+        category: Option<CategoryValue>,
+    },
     Formats {
         #[command(subcommand)]
         command: FormatsCommand,
@@ -76,6 +81,31 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: SetCommand,
     },
+    CheckLibrary,
+    Export {
+        #[arg(long)]
+        id: Vec<i64>,
+        #[arg(long, default_value_t = false)]
+        all: bool,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    BackupMetadata {
+        #[arg(long)]
+        id: Vec<i64>,
+        #[arg(long, default_value_t = false)]
+        all: bool,
+        #[arg(long)]
+        output_dir: PathBuf,
+    },
+    Catalog {
+        #[arg(long)]
+        id: Vec<i64>,
+        #[arg(long, default_value_t = false)]
+        all: bool,
+        #[arg(long)]
+        output: PathBuf,
+    },
     Device {
         #[command(subcommand)]
         command: DeviceCommand,
@@ -87,6 +117,16 @@ enum CalibredbCommand {
 enum IngestModeValue {
     Copy,
     Reference,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CategoryValue {
+    Authors,
+    Tags,
+    Series,
+    Publishers,
+    Ratings,
+    Languages,
 }
 
 #[derive(Debug, Subcommand)]
@@ -578,6 +618,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Some(CalibredbCommand::ListCategories { category }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            if let Some(category) = category {
+                print_category(&db, category)?;
+            } else {
+                for category in [
+                    CategoryValue::Authors,
+                    CategoryValue::Tags,
+                    CategoryValue::Series,
+                    CategoryValue::Publishers,
+                    CategoryValue::Ratings,
+                    CategoryValue::Languages,
+                ] {
+                    print_category(&db, category)?;
+                }
+            }
+        }
         Some(CalibredbCommand::Formats { command }) => match command {
             FormatsCommand::List { id } => {
                 let db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -838,6 +895,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Removed {removed} files from device {}", device.name);
             }
         },
+        Some(CalibredbCommand::CheckLibrary) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let assets = db.list_assets()?;
+            let descriptors = assets
+                .iter()
+                .map(|asset| asset_to_descriptor(asset))
+                .collect::<Result<Vec<_>, _>>()?;
+            let issues = verify_assets(&descriptors, &config.assets)?;
+            if issues.is_empty() {
+                println!("Library check OK");
+            } else {
+                println!("Library check found {} issues", issues.len());
+                for issue in issues {
+                    println!(
+                        "{}\t{}\t{}",
+                        issue.asset_id,
+                        issue.stored_path.display(),
+                        issue.detail
+                    );
+                }
+                return Err("library check failed".into());
+            }
+        }
+        Some(CalibredbCommand::Export {
+            id,
+            all,
+            output_dir,
+        }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let ids = resolve_book_ids(&db, &id, all)?;
+            export_books(&db, &ids, &output_dir)?;
+            println!("Exported {} books to {}", ids.len(), output_dir.display());
+        }
+        Some(CalibredbCommand::BackupMetadata {
+            id,
+            all,
+            output_dir,
+        }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let ids = resolve_book_ids(&db, &id, all)?;
+            backup_metadata(&db, &ids, &output_dir)?;
+            println!(
+                "Wrote metadata for {} books to {}",
+                ids.len(),
+                output_dir.display()
+            );
+        }
+        Some(CalibredbCommand::Catalog { id, all, output }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let ids = resolve_book_ids(&db, &id, all)?;
+            write_catalog(&db, &ids, &output)?;
+            println!(
+                "Wrote catalog for {} books to {}",
+                ids.len(),
+                output.display()
+            );
+        }
         Some(CalibredbCommand::Info) => {
             println!("Caliberate DB CLI");
             println!("Library dir: {}", config.paths.library_dir.display());
@@ -899,6 +1013,211 @@ fn parse_identifiers(
         parsed.push((key.trim().to_string(), val.trim().to_string()));
     }
     Ok(parsed)
+}
+
+fn print_category(
+    db: &Database,
+    category: CategoryValue,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (label, entries) = match category {
+        CategoryValue::Authors => ("authors", db.list_author_categories()?),
+        CategoryValue::Tags => ("tags", db.list_tag_categories()?),
+        CategoryValue::Series => ("series", db.list_series_categories()?),
+        CategoryValue::Publishers => ("publishers", db.list_publisher_categories()?),
+        CategoryValue::Ratings => ("ratings", db.list_rating_categories()?),
+        CategoryValue::Languages => ("languages", db.list_language_categories()?),
+    };
+    println!("Category: {label}");
+    if entries.is_empty() {
+        println!("(none)");
+    } else {
+        for entry in entries {
+            println!("{}\t{}\t{}", entry.id, entry.name, entry.count);
+        }
+    }
+    Ok(())
+}
+
+fn resolve_book_ids(
+    db: &Database,
+    ids: &[i64],
+    all: bool,
+) -> Result<Vec<i64>, Box<dyn std::error::Error>> {
+    if all {
+        let books = db.list_books()?;
+        let ids = books.into_iter().map(|book| book.id).collect::<Vec<_>>();
+        if ids.is_empty() {
+            return Err("no books found in library".into());
+        }
+        return Ok(ids);
+    }
+    if ids.is_empty() {
+        return Err("specify --id or --all".into());
+    }
+    let mut resolved = Vec::new();
+    for id in ids {
+        if db.get_book(*id)?.is_none() {
+            return Err(format!("book not found: {id}").into());
+        }
+        resolved.push(*id);
+    }
+    Ok(resolved)
+}
+
+fn export_books(
+    db: &Database,
+    ids: &[i64],
+    output_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(output_dir)?;
+    for book_id in ids {
+        let assets = db.list_assets_for_book(*book_id)?;
+        let book_dir = output_dir.join(format!("book-{book_id}"));
+        std::fs::create_dir_all(&book_dir)?;
+        for asset in assets {
+            let file_name = std::path::Path::new(&asset.stored_path)
+                .file_name()
+                .ok_or("invalid asset path")?;
+            let dest = book_dir.join(file_name);
+            std::fs::copy(&asset.stored_path, &dest)?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct BackupIdentifier {
+    id_type: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupMetadata {
+    id: i64,
+    title: String,
+    format: String,
+    path: String,
+    authors: Vec<String>,
+    tags: Vec<String>,
+    series: Option<String>,
+    series_index: Option<f64>,
+    identifiers: Vec<BackupIdentifier>,
+    comment: Option<String>,
+    publisher: Option<String>,
+    rating: Option<i64>,
+    languages: Vec<String>,
+    uuid: Option<String>,
+    timestamp: Option<String>,
+    pubdate: Option<String>,
+    last_modified: Option<String>,
+}
+
+fn backup_metadata(
+    db: &Database,
+    ids: &[i64],
+    output_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(output_dir)?;
+    for book_id in ids {
+        let book = db
+            .get_book(*book_id)?
+            .ok_or("book not found while backing up metadata")?;
+        let authors = db.list_book_authors(*book_id)?;
+        let tags = db.list_book_tags(*book_id)?;
+        let series = db.get_book_series(*book_id)?;
+        let identifiers = db
+            .list_book_identifiers(*book_id)?
+            .into_iter()
+            .map(|item| BackupIdentifier {
+                id_type: item.id_type,
+                value: item.value,
+            })
+            .collect::<Vec<_>>();
+        let comment = db.get_book_comment(*book_id)?;
+        let extras = db.get_book_extras(*book_id)?;
+        let payload = BackupMetadata {
+            id: book.id,
+            title: book.title,
+            format: book.format,
+            path: book.path,
+            authors,
+            tags,
+            series: series.as_ref().map(|entry| entry.name.clone()),
+            series_index: series.map(|entry| entry.index),
+            identifiers,
+            comment,
+            publisher: extras.publisher,
+            rating: extras.rating,
+            languages: extras.languages,
+            uuid: extras.uuid,
+            timestamp: extras.timestamp,
+            pubdate: extras.pubdate,
+            last_modified: extras.last_modified,
+        };
+        let out_path = output_dir.join(format!("metadata-{book_id}.json"));
+        let encoded = serde_json::to_string_pretty(&payload)?;
+        std::fs::write(out_path, encoded)?;
+    }
+    Ok(())
+}
+
+fn write_catalog(
+    db: &Database,
+    ids: &[i64],
+    output: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut writer = csv::Writer::from_path(output)?;
+    writer.write_record([
+        "id",
+        "title",
+        "authors",
+        "tags",
+        "series",
+        "publisher",
+        "rating",
+        "languages",
+        "formats",
+    ])?;
+    for book_id in ids {
+        let book = db
+            .get_book(*book_id)?
+            .ok_or("book not found while writing catalog")?;
+        let authors = db.list_book_authors(*book_id)?.join(", ");
+        let tags = db.list_book_tags(*book_id)?.join(", ");
+        let series = db
+            .get_book_series(*book_id)?
+            .map(|entry| entry.name)
+            .unwrap_or_default();
+        let extras = db.get_book_extras(*book_id)?;
+        let publisher = extras.publisher.unwrap_or_default();
+        let rating = extras
+            .rating
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let languages = extras.languages.join(", ");
+        let formats = db
+            .list_assets_for_book(*book_id)?
+            .into_iter()
+            .filter_map(|asset| format_from_path(&asset.stored_path))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writer.write_record([
+            book.id.to_string(),
+            book.title,
+            authors,
+            tags,
+            series,
+            publisher,
+            rating,
+            languages,
+            formats,
+        ])?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 fn delete_asset_files(

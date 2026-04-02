@@ -1,0 +1,32 @@
+# Tranche 024
+
+- [x] Add category count model in DB
+- [x] Add author category query helper
+- [x] Add tag category query helper
+- [x] Add series category query helper
+- [x] Add publisher category query helper
+- [x] Add rating category query helper
+- [x] Add language category query helper
+- [x] Add `calibredb list-categories` command
+- [x] Add `calibredb list-categories` category filter
+- [x] Add `calibredb list-categories` output formatting
+- [x] Add `calibredb check-library` command
+- [x] Add `calibredb check-library` asset verification output
+- [x] Add `calibredb export` command parsing
+- [x] Add `calibredb export` book selection helper
+- [x] Add `calibredb export` copy implementation
+- [x] Add `calibredb backup-metadata` command parsing
+- [x] Add metadata backup JSON schema
+- [x] Add metadata backup writer
+- [x] Add `calibredb catalog` command parsing
+- [x] Add `calibredb catalog` CSV writer
+- [x] Add `calibredb catalog` row assembly
+- [x] Add CLI test for `calibredb list-categories`
+- [x] Add CLI test for `calibredb check-library`
+- [x] Add CLI test for `calibredb export`
+- [x] Add CLI test for `calibredb backup-metadata`
+- [x] Add CLI test for `calibredb catalog`
+- [x] Add CLI dependencies for metadata outputs
+- [x] Update CLI roadmap for new commands
+- [x] Update testing roadmap for new tests
+- [x] Create tranche 024 record

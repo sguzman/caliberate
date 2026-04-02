@@ -37,6 +37,11 @@
 - [x] Add CLI test for calibredb set dates
 - [x] Add CLI tests for ebook-convert list/info flags
 - [x] Add CLI tests for calibre-server users commands
+- [x] Add CLI test for calibredb list-categories
+- [x] Add CLI test for calibredb check-library
+- [x] Add CLI test for calibredb export
+- [x] Add CLI test for calibredb backup-metadata
+- [x] Add CLI test for calibredb catalog
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests

@@ -90,6 +90,13 @@ pub struct NoteRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CategoryCount {
+    pub id: i64,
+    pub name: String,
+    pub count: i64,
+}
+
 impl Database {
     pub fn open(config: &DbConfig) -> CoreResult<Self> {
         Self::open_with_fts(config, &FtsConfig::default())
@@ -1952,6 +1959,126 @@ impl Database {
         Ok(results)
     }
 
+    pub fn list_author_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        self.list_category_counts(
+            "authors",
+            "name",
+            "books_authors_link",
+            "author",
+            "author categories",
+        )
+    }
+
+    pub fn list_tag_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        self.list_category_counts("tags", "name", "books_tags_link", "tag", "tag categories")
+    }
+
+    pub fn list_series_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        self.list_category_counts(
+            "series",
+            "name",
+            "books_series_link",
+            "series",
+            "series categories",
+        )
+    }
+
+    pub fn list_publisher_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        self.list_category_counts(
+            "publishers",
+            "name",
+            "books_publishers_link",
+            "publisher",
+            "publisher categories",
+        )
+    }
+
+    pub fn list_rating_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT r.id, r.rating, COUNT(brl.id)
+                 FROM ratings r
+                 LEFT JOIN books_ratings_link brl ON brl.rating = r.id
+                 GROUP BY r.id
+                 ORDER BY r.rating",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare rating categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let rating: i64 = row.get(1)?;
+                Ok(CategoryCount {
+                    id: row.get(0)?,
+                    name: rating.to_string(),
+                    count: row.get(2)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query rating categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read rating categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn list_language_categories(&self) -> CoreResult<Vec<CategoryCount>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT l.id, l.lang_code, COUNT(bll.id)
+                 FROM languages l
+                 LEFT JOIN books_languages_link bll ON bll.lang_code = l.id
+                 GROUP BY l.id
+                 ORDER BY l.lang_code",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare language categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let lang_code: String = row.get(1)?;
+                Ok(CategoryCount {
+                    id: row.get(0)?,
+                    name: lang_code,
+                    count: row.get(2)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query language categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read language categories".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
     pub fn schema_object_exists(&self, object_type: &str, name: &str) -> CoreResult<bool> {
         let exists: Option<i64> = self
             .conn
@@ -1998,6 +2125,52 @@ impl Database {
             })?);
         }
         Ok(columns)
+    }
+
+    fn list_category_counts(
+        &self,
+        table: &str,
+        name_column: &str,
+        link_table: &str,
+        link_column: &str,
+        context: &str,
+    ) -> CoreResult<Vec<CategoryCount>> {
+        let sql = format!(
+            "SELECT t.id, t.{name_column}, COUNT(l.id)
+             FROM {table} t
+             LEFT JOIN {link_table} l ON l.{link_column} = t.id
+             GROUP BY t.id
+             ORDER BY t.{name_column}"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|err| {
+            CoreError::Io(
+                format!("prepare {context}"),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CategoryCount {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                count: row.get(2)?,
+            })
+        });
+        let rows = rows.map_err(|err| {
+            CoreError::Io(
+                format!("query {context}"),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    format!("read {context}"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
     }
 
     pub fn query_scalar_string(&self, sql: &str) -> CoreResult<Option<String>> {

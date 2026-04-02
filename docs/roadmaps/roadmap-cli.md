@@ -32,6 +32,11 @@
 - [x] Add `calibredb set rating` command
 - [x] Add `calibredb set languages` command
 - [x] Add `calibredb set dates` command
+- [x] Add `calibredb list-categories` command
+- [x] Add `calibredb check-library` command
+- [x] Add `calibredb export` command
+- [x] Add `calibredb backup-metadata` command
+- [x] Add `calibredb catalog` command
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command
