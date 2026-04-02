@@ -2,6 +2,9 @@
 
 - [x] Define Rust test harness structure and fixtures
 - [ ] Port Calibre DB tests for metadata and FTS parity
+- [x] Add schema parity test for books defaults/collations
+- [x] Add schema parity tests for core metadata table collations
+- [x] Add schema parity tests for format collations and ratings check
 - [x] Add schema column parity test for books table core fields
 - [x] Add schema column parity test for authors table
 - [x] Add schema column parity test for tags table

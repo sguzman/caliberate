@@ -100,9 +100,42 @@ fn schema_books_columns_match_calibre_core_fields() {
 }
 
 #[test]
+fn schema_books_table_defaults_and_collations_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "books",
+        "title TEXT NOT NULL DEFAULT 'Unknown' COLLATE NOCASE",
+    );
+    assert_table_sql_contains(&db, "books", "sort TEXT COLLATE NOCASE");
+    assert_table_sql_contains(
+        &db,
+        "books",
+        "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    );
+    assert_table_sql_contains(&db, "books", "pubdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+    assert_table_sql_contains(&db, "books", "series_index REAL NOT NULL DEFAULT 1.0");
+    assert_table_sql_contains(&db, "books", "author_sort TEXT COLLATE NOCASE");
+    assert_table_sql_contains(&db, "books", "path TEXT NOT NULL DEFAULT ''");
+    assert_table_sql_contains(&db, "books", "has_cover BOOL DEFAULT 0");
+    assert_table_sql_contains(
+        &db,
+        "books",
+        "last_modified TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00+00:00'",
+    );
+}
+
+#[test]
 fn schema_authors_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "authors", &["id", "name", "sort", "link"]);
+}
+
+#[test]
+fn schema_authors_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "authors", "name TEXT NOT NULL COLLATE NOCASE");
+    assert_table_sql_contains(&db, "authors", "sort TEXT COLLATE NOCASE");
 }
 
 #[test]
@@ -112,9 +145,22 @@ fn schema_tags_columns_match_calibre_fields() {
 }
 
 #[test]
+fn schema_tags_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "tags", "name TEXT NOT NULL COLLATE NOCASE");
+}
+
+#[test]
 fn schema_series_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "series", &["id", "name", "sort", "link"]);
+}
+
+#[test]
+fn schema_series_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "series", "name TEXT NOT NULL COLLATE NOCASE");
+    assert_table_sql_contains(&db, "series", "sort TEXT COLLATE NOCASE");
 }
 
 #[test]
@@ -124,15 +170,38 @@ fn schema_publishers_columns_match_calibre_fields() {
 }
 
 #[test]
+fn schema_publishers_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "publishers", "name TEXT NOT NULL COLLATE NOCASE");
+    assert_table_sql_contains(&db, "publishers", "sort TEXT COLLATE NOCASE");
+}
+
+#[test]
 fn schema_ratings_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "ratings", &["id", "rating", "link"]);
 }
 
 #[test]
+fn schema_ratings_table_check_constraint_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "ratings",
+        "rating INTEGER CHECK(rating > -1 AND rating < 11)",
+    );
+}
+
+#[test]
 fn schema_languages_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "languages", &["id", "lang_code", "link"]);
+}
+
+#[test]
+fn schema_languages_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "languages", "lang_code TEXT NOT NULL COLLATE NOCASE");
 }
 
 #[test]
@@ -182,9 +251,26 @@ fn schema_identifiers_columns_match_calibre_fields() {
 }
 
 #[test]
+fn schema_identifiers_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "identifiers",
+        "type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE",
+    );
+    assert_table_sql_contains(&db, "identifiers", "val TEXT NOT NULL COLLATE NOCASE");
+}
+
+#[test]
 fn schema_comments_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "comments", &["id", "book", "text"]);
+}
+
+#[test]
+fn schema_comments_table_collation_defaults_match_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "comments", "text TEXT NOT NULL COLLATE NOCASE");
 }
 
 #[test]
@@ -208,6 +294,16 @@ fn schema_books_pages_link_columns_match_calibre_fields() {
             "timestamp",
             "needs_scan",
         ],
+    );
+}
+
+#[test]
+fn schema_books_pages_link_format_collation_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "books_pages_link",
+        "format TEXT NOT NULL DEFAULT '' COLLATE NOCASE",
     );
 }
 
@@ -245,6 +341,12 @@ fn schema_data_columns_match_calibre_fields() {
         "data",
         &["id", "book", "format", "uncompressed_size", "name"],
     );
+}
+
+#[test]
+fn schema_data_table_format_collation_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "data", "format TEXT NOT NULL COLLATE NOCASE");
 }
 
 #[test]
@@ -286,6 +388,16 @@ fn schema_last_read_positions_columns_match_calibre_fields() {
         &[
             "id", "book", "format", "user", "device", "cfi", "epoch", "pos_frac",
         ],
+    );
+}
+
+#[test]
+fn schema_last_read_positions_format_collation_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "last_read_positions",
+        "format TEXT NOT NULL COLLATE NOCASE",
     );
 }
 
@@ -670,4 +782,20 @@ fn assert_columns(db: &Database, table: &str, expected: &[&str]) {
             "missing column {column} on {table}"
         );
     }
+}
+
+fn table_sql(db: &Database, table: &str) -> String {
+    db.query_scalar_string(&format!(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+    ))
+    .expect("read table sql")
+    .expect("missing table sql")
+}
+
+fn assert_table_sql_contains(db: &Database, table: &str, needle: &str) {
+    let sql = table_sql(db, table);
+    assert!(
+        sql.contains(needle),
+        "expected {table} sql to contain {needle}"
+    );
 }

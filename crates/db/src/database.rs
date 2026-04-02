@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 #[derive(Debug)]
 pub struct Database {
@@ -205,16 +205,25 @@ impl Database {
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS books (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    format TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    title TEXT NOT NULL DEFAULT 'Unknown' COLLATE NOCASE,
+                    sort TEXT COLLATE NOCASE,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    pubdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    series_index REAL NOT NULL DEFAULT 1.0,
+                    author_sort TEXT COLLATE NOCASE,
+                    path TEXT NOT NULL DEFAULT '',
+                    uuid TEXT,
+                    has_cover BOOL DEFAULT 0,
+                    last_modified TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00+00:00',
+                    format TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS authors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    sort TEXT,
-                    link TEXT NOT NULL DEFAULT ''
+                    name TEXT NOT NULL COLLATE NOCASE,
+                    sort TEXT COLLATE NOCASE,
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_authors_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,8 +237,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author);
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    link TEXT NOT NULL DEFAULT ''
+                    name TEXT NOT NULL COLLATE NOCASE,
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_tags_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,9 +253,10 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag);
                 CREATE TABLE IF NOT EXISTS series (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    sort TEXT,
-                    link TEXT NOT NULL DEFAULT ''
+                    name TEXT NOT NULL COLLATE NOCASE,
+                    sort TEXT COLLATE NOCASE,
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_series_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,8 +271,8 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS identifiers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book INTEGER NOT NULL,
-                    type TEXT NOT NULL,
-                    val TEXT NOT NULL,
+                    type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE,
+                    val TEXT NOT NULL COLLATE NOCASE,
                     UNIQUE(book, type),
                     FOREIGN KEY(book) REFERENCES books(id)
                 );
@@ -270,7 +281,7 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS comments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book INTEGER NOT NULL,
-                    text TEXT NOT NULL,
+                    text TEXT NOT NULL COLLATE NOCASE,
                     UNIQUE(book),
                     FOREIGN KEY(book) REFERENCES books(id)
                 );
@@ -299,9 +310,10 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);
                 CREATE TABLE IF NOT EXISTS publishers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    sort TEXT,
-                    link TEXT NOT NULL DEFAULT ''
+                    name TEXT NOT NULL COLLATE NOCASE,
+                    sort TEXT COLLATE NOCASE,
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_publishers_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,8 +327,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher);
                 CREATE TABLE IF NOT EXISTS ratings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    rating INTEGER NOT NULL UNIQUE,
-                    link TEXT NOT NULL DEFAULT ''
+                    rating INTEGER CHECK(rating > -1 AND rating < 11),
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE (rating)
                 );
                 CREATE TABLE IF NOT EXISTS books_ratings_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,8 +343,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating);
                 CREATE TABLE IF NOT EXISTS languages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    lang_code TEXT NOT NULL UNIQUE,
-                    link TEXT NOT NULL DEFAULT ''
+                    lang_code TEXT NOT NULL COLLATE NOCASE,
+                    link TEXT NOT NULL DEFAULT '',
+                    UNIQUE(lang_code)
                 );
                 CREATE TABLE IF NOT EXISTS books_languages_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -355,7 +369,7 @@ impl Database {
                     book INTEGER PRIMARY KEY,
                     pages INTEGER NOT NULL DEFAULT 0,
                     algorithm INTEGER NOT NULL DEFAULT 0,
-                    format TEXT NOT NULL DEFAULT '',
+                    format TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
                     format_size INTEGER NOT NULL DEFAULT 0,
                     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     needs_scan INTEGER NOT NULL DEFAULT 0 CHECK(needs_scan IN (0, 1)),
@@ -390,7 +404,7 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book INTEGER NOT NULL,
-                    format TEXT NOT NULL,
+                    format TEXT NOT NULL COLLATE NOCASE,
                     uncompressed_size INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     UNIQUE(book, format)
@@ -425,7 +439,7 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS last_read_positions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book INTEGER NOT NULL,
-                    format TEXT NOT NULL,
+                    format TEXT NOT NULL COLLATE NOCASE,
                     user TEXT NOT NULL,
                     device TEXT NOT NULL,
                     cfi TEXT NOT NULL,
@@ -482,6 +496,7 @@ impl Database {
         self.ensure_language_columns()?;
         self.ensure_rating_columns()?;
         self.ensure_calibre_link_schema()?;
+        self.ensure_calibre_collations()?;
         self.ensure_calibre_views()?;
         self.ensure_calibre_indices()?;
         self.ensure_calibre_triggers()?;
@@ -655,6 +670,29 @@ impl Database {
         Ok(false)
     }
 
+    fn table_sql(&self, table: &str) -> CoreResult<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    format!("read {table} create sql"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
+    }
+
+    fn table_sql_contains(&self, table: &str, needle: &str) -> CoreResult<bool> {
+        Ok(self
+            .table_sql(table)?
+            .map(|sql| sql.contains(needle))
+            .unwrap_or(false))
+    }
+
     fn ensure_calibre_link_schema(&self) -> CoreResult<()> {
         if self.column_exists("comments", "book_id")? {
             self.migrate_comments_table()?;
@@ -685,6 +723,75 @@ impl Database {
             self.migrate_books_languages_link()?;
         }
         self.ensure_link_indices()?;
+        Ok(())
+    }
+
+    fn ensure_calibre_collations(&self) -> CoreResult<()> {
+        if !self.table_sql_contains(
+            "books",
+            "title TEXT NOT NULL DEFAULT 'Unknown' COLLATE NOCASE",
+        )? || !self.table_sql_contains("books", "sort TEXT COLLATE NOCASE")?
+            || !self.table_sql_contains("books", "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP")?
+            || !self.table_sql_contains("books", "pubdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP")?
+            || !self.table_sql_contains("books", "series_index REAL NOT NULL DEFAULT 1.0")?
+            || !self.table_sql_contains("books", "author_sort TEXT COLLATE NOCASE")?
+            || !self.table_sql_contains("books", "path TEXT NOT NULL DEFAULT ''")?
+            || !self.table_sql_contains(
+                "books",
+                "last_modified TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00+00:00'",
+            )?
+        {
+            self.rebuild_books_table()?;
+        }
+        if !self.table_sql_contains("authors", "name TEXT NOT NULL COLLATE NOCASE")?
+            || !self.table_sql_contains("authors", "sort TEXT COLLATE NOCASE")?
+        {
+            self.rebuild_authors_table()?;
+        }
+        if !self.table_sql_contains("tags", "name TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_tags_table()?;
+        }
+        if !self.table_sql_contains("series", "name TEXT NOT NULL COLLATE NOCASE")?
+            || !self.table_sql_contains("series", "sort TEXT COLLATE NOCASE")?
+        {
+            self.rebuild_series_table()?;
+        }
+        if !self.table_sql_contains("publishers", "name TEXT NOT NULL COLLATE NOCASE")?
+            || !self.table_sql_contains("publishers", "sort TEXT COLLATE NOCASE")?
+        {
+            self.rebuild_publishers_table()?;
+        }
+        if !self.table_sql_contains("languages", "lang_code TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_languages_table()?;
+        }
+        if !self.table_sql_contains(
+            "identifiers",
+            "type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE",
+        )? || !self.table_sql_contains("identifiers", "val TEXT NOT NULL COLLATE NOCASE")?
+        {
+            self.rebuild_identifiers_table()?;
+        }
+        if !self.table_sql_contains("data", "format TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_data_table()?;
+        }
+        if !self.table_sql_contains("comments", "text TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_comments_table()?;
+        }
+        if !self.table_sql_contains("last_read_positions", "format TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_last_read_positions_table()?;
+        }
+        if !self.table_sql_contains(
+            "ratings",
+            "rating INTEGER CHECK(rating > -1 AND rating < 11)",
+        )? {
+            self.rebuild_ratings_table()?;
+        }
+        if !self.table_sql_contains(
+            "books_pages_link",
+            "format TEXT NOT NULL DEFAULT '' COLLATE NOCASE",
+        )? {
+            self.rebuild_books_pages_link_table()?;
+        }
         Ok(())
     }
 
@@ -940,6 +1047,336 @@ impl Database {
                 )
             })?;
         Ok(())
+    }
+
+    fn rebuild_with_foreign_keys_off(&self, sql: &str, label: &str) -> CoreResult<()> {
+        self.conn
+            .execute_batch("PRAGMA foreign_keys=OFF;")
+            .map_err(|err| {
+                CoreError::Io(
+                    format!("disable foreign keys for {label}"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let result = self.conn.execute_batch(sql).map_err(|err| {
+            CoreError::Io(
+                format!("rebuild {label}"),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        });
+        self.conn
+            .execute_batch("PRAGMA foreign_keys=ON;")
+            .map_err(|err| {
+                CoreError::Io(
+                    format!("enable foreign keys for {label}"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        result
+    }
+
+    fn rebuild_books_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE books_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL DEFAULT 'Unknown' COLLATE NOCASE,
+                sort TEXT COLLATE NOCASE,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                pubdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                series_index REAL NOT NULL DEFAULT 1.0,
+                author_sort TEXT COLLATE NOCASE,
+                path TEXT NOT NULL DEFAULT '',
+                uuid TEXT,
+                has_cover BOOL DEFAULT 0,
+                last_modified TIMESTAMP NOT NULL DEFAULT '2000-01-01 00:00:00+00:00',
+                format TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO books_new (
+                id,
+                title,
+                sort,
+                timestamp,
+                pubdate,
+                series_index,
+                author_sort,
+                path,
+                uuid,
+                has_cover,
+                last_modified,
+                format,
+                created_at
+             )
+                SELECT
+                    id,
+                    title,
+                    sort,
+                    timestamp,
+                    pubdate,
+                    series_index,
+                    author_sort,
+                    path,
+                    uuid,
+                    has_cover,
+                    last_modified,
+                    format,
+                    created_at
+                FROM books;
+             DROP TABLE books;
+             ALTER TABLE books_new RENAME TO books;
+             COMMIT;",
+            "books table",
+        )
+    }
+
+    fn rebuild_authors_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE authors_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE,
+                sort TEXT COLLATE NOCASE,
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE(name)
+             );
+             INSERT INTO authors_new (id, name, sort, link)
+                SELECT id, name, sort, link FROM authors;
+             DROP TABLE authors;
+             ALTER TABLE authors_new RENAME TO authors;
+             COMMIT;",
+            "authors table",
+        )
+    }
+
+    fn rebuild_tags_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE tags_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE,
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE(name)
+             );
+             INSERT INTO tags_new (id, name, link)
+                SELECT id, name, link FROM tags;
+             DROP TABLE tags;
+             ALTER TABLE tags_new RENAME TO tags;
+             COMMIT;",
+            "tags table",
+        )
+    }
+
+    fn rebuild_series_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE series_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE,
+                sort TEXT COLLATE NOCASE,
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE(name)
+             );
+             INSERT INTO series_new (id, name, sort, link)
+                SELECT id, name, sort, link FROM series;
+             DROP TABLE series;
+             ALTER TABLE series_new RENAME TO series;
+             COMMIT;",
+            "series table",
+        )
+    }
+
+    fn rebuild_publishers_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE publishers_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE,
+                sort TEXT COLLATE NOCASE,
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE(name)
+             );
+             INSERT INTO publishers_new (id, name, sort, link)
+                SELECT id, name, sort, link FROM publishers;
+             DROP TABLE publishers;
+             ALTER TABLE publishers_new RENAME TO publishers;
+             COMMIT;",
+            "publishers table",
+        )
+    }
+
+    fn rebuild_languages_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE languages_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lang_code TEXT NOT NULL COLLATE NOCASE,
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE(lang_code)
+             );
+             INSERT INTO languages_new (id, lang_code, link)
+                SELECT id, lang_code, link FROM languages;
+             DROP TABLE languages;
+             ALTER TABLE languages_new RENAME TO languages;
+             COMMIT;",
+            "languages table",
+        )
+    }
+
+    fn rebuild_identifiers_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE identifiers_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book INTEGER NOT NULL,
+                type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE,
+                val TEXT NOT NULL COLLATE NOCASE,
+                UNIQUE(book, type),
+                FOREIGN KEY(book) REFERENCES books(id)
+             );
+             INSERT INTO identifiers_new (id, book, type, val)
+                SELECT id, book, type, val FROM identifiers;
+             DROP TABLE identifiers;
+             ALTER TABLE identifiers_new RENAME TO identifiers;
+             COMMIT;",
+            "identifiers table",
+        )
+    }
+
+    fn rebuild_data_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE data_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book INTEGER NOT NULL,
+                format TEXT NOT NULL COLLATE NOCASE,
+                uncompressed_size INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                UNIQUE(book, format)
+             );
+             INSERT INTO data_new (id, book, format, uncompressed_size, name)
+                SELECT id, book, format, uncompressed_size, name FROM data;
+             DROP TABLE data;
+             ALTER TABLE data_new RENAME TO data;
+             COMMIT;",
+            "data table",
+        )
+    }
+
+    fn rebuild_comments_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE comments_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book INTEGER NOT NULL,
+                text TEXT NOT NULL COLLATE NOCASE,
+                UNIQUE(book),
+                FOREIGN KEY(book) REFERENCES books(id)
+             );
+             INSERT INTO comments_new (id, book, text)
+                SELECT id, book, text FROM comments;
+             DROP TABLE comments;
+             ALTER TABLE comments_new RENAME TO comments;
+             COMMIT;",
+            "comments table",
+        )
+    }
+
+    fn rebuild_last_read_positions_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE last_read_positions_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book INTEGER NOT NULL,
+                format TEXT NOT NULL COLLATE NOCASE,
+                user TEXT NOT NULL,
+                device TEXT NOT NULL,
+                cfi TEXT NOT NULL,
+                epoch REAL NOT NULL,
+                pos_frac REAL NOT NULL DEFAULT 0,
+                UNIQUE(user, device, book, format)
+             );
+             INSERT INTO last_read_positions_new (
+                id,
+                book,
+                format,
+                user,
+                device,
+                cfi,
+                epoch,
+                pos_frac
+             )
+                SELECT
+                    id,
+                    book,
+                    format,
+                    user,
+                    device,
+                    cfi,
+                    epoch,
+                    pos_frac
+                FROM last_read_positions;
+             DROP TABLE last_read_positions;
+             ALTER TABLE last_read_positions_new RENAME TO last_read_positions;
+             COMMIT;",
+            "last_read_positions table",
+        )
+    }
+
+    fn rebuild_ratings_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE ratings_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rating INTEGER CHECK(rating > -1 AND rating < 11),
+                link TEXT NOT NULL DEFAULT '',
+                UNIQUE (rating)
+             );
+             INSERT INTO ratings_new (id, rating, link)
+                SELECT id, rating, link FROM ratings;
+             DROP TABLE ratings;
+             ALTER TABLE ratings_new RENAME TO ratings;
+             COMMIT;",
+            "ratings table",
+        )
+    }
+
+    fn rebuild_books_pages_link_table(&self) -> CoreResult<()> {
+        self.rebuild_with_foreign_keys_off(
+            "BEGIN;
+             CREATE TABLE books_pages_link_new (
+                book INTEGER PRIMARY KEY,
+                pages INTEGER NOT NULL DEFAULT 0,
+                algorithm INTEGER NOT NULL DEFAULT 0,
+                format TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+                format_size INTEGER NOT NULL DEFAULT 0,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                needs_scan INTEGER NOT NULL DEFAULT 0 CHECK(needs_scan IN (0, 1)),
+                FOREIGN KEY (book) REFERENCES books(id) ON DELETE CASCADE
+             );
+             INSERT INTO books_pages_link_new (
+                book,
+                pages,
+                algorithm,
+                format,
+                format_size,
+                timestamp,
+                needs_scan
+             )
+                SELECT
+                    book,
+                    pages,
+                    algorithm,
+                    format,
+                    format_size,
+                    timestamp,
+                    needs_scan
+                FROM books_pages_link;
+             DROP TABLE books_pages_link;
+             ALTER TABLE books_pages_link_new RENAME TO books_pages_link;
+             COMMIT;",
+            "books_pages_link table",
+        )
     }
 
     fn ensure_calibre_views(&self) -> CoreResult<()> {

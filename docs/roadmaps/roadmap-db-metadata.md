@@ -5,6 +5,33 @@
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table
 - [ ] Expand metadata schema migrations to full Calibre parity
+- [x] Align books table defaults/collations in schema
+- [x] Add books table rebuild migration for defaults/collations
+- [x] Align authors table collations in schema
+- [x] Add authors table rebuild migration for collations
+- [x] Align tags table collations in schema
+- [x] Add tags table rebuild migration for collations
+- [x] Align series table collations in schema
+- [x] Add series table rebuild migration for collations
+- [x] Align publishers table collations in schema
+- [x] Add publishers table rebuild migration for collations
+- [x] Align languages table collations in schema
+- [x] Add languages table rebuild migration for collations
+- [x] Align identifiers table defaults/collations in schema
+- [x] Add identifiers table rebuild migration for defaults/collations
+- [x] Align data table format collation in schema
+- [x] Add data table rebuild migration for format collation
+- [x] Align comments table text collation in schema
+- [x] Add comments table rebuild migration for text collation
+- [x] Align last_read_positions format collation in schema
+- [x] Add last_read_positions rebuild migration for format collation
+- [x] Align ratings table check constraint in schema
+- [x] Add ratings table rebuild migration for check constraint
+- [x] Align books_pages_link format collation in schema
+- [x] Add books_pages_link rebuild migration for format collation
+- [x] Add schema SQL inspection helpers for parity checks
+- [x] Add migration hook to enforce collations/defaults parity
+- [x] Bump schema version for collation/default parity
 - [x] Add books series_index column to match Calibre schema
 - [x] Add author sort/link columns
 - [x] Add publisher sort/link columns
