@@ -78,6 +78,251 @@ fn schema_columns_match_calibre_naming() {
 }
 
 #[test]
+fn schema_books_columns_match_calibre_core_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "books",
+        &[
+            "id",
+            "title",
+            "sort",
+            "timestamp",
+            "pubdate",
+            "series_index",
+            "author_sort",
+            "path",
+            "uuid",
+            "has_cover",
+            "last_modified",
+        ],
+    );
+}
+
+#[test]
+fn schema_authors_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "authors", &["id", "name", "sort", "link"]);
+}
+
+#[test]
+fn schema_tags_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "tags", &["id", "name", "link"]);
+}
+
+#[test]
+fn schema_series_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "series", &["id", "name", "sort", "link"]);
+}
+
+#[test]
+fn schema_publishers_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "publishers", &["id", "name", "sort", "link"]);
+}
+
+#[test]
+fn schema_ratings_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "ratings", &["id", "rating", "link"]);
+}
+
+#[test]
+fn schema_languages_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "languages", &["id", "lang_code", "link"]);
+}
+
+#[test]
+fn schema_books_authors_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_authors_link", &["id", "book", "author"]);
+}
+
+#[test]
+fn schema_books_tags_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_tags_link", &["id", "book", "tag"]);
+}
+
+#[test]
+fn schema_books_series_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_series_link", &["id", "book", "series"]);
+}
+
+#[test]
+fn schema_books_publishers_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_publishers_link", &["id", "book", "publisher"]);
+}
+
+#[test]
+fn schema_books_ratings_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_ratings_link", &["id", "book", "rating"]);
+}
+
+#[test]
+fn schema_books_languages_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "books_languages_link",
+        &["id", "book", "lang_code", "item_order"],
+    );
+}
+
+#[test]
+fn schema_identifiers_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "identifiers", &["id", "book", "type", "val"]);
+}
+
+#[test]
+fn schema_comments_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "comments", &["id", "book", "text"]);
+}
+
+#[test]
+fn schema_books_plugin_data_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "books_plugin_data", &["id", "book", "name", "val"]);
+}
+
+#[test]
+fn schema_books_pages_link_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "books_pages_link",
+        &[
+            "book",
+            "pages",
+            "algorithm",
+            "format",
+            "format_size",
+            "timestamp",
+            "needs_scan",
+        ],
+    );
+}
+
+#[test]
+fn schema_conversion_options_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "conversion_options", &["id", "format", "book", "data"]);
+}
+
+#[test]
+fn schema_custom_columns_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "custom_columns",
+        &[
+            "id",
+            "label",
+            "name",
+            "datatype",
+            "mark_for_delete",
+            "editable",
+            "display",
+            "is_multiple",
+            "normalized",
+        ],
+    );
+}
+
+#[test]
+fn schema_data_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "data",
+        &["id", "book", "format", "uncompressed_size", "name"],
+    );
+}
+
+#[test]
+fn schema_feeds_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "feeds", &["id", "title", "script"]);
+}
+
+#[test]
+fn schema_library_id_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "library_id", &["id", "uuid"]);
+}
+
+#[test]
+fn schema_metadata_dirtied_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "metadata_dirtied", &["id", "book"]);
+}
+
+#[test]
+fn schema_annotations_dirtied_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "annotations_dirtied", &["id", "book"]);
+}
+
+#[test]
+fn schema_preferences_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "preferences", &["id", "key", "val"]);
+}
+
+#[test]
+fn schema_last_read_positions_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "last_read_positions",
+        &[
+            "id", "book", "format", "user", "device", "cfi", "epoch", "pos_frac",
+        ],
+    );
+}
+
+#[test]
+fn schema_annotations_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(
+        &db,
+        "annotations",
+        &[
+            "id",
+            "book",
+            "format",
+            "user_type",
+            "user",
+            "timestamp",
+            "annot_id",
+            "annot_type",
+            "annot_data",
+            "searchable_text",
+        ],
+    );
+}
+
+#[test]
+fn schema_annotations_fts_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "annotations_fts", &["searchable_text"]);
+}
+
+#[test]
+fn schema_annotations_fts_stemmed_columns_match_calibre_fields() {
+    let (db, _tmp) = open_db();
+    assert_columns(&db, "annotations_fts_stemmed", &["searchable_text"]);
+}
+
+#[test]
 fn schema_includes_calibre_views_triggers_indices() {
     let (db, _tmp) = open_db();
     let views = [
@@ -415,4 +660,14 @@ fn table_columns(db: &Database, table: &str) -> std::collections::BTreeSet<Strin
         .expect("table columns")
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>()
+}
+
+fn assert_columns(db: &Database, table: &str, expected: &[&str]) {
+    let columns = table_columns(db, table);
+    for column in expected {
+        assert!(
+            columns.contains(*column),
+            "missing column {column} on {table}"
+        );
+    }
 }

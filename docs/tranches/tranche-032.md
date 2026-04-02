@@ -1,0 +1,32 @@
+# Tranche 032
+
+- [x] Add schema column parity test for books table core fields
+- [x] Add schema column parity test for authors table
+- [x] Add schema column parity test for tags table
+- [x] Add schema column parity test for series table
+- [x] Add schema column parity test for publishers table
+- [x] Add schema column parity test for ratings table
+- [x] Add schema column parity test for languages table
+- [x] Add schema column parity test for books_authors_link table
+- [x] Add schema column parity test for books_tags_link table
+- [x] Add schema column parity test for books_series_link table
+- [x] Add schema column parity test for books_publishers_link table
+- [x] Add schema column parity test for books_ratings_link table
+- [x] Add schema column parity test for books_languages_link table
+- [x] Add schema column parity test for identifiers table
+- [x] Add schema column parity test for comments table
+- [x] Add schema column parity test for books_plugin_data table
+- [x] Add schema column parity test for books_pages_link table
+- [x] Add schema column parity test for conversion_options table
+- [x] Add schema column parity test for custom_columns table
+- [x] Add schema column parity test for data table
+- [x] Add schema column parity test for feeds table
+- [x] Add schema column parity test for library_id table
+- [x] Add schema column parity test for metadata_dirtied table
+- [x] Add schema column parity test for annotations_dirtied table
+- [x] Add schema column parity test for preferences table
+- [x] Add schema column parity test for last_read_positions table
+- [x] Add schema column parity test for annotations table
+- [x] Add schema column parity test for annotations_fts table
+- [x] Add schema column parity test for annotations_fts_stemmed table
+- [x] Add ebook-convert CLI dry-run expectation for positional/shorthand/output-dir tests

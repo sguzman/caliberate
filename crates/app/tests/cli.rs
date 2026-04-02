@@ -523,6 +523,154 @@ fn calibre_server_user_commands() {
 }
 
 #[test]
+fn ebook_convert_positional_args() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("positional.epub");
+    std::fs::write(&input, b"positional").expect("write input");
+    let output_path = temp_dir.path().join("positional.pdf");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert positional");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&format!("Output: {}", output_path.display())));
+}
+
+#[test]
+fn ebook_convert_output_extension_shorthand() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("shorthand.epub");
+    std::fs::write(&input, b"shorthand").expect("write input");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            ".pdf",
+        ])
+        .output()
+        .expect("run ebook-convert shorthand");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Output: shorthand.pdf"));
+}
+
+#[test]
+fn ebook_convert_output_dir_override() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("outdir.epub");
+    std::fs::write(&input, b"outdir").expect("write input");
+    let output_path = temp_dir.path().join("outdir.pdf");
+    let output_dir = temp_dir.path().join("outputs");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            output_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert output-dir");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&format!(
+        "Output: {}",
+        output_dir.join("outdir.pdf").display()
+    )));
+}
+
+#[test]
+fn ebook_convert_rejects_unsupported_format() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("unsupported.bin");
+    std::fs::write(&input, b"unsupported").expect("write input");
+    let output = temp_dir.path().join("unsupported.epub");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert unsupported");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn ebook_convert_dry_run_outputs_plan() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("dryrun.epub");
+    std::fs::write(&input, b"dryrun").expect("write input");
+    let output = temp_dir.path().join("dryrun.pdf");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            "--max-input-bytes",
+            "1234",
+            "--disallow-passthrough",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert dry run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Max input bytes: 1234"));
+    assert!(stdout.contains("Allow passthrough: false"));
+}
+
+#[test]
+fn ebook_convert_max_input_bytes_override() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("maxbytes.epub");
+    std::fs::write(&input, b"maxbytes").expect("write input");
+    let output = temp_dir.path().join("maxbytes.pdf");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--max-input-bytes",
+            "1",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert max-input-bytes");
+    assert!(!output.status.success());
+}
+#[test]
 fn calibredb_list_categories() {
     let (temp_dir, config_path) = setup_library_config();
     let exe = env!("CARGO_BIN_EXE_calibredb");

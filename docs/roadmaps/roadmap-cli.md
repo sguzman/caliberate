@@ -123,6 +123,25 @@
 - [x] Add `calibre-server` download allow/disallow conflict guard
 - [x] Add `calibre-server` auth mode validation
 - [x] Add `calibre-server` normalized prefix in build_url
+- [x] Add `ebook-convert` positional input/output args
+- [x] Add `ebook-convert` output extension shorthand (.ext)
+- [x] Add `ebook-convert` output-dir override
+- [x] Add `ebook-convert` input format inference
+- [x] Add `ebook-convert` output format inference
+- [x] Add `ebook-convert` input existence guard
+- [x] Add `ebook-convert` output parent creation
+- [x] Add `ebook-convert` unsupported input format guard
+- [x] Add `ebook-convert` unsupported output format guard
+- [x] Add `ebook-convert --input-format` override
+- [x] Add `ebook-convert --output-format` override
+- [x] Add `ebook-convert --max-input-bytes` override
+- [x] Add `ebook-convert --allow-passthrough` override
+- [x] Add `ebook-convert --disallow-passthrough` override
+- [x] Add `ebook-convert` allow/disallow conflict guard
+- [x] Add `ebook-convert --dry-run` output
+- [x] Add `ebook-convert` dry-run plan output fields
+- [x] Add `ebook-convert` output format fallback from output extension
+- [x] Add `ebook-convert` append output extension when missing
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

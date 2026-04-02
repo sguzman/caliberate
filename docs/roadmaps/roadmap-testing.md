@@ -2,6 +2,36 @@
 
 - [x] Define Rust test harness structure and fixtures
 - [ ] Port Calibre DB tests for metadata and FTS parity
+- [x] Add schema column parity test for books table core fields
+- [x] Add schema column parity test for authors table
+- [x] Add schema column parity test for tags table
+- [x] Add schema column parity test for series table
+- [x] Add schema column parity test for publishers table
+- [x] Add schema column parity test for ratings table
+- [x] Add schema column parity test for languages table
+- [x] Add schema column parity test for books_authors_link table
+- [x] Add schema column parity test for books_tags_link table
+- [x] Add schema column parity test for books_series_link table
+- [x] Add schema column parity test for books_publishers_link table
+- [x] Add schema column parity test for books_ratings_link table
+- [x] Add schema column parity test for books_languages_link table
+- [x] Add schema column parity test for identifiers table
+- [x] Add schema column parity test for comments table
+- [x] Add schema column parity test for books_plugin_data table
+- [x] Add schema column parity test for books_pages_link table
+- [x] Add schema column parity test for conversion_options table
+- [x] Add schema column parity test for custom_columns table
+- [x] Add schema column parity test for data table
+- [x] Add schema column parity test for feeds table
+- [x] Add schema column parity test for library_id table
+- [x] Add schema column parity test for metadata_dirtied table
+- [x] Add schema column parity test for annotations_dirtied table
+- [x] Add schema column parity test for preferences table
+- [x] Add schema column parity test for last_read_positions table
+- [x] Add schema column parity test for annotations table
+- [x] Add schema column parity test for annotations_fts table
+- [x] Add schema column parity test for annotations_fts_stemmed table
+- [x] Add ebook-convert CLI dry-run expectation for positional/shorthand/output-dir tests
 - [x] Add schema parity tests for Calibre tables
 - [x] Add books_pages_link trigger test
 - [x] Add schema column naming tests for Calibre compatibility
@@ -69,6 +99,12 @@
 - [x] Add server CLI override test for auth/api-key flags
 - [x] Add server CLI override test for download flags
 - [x] Add server CLI override test for runtime overrides
+- [x] Add CLI test for ebook-convert positional args
+- [x] Add CLI test for ebook-convert .ext shorthand output
+- [x] Add CLI test for ebook-convert output-dir override
+- [x] Add CLI test for ebook-convert unsupported format
+- [x] Add CLI test for ebook-convert dry-run output
+- [x] Add CLI test for ebook-convert max-input-bytes override
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests
