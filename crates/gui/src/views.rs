@@ -29,6 +29,8 @@ pub struct LibraryView {
     books: Vec<BookRow>,
     selected: Option<i64>,
     details: Option<BookDetails>,
+    edit_mode: bool,
+    edit: EditState,
     search_query: String,
     status: String,
     last_error: Option<String>,
@@ -43,6 +45,8 @@ impl LibraryView {
             books: Vec::new(),
             selected: None,
             details: None,
+            edit_mode: false,
+            edit: EditState::default(),
             search_query: String::new(),
             status: "Ready".to_string(),
             last_error: None,
@@ -112,11 +116,33 @@ impl LibraryView {
                 }
             });
 
+        let mut action = None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Details");
             ui.separator();
             match &self.details {
                 Some(details) => {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!self.edit_mode, egui::Button::new("Edit"))
+                            .clicked()
+                        {
+                            action = Some(DetailAction::BeginEdit);
+                        }
+                        if ui
+                            .add_enabled(self.edit_mode, egui::Button::new("Save"))
+                            .clicked()
+                        {
+                            action = Some(DetailAction::SaveEdit);
+                        }
+                        if ui
+                            .add_enabled(self.edit_mode, egui::Button::new("Cancel"))
+                            .clicked()
+                        {
+                            action = Some(DetailAction::CancelEdit);
+                        }
+                    });
+                    ui.separator();
                     ui.label(format!("Title: {}", details.book.title));
                     ui.label(format!("Format: {}", details.book.format));
                     ui.label(format!("Path: {}", details.book.path));
@@ -155,6 +181,30 @@ impl LibraryView {
                         }
                     }
 
+                    if self.edit_mode {
+                        ui.separator();
+                        ui.heading("Edit Metadata");
+                        ui.label("Title");
+                        ui.text_edit_singleline(&mut self.edit.title);
+                        ui.label("Authors (comma separated)");
+                        ui.text_edit_singleline(&mut self.edit.authors);
+                        ui.label("Tags (comma separated)");
+                        ui.text_edit_singleline(&mut self.edit.tags);
+                        ui.label("Series");
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut self.edit.series_name);
+                            ui.add(
+                                egui::DragValue::new(&mut self.edit.series_index)
+                                    .speed(0.1)
+                                    .range(0.0..=999.0),
+                            );
+                        });
+                        ui.label("Identifiers (one per line, format: type:value)");
+                        ui.text_edit_multiline(&mut self.edit.identifiers);
+                        ui.label("Comment");
+                        ui.text_edit_multiline(&mut self.edit.comment);
+                    }
+
                     ui.separator();
                     ui.heading("Assets");
                     if details.assets.is_empty() {
@@ -178,6 +228,24 @@ impl LibraryView {
                 }
             }
         });
+
+        if let Some(action) = action {
+            match action {
+                DetailAction::BeginEdit => {
+                    self.begin_edit();
+                }
+                DetailAction::CancelEdit => {
+                    self.cancel_edit();
+                }
+                DetailAction::SaveEdit => {
+                    if let Err(err) = self.save_edit() {
+                        self.set_error(err);
+                    } else {
+                        self.clear_error();
+                    }
+                }
+            }
+        }
     }
 
     fn refresh_books(&mut self) -> CoreResult<()> {
@@ -225,6 +293,8 @@ impl LibraryView {
             identifiers,
             comment,
         });
+        self.edit = EditState::from_details(self.details.as_ref().expect("details"));
+        self.edit_mode = false;
         info!(component = "gui", book_id = id, "loaded book details");
         Ok(())
     }
@@ -236,5 +306,176 @@ impl LibraryView {
 
     fn clear_error(&mut self) {
         self.last_error = None;
+    }
+
+    fn begin_edit(&mut self) {
+        if let Some(details) = &self.details {
+            self.edit = EditState::from_details(details);
+            self.edit_mode = true;
+        }
+    }
+
+    fn cancel_edit(&mut self) {
+        if let Some(details) = &self.details {
+            self.edit = EditState::from_details(details);
+        }
+        self.edit_mode = false;
+        self.status = "Edit cancelled".to_string();
+    }
+
+    fn save_edit(&mut self) -> CoreResult<()> {
+        let Some(details) = &self.details else {
+            return Ok(());
+        };
+        let book_id = details.book.id;
+        let title = self.edit.title.trim();
+        if title.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "title cannot be empty".to_string(),
+            ));
+        }
+        self.db.update_book_title(book_id, title)?;
+        let authors = parse_list(&self.edit.authors);
+        let tags = parse_list(&self.edit.tags);
+        let identifiers = parse_identifiers(&self.edit.identifiers);
+        self.db.replace_book_authors(book_id, &authors)?;
+        self.db.replace_book_tags(book_id, &tags)?;
+        if self.edit.series_name.trim().is_empty() {
+            self.db.clear_book_series(book_id)?;
+        } else {
+            self.db.set_book_series(
+                book_id,
+                self.edit.series_name.trim(),
+                self.edit.series_index,
+            )?;
+        }
+        self.db.replace_book_identifiers(book_id, &identifiers)?;
+        let comment = self.edit.comment.trim();
+        if comment.is_empty() {
+            self.db.clear_book_comment(book_id)?;
+        } else {
+            self.db.set_book_comment(book_id, comment)?;
+        }
+        self.status = "Metadata saved".to_string();
+        self.edit_mode = false;
+        self.refresh_books()?;
+        self.load_details(book_id)?;
+        info!(component = "gui", book_id, "saved metadata edits");
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EditState {
+    title: String,
+    authors: String,
+    tags: String,
+    series_name: String,
+    series_index: f64,
+    identifiers: String,
+    comment: String,
+}
+
+impl Default for EditState {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            authors: String::new(),
+            tags: String::new(),
+            series_name: String::new(),
+            series_index: 1.0,
+            identifiers: String::new(),
+            comment: String::new(),
+        }
+    }
+}
+
+impl EditState {
+    fn from_details(details: &BookDetails) -> Self {
+        let identifiers = details
+            .identifiers
+            .iter()
+            .map(|entry| format!("{}:{}", entry.id_type, entry.value))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Self {
+            title: details.book.title.clone(),
+            authors: details.authors.join(", "),
+            tags: details.tags.join(", "),
+            series_name: details
+                .series
+                .as_ref()
+                .map(|s| s.name.clone())
+                .unwrap_or_default(),
+            series_index: details.series.as_ref().map(|s| s.index).unwrap_or(1.0),
+            identifiers,
+            comment: details.comment.clone().unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DetailAction {
+    BeginEdit,
+    SaveEdit,
+    CancelEdit,
+}
+
+fn parse_list(input: &str) -> Vec<String> {
+    input
+        .split(|c| c == ',' || c == '\n')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect()
+}
+
+fn parse_identifiers(input: &str) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    for line in input.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (id_type, value) = if let Some((left, right)) = line.split_once(':') {
+            (left, right)
+        } else if let Some((left, right)) = line.split_once('=') {
+            (left, right)
+        } else {
+            continue;
+        };
+        let id_type = id_type.trim();
+        let value = value.trim();
+        if id_type.is_empty() || value.is_empty() {
+            continue;
+        }
+        items.push((id_type.to_string(), value.to_string()));
+    }
+    items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_identifiers, parse_list};
+
+    #[test]
+    fn parses_list_values() {
+        let items = parse_list("Alice, Bob\nCara");
+        assert_eq!(
+            items,
+            vec!["Alice".to_string(), "Bob".to_string(), "Cara".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_identifiers_lines() {
+        let items = parse_identifiers("isbn:123\nasin=456\nbadline");
+        assert_eq!(
+            items,
+            vec![
+                ("isbn".to_string(), "123".to_string()),
+                ("asin".to_string(), "456".to_string())
+            ]
+        );
     }
 }

@@ -258,6 +258,22 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    pub fn update_book_title(&mut self, book_id: i64, title: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET title = ?1 WHERE id = ?2",
+                params![title, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book title".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
     pub fn list_books(&self) -> CoreResult<Vec<BookRecord>> {
         let mut stmt = self
             .conn
@@ -751,6 +767,78 @@ impl Database {
         Ok(())
     }
 
+    pub fn replace_book_authors(&mut self, book_id: i64, authors: &[String]) -> CoreResult<()> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin author replace transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "DELETE FROM books_authors_link WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear book authors".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let mut unique = std::collections::BTreeSet::new();
+        for author in authors
+            .iter()
+            .map(|value| value.trim())
+            .filter(|v| !v.is_empty())
+        {
+            unique.insert(author.to_string());
+        }
+        for author in unique {
+            let inserted = tx
+                .execute(
+                    "INSERT OR IGNORE INTO authors (name) VALUES (?1)",
+                    params![author],
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "insert author".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+            let author_id: i64 = if inserted == 0 {
+                tx.query_row(
+                    "SELECT id FROM authors WHERE name = ?1",
+                    params![author],
+                    |row| row.get(0),
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "lookup author".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?
+            } else {
+                tx.last_insert_rowid()
+            };
+            tx.execute(
+                "INSERT OR IGNORE INTO books_authors_link (book_id, author_id) VALUES (?1, ?2)",
+                params![book_id, author_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert book author link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        }
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit author replace transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
     pub fn list_book_authors(&self, book_id: i64) -> CoreResult<Vec<String>> {
         let mut stmt = self
             .conn
@@ -862,6 +950,76 @@ impl Database {
         tx.commit().map_err(|err| {
             CoreError::Io(
                 "commit tag link transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn replace_book_tags(&mut self, book_id: i64, tags: &[String]) -> CoreResult<()> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin tag replace transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "DELETE FROM books_tags_link WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear book tags".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let mut unique = std::collections::BTreeSet::new();
+        for tag in tags
+            .iter()
+            .map(|value| value.trim())
+            .filter(|v| !v.is_empty())
+        {
+            unique.insert(tag.to_string());
+        }
+        for tag in unique {
+            let inserted = tx
+                .execute(
+                    "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
+                    params![tag],
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "insert tag".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+            let tag_id: i64 = if inserted == 0 {
+                tx.query_row("SELECT id FROM tags WHERE name = ?1", params![tag], |row| {
+                    row.get(0)
+                })
+                .map_err(|err| {
+                    CoreError::Io(
+                        "lookup tag".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?
+            } else {
+                tx.last_insert_rowid()
+            };
+            tx.execute(
+                "INSERT OR IGNORE INTO books_tags_link (book_id, tag_id) VALUES (?1, ?2)",
+                params![book_id, tag_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert book tag link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        }
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit tag replace transaction".to_string(),
                 std::io::Error::new(std::io::ErrorKind::Other, err),
             )
         })?;
@@ -994,6 +1152,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_book_series(&mut self, book_id: i64) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "DELETE FROM books_series_link WHERE book_id = ?1",
+                params![book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "clear book series".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
     pub fn get_book_series(&self, book_id: i64) -> CoreResult<Option<SeriesEntry>> {
         self.conn
             .query_row(
@@ -1048,6 +1221,51 @@ impl Database {
         tx.commit().map_err(|err| {
             CoreError::Io(
                 "commit identifier transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn replace_book_identifiers(
+        &mut self,
+        book_id: i64,
+        identifiers: &[(String, String)],
+    ) -> CoreResult<()> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin identifier replace transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "DELETE FROM identifiers WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear identifiers".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        for (id_type, value) in identifiers {
+            if id_type.trim().is_empty() || value.trim().is_empty() {
+                continue;
+            }
+            tx.execute(
+                "INSERT OR REPLACE INTO identifiers (book_id, identifier_type, identifier_value)\n                 VALUES (?1, ?2, ?3)",
+                params![book_id, id_type, value],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert identifier".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        }
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit identifier replace transaction".to_string(),
                 std::io::Error::new(std::io::ErrorKind::Other, err),
             )
         })?;
@@ -1123,5 +1341,17 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })
+    }
+
+    pub fn clear_book_comment(&mut self, book_id: i64) -> CoreResult<()> {
+        self.conn
+            .execute("DELETE FROM comments WHERE book_id = ?1", params![book_id])
+            .map_err(|err| {
+                CoreError::Io(
+                    "clear comment".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
     }
 }

@@ -11,7 +11,7 @@
 - [x] Implement library status/error banner
 - [ ] Implement library view sorting/filtering parity
 - [x] Implement book details panel with metadata and assets
-- [ ] Implement metadata editing and persistence in GUI
+- [x] Implement metadata editing and persistence in GUI
 - [x] Add read-only preferences view from control-plane
 - [ ] Implement editable preferences and persistence
 - [ ] Implement reader/viewer integration

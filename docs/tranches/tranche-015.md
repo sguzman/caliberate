@@ -1,0 +1,33 @@
+# Tranche 015
+
+- [x] Add DB API to update book title
+- [x] Add DB API to replace book authors
+- [x] Add DB API to replace book tags
+- [x] Add DB API to replace book identifiers
+- [x] Add DB API to clear book series
+- [x] Add DB API to clear book comment
+- [x] Add DB metadata update test for title changes
+- [x] Add DB metadata update test for relation replacement
+- [x] Add GUI edit state for metadata fields
+- [x] Add GUI edit mode toggles (edit/save/cancel)
+- [x] Add GUI edit fields for title/authors/tags/series
+- [x] Add GUI edit fields for identifiers/comment
+- [x] Add GUI save flow for metadata edits
+- [x] Add GUI cancel flow for metadata edits
+- [x] Add GUI validation for required title
+- [x] Add GUI list refresh after metadata save
+- [x] Add GUI detail reload after metadata save
+- [x] Add GUI status message for metadata save
+- [x] Add GUI status message for edit cancel
+- [x] Add GUI edit state initialization from details
+- [x] Add GUI parsing helper for list fields
+- [x] Add GUI parsing helper for identifiers
+- [x] Add GUI parsing tests for lists
+- [x] Add GUI parsing tests for identifiers
+- [x] Log GUI metadata save action
+- [x] Clear series when series name is empty
+- [x] Clear comment when comment field is empty
+- [x] Update GUI roadmap for metadata editing
+- [x] Update testing roadmap with metadata update tests
+- [x] Update testing roadmap with GUI parsing tests
+- [x] Create tranche 015 record
