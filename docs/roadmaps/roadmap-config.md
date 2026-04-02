@@ -20,3 +20,5 @@
 - [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`
 - [x] Define `[conversion]` keys: `enabled`, `allow_passthrough`, `max_input_bytes`
 - [x] Define `[conversion]` keys: `default_output_format`, `temp_dir`, `output_dir`
+- [x] Define `[device]` keys: `mount_roots`, `library_subdir`
+- [x] Define `[plugins]` keys: `enabled`, `plugins_dir`

@@ -14,6 +14,11 @@
 - [x] Add GUI metadata parsing tests
 - [x] Add GUI preferences state tests
 - [x] Add DB book extras tests (publisher/rating/languages/dates)
+- [x] Add DB notes store tests
+- [x] Add device detection tests
+- [x] Add device sync tests
+- [x] Add plugin discovery tests
+- [x] Add plugin permission tests
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test

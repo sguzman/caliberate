@@ -86,3 +86,11 @@ tokenizer = "unicode61"
 rebuild_on_migrate = true
 min_query_len = 2
 result_limit = 100
+
+[device]
+mount_roots = ["./devices"]
+library_subdir = "Caliberate Library"
+
+[plugins]
+enabled = true
+plugins_dir = "./plugins"

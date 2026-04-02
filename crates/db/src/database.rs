@@ -69,6 +69,14 @@ pub struct BookExtras {
     pub languages: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct NoteRecord {
+    pub id: i64,
+    pub book_id: i64,
+    pub text: String,
+    pub created_at: String,
+}
+
 impl Database {
     pub fn open(config: &DbConfig) -> CoreResult<Self> {
         Self::open_with_fts(config, &FtsConfig::default())
@@ -223,6 +231,14 @@ impl Database {
                     text TEXT NOT NULL,
                     FOREIGN KEY(book_id) REFERENCES books(id)
                 );
+                CREATE TABLE IF NOT EXISTS notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(book_id) REFERENCES books(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_notes_book_id ON notes(book_id);
                 CREATE TABLE IF NOT EXISTS assets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book_id INTEGER NOT NULL,
@@ -1580,6 +1596,73 @@ impl Database {
                 )
             })?;
         Ok(())
+    }
+
+    pub fn add_note(&mut self, book_id: i64, text: &str, created_at: &str) -> CoreResult<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO notes (book_id, text, created_at) VALUES (?1, ?2, ?3)",
+                params![book_id, text, created_at],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert note".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn list_notes_for_book(&self, book_id: i64) -> CoreResult<Vec<NoteRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, book_id, text, created_at FROM notes WHERE book_id = ?1 ORDER BY id",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list notes".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map(params![book_id], |row| {
+                Ok(NoteRecord {
+                    id: row.get(0)?,
+                    book_id: row.get(1)?,
+                    text: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list notes".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut notes = Vec::new();
+        for row in rows {
+            notes.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list notes".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(notes)
+    }
+
+    pub fn delete_note(&mut self, note_id: i64) -> CoreResult<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM notes WHERE id = ?1", params![note_id])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete note".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(deleted > 0)
     }
 
     pub fn set_book_publisher(&mut self, book_id: i64, name: &str) -> CoreResult<()> {

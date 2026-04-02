@@ -6,3 +6,8 @@ edition = "2024"
 [dependencies]
 caliberate-core = { path = "../core" }
 tracing = "0.1.44"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

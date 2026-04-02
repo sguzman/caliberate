@@ -754,6 +754,7 @@ name = "caliberate-device"
 version = "0.1.0"
 dependencies = [
  "caliberate-core",
+ "tempfile",
  "tracing",
 ]
 
@@ -813,6 +814,9 @@ name = "caliberate-plugins"
 version = "0.1.0"
 dependencies = [
  "caliberate-core",
+ "serde",
+ "tempfile",
+ "toml",
  "tracing",
 ]
 

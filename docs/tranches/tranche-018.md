@@ -1,0 +1,32 @@
+# Tranche 018
+
+- [x] Define `[device]` keys: `mount_roots`, `library_subdir`
+- [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
+- [x] Inventory Calibre device support and drivers in Calibre reference source
+- [x] Define device parity targets and supported devices list
+- [x] Add device config defaults for mount roots and library subdir
+- [x] Define device model for detected devices
+- [x] Implement device detection scanning mount roots
+- [x] Implement device detection filtering by library subdir
+- [x] Add device detection tests
+- [x] Implement send-to-device file copy workflow
+- [x] Implement device library listing
+- [x] Implement device orphan cleanup workflow
+- [x] Add device sync workflow tests
+- [x] Inventory Calibre plugin APIs in Calibre reference source
+- [x] Define plugin architecture parity targets
+- [x] Define plugin manifest schema
+- [x] Implement plugin registry for loaded plugins
+- [x] Implement plugin discovery and loading
+- [x] Implement plugin sandboxing and permissions model
+- [x] Implement plugin extension point trait surface
+- [x] Add plugin discovery tests
+- [x] Add plugin permission parsing tests
+- [x] Implement notes store schema migrations
+- [x] Add notes store indexes
+- [x] Implement notes store APIs (add/list/delete)
+- [x] Add DB notes store tests
+- [x] Add device detection tests (testing roadmap)
+- [x] Add device sync tests (testing roadmap)
+- [x] Add plugin discovery tests (testing roadmap)
+- [x] Add plugin permission tests (testing roadmap)

@@ -18,7 +18,9 @@
 - [x] Implement database API for book lookup and deletion
 - [x] Implement database API for listing assets by book
 - [x] Implement asset tracking schema and APIs for storage policies
-- [ ] Implement notes store schema migrations
+- [x] Implement notes store schema migrations
+- [x] Add notes store indexes
+- [x] Implement notes store APIs (add/list/delete)
 - [x] Implement FTS schema and indexing pipeline
 - [x] Implement FTS triggers and rebuild flow
 - [x] Implement FTS search API with result limits

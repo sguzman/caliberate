@@ -20,6 +20,8 @@ pub struct ControlPlane {
     pub library: LibraryConfig,
     pub conversion: ConversionConfig,
     pub fts: FtsConfig,
+    pub device: DeviceConfig,
+    pub plugins: PluginsConfig,
 }
 
 impl ControlPlane {
@@ -123,6 +125,21 @@ impl ControlPlane {
         if self.conversion.default_output_format.trim().is_empty() {
             return Err(CoreError::ConfigValidate(
                 "conversion.default_output_format must not be empty".to_string(),
+            ));
+        }
+        if self.device.mount_roots.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "device.mount_roots must not be empty".to_string(),
+            ));
+        }
+        if self.device.library_subdir.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "device.library_subdir must not be empty".to_string(),
+            ));
+        }
+        if self.plugins.plugins_dir.as_os_str().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "plugins.plugins_dir must not be empty".to_string(),
             ));
         }
         Ok(())
@@ -363,6 +380,22 @@ pub struct FtsConfig {
     pub result_limit: usize,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeviceConfig {
+    #[serde(default = "default_device_mount_roots")]
+    pub mount_roots: Vec<PathBuf>,
+    #[serde(default = "default_device_library_subdir")]
+    pub library_subdir: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PluginsConfig {
+    #[serde(default = "default_plugins_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_plugins_dir")]
+    pub plugins_dir: PathBuf,
+}
+
 impl Default for FtsConfig {
     fn default() -> Self {
         Self {
@@ -489,6 +522,26 @@ fn default_fts_min_query_len() -> usize {
 
 fn default_fts_result_limit() -> usize {
     100
+}
+
+fn default_device_mount_roots() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("./devices"),
+        PathBuf::from("/media"),
+        PathBuf::from("/run/media"),
+    ]
+}
+
+fn default_device_library_subdir() -> String {
+    "Caliberate Library".to_string()
+}
+
+fn default_plugins_enabled() -> bool {
+    true
+}
+
+fn default_plugins_dir() -> PathBuf {
+    PathBuf::from("./plugins")
 }
 
 fn default_server_host() -> String {
