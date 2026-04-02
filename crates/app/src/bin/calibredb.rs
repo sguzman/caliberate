@@ -222,6 +222,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Comment: none");
             }
 
+            let extras = db.get_book_extras(id)?;
+            if let Some(publisher) = extras.publisher {
+                println!("Publisher: {publisher}");
+            } else {
+                println!("Publisher: none");
+            }
+            if let Some(rating) = extras.rating {
+                println!("Rating: {rating}");
+            } else {
+                println!("Rating: none");
+            }
+            if extras.languages.is_empty() {
+                println!("Languages: none");
+            } else {
+                println!("Languages: {}", extras.languages.join(", "));
+            }
+            if let Some(uuid) = extras.uuid {
+                println!("UUID: {uuid}");
+            } else {
+                println!("UUID: none");
+            }
+            println!("Has cover: {}", extras.has_cover);
+            if let Some(timestamp) = extras.timestamp {
+                println!("Timestamp: {timestamp}");
+            } else {
+                println!("Timestamp: none");
+            }
+            if let Some(pubdate) = extras.pubdate {
+                println!("Pubdate: {pubdate}");
+            } else {
+                println!("Pubdate: none");
+            }
+            if let Some(last_modified) = extras.last_modified {
+                println!("Last modified: {last_modified}");
+            } else {
+                println!("Last modified: none");
+            }
+
             let assets = db.list_assets_for_book(id)?;
             if assets.is_empty() {
                 println!("Assets: none");

@@ -1,0 +1,27 @@
+# Tranche 017
+
+- [x] Bump DB schema version for metadata extras
+- [x] Add publishers schema and link table
+- [x] Add ratings schema and link table
+- [x] Add languages schema and link table
+- [x] Add book columns for sort/timestamps/uuid/cover flags
+- [x] Add migration helper to ensure book columns exist
+- [x] Add DB API to update book sort
+- [x] Add DB API to update book author sort
+- [x] Add DB API to update book timestamp
+- [x] Add DB API to update book pubdate
+- [x] Add DB API to update book last modified
+- [x] Add DB API to update book uuid
+- [x] Add DB API to update book cover flag
+- [x] Add DB API to set/clear book publisher
+- [x] Add DB API to set/clear book rating
+- [x] Add DB API to set book languages
+- [x] Add DB API to read book extras bundle
+- [x] Add DB test for extras fields and relations
+- [x] Add DB test for clearing publisher and rating
+- [x] Display extras metadata in GUI details view
+- [x] Display publisher/rating/languages in CLI show output
+- [x] Update DB metadata roadmap with extras support
+- [x] Update CLI roadmap with show extras output
+- [x] Update testing roadmap with extras tests
+- [x] Create tranche 017 record

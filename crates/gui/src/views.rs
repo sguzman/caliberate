@@ -22,6 +22,7 @@ pub struct BookDetails {
     pub series: Option<SeriesEntry>,
     pub identifiers: Vec<IdentifierEntry>,
     pub comment: Option<String>,
+    pub extras: caliberate_db::database::BookExtras,
 }
 
 pub struct LibraryView {
@@ -242,6 +243,45 @@ impl LibraryView {
                             ui.label("Comment: none");
                         }
                     }
+                    if let Some(publisher) = &details.extras.publisher {
+                        ui.label(format!("Publisher: {publisher}"));
+                    } else {
+                        ui.label("Publisher: none");
+                    }
+                    if let Some(rating) = details.extras.rating {
+                        ui.label(format!("Rating: {rating}"));
+                    } else {
+                        ui.label("Rating: none");
+                    }
+                    if details.extras.languages.is_empty() {
+                        ui.label("Languages: none");
+                    } else {
+                        ui.label(format!(
+                            "Languages: {}",
+                            details.extras.languages.join(", ")
+                        ));
+                    }
+                    if let Some(uuid) = &details.extras.uuid {
+                        ui.label(format!("UUID: {uuid}"));
+                    } else {
+                        ui.label("UUID: none");
+                    }
+                    ui.label(format!("Has cover: {}", details.extras.has_cover));
+                    if let Some(timestamp) = &details.extras.timestamp {
+                        ui.label(format!("Timestamp: {timestamp}"));
+                    } else {
+                        ui.label("Timestamp: none");
+                    }
+                    if let Some(pubdate) = &details.extras.pubdate {
+                        ui.label(format!("Pubdate: {pubdate}"));
+                    } else {
+                        ui.label("Pubdate: none");
+                    }
+                    if let Some(last_modified) = &details.extras.last_modified {
+                        ui.label(format!("Last modified: {last_modified}"));
+                    } else {
+                        ui.label("Last modified: none");
+                    }
 
                     if self.edit_mode {
                         ui.separator();
@@ -354,6 +394,7 @@ impl LibraryView {
         let series = self.db.get_book_series(id)?;
         let identifiers = self.db.list_book_identifiers(id)?;
         let comment = self.db.get_book_comment(id)?;
+        let extras = self.db.get_book_extras(id)?;
         self.details = Some(BookDetails {
             book,
             assets,
@@ -362,6 +403,7 @@ impl LibraryView {
             series,
             identifiers,
             comment,
+            extras,
         });
         self.edit = EditState::from_details(self.details.as_ref().expect("details"));
         self.edit_mode = false;

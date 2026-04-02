@@ -5,6 +5,12 @@
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table
 - [ ] Expand metadata schema migrations to full Calibre parity
+- [x] Add publishers schema and book link support
+- [x] Add ratings schema and book link support
+- [x] Add languages schema and book link support
+- [x] Add book timestamp/pubdate/uuid/cover fields
+- [x] Add DB API for publisher/rating/language metadata
+- [x] Add DB API for book timestamp/pubdate/uuid/cover metadata
 - [x] Add metadata relation tables (authors, tags, series, identifiers, comments)
 - [x] Add metadata relation APIs (authors, tags, series, identifiers, comments)
 - [x] Expand basic search to include metadata relations

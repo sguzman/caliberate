@@ -13,6 +13,7 @@
 - [x] Add `calibredb remove` file deletion controls
 - [x] Add `calibredb show` asset listing output
 - [x] Persist metadata relations during `calibredb add`
+- [x] Add `calibredb show` output for publisher/language/rating metadata
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

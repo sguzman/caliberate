@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug)]
 pub struct Database {
@@ -53,6 +53,20 @@ pub struct AssetRow {
     pub checksum: Option<String>,
     pub is_compressed: bool,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BookExtras {
+    pub sort: Option<String>,
+    pub timestamp: Option<String>,
+    pub pubdate: Option<String>,
+    pub author_sort: Option<String>,
+    pub uuid: Option<String>,
+    pub has_cover: bool,
+    pub last_modified: Option<String>,
+    pub publisher: Option<String>,
+    pub rating: Option<i64>,
+    pub languages: Vec<String>,
 }
 
 impl Database {
@@ -223,7 +237,47 @@ impl Database {
                     FOREIGN KEY(book_id) REFERENCES books(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_assets_book_id ON assets(book_id);
-                CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);",
+                CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);
+                CREATE TABLE IF NOT EXISTS publishers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE
+                );
+                CREATE TABLE IF NOT EXISTS books_publishers_link (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    publisher_id INTEGER NOT NULL,
+                    FOREIGN KEY(book_id) REFERENCES books(id),
+                    FOREIGN KEY(publisher_id) REFERENCES publishers(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_books_publishers_book_id ON books_publishers_link(book_id);
+                CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher_id);
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rating INTEGER NOT NULL UNIQUE
+                );
+                CREATE TABLE IF NOT EXISTS books_ratings_link (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    rating_id INTEGER NOT NULL,
+                    FOREIGN KEY(book_id) REFERENCES books(id),
+                    FOREIGN KEY(rating_id) REFERENCES ratings(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_books_ratings_book_id ON books_ratings_link(book_id);
+                CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating_id);
+                CREATE TABLE IF NOT EXISTS languages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lang_code TEXT NOT NULL UNIQUE
+                );
+                CREATE TABLE IF NOT EXISTS books_languages_link (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    language_id INTEGER NOT NULL,
+                    item_order INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY(book_id) REFERENCES books(id),
+                    FOREIGN KEY(language_id) REFERENCES languages(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book_id);
+                CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(language_id);",
             )
             .map_err(|err| {
                 CoreError::Io(
@@ -231,8 +285,65 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
+        self.ensure_book_columns()?;
         if self.fts.enabled {
             self.ensure_fts_schema()?;
+        }
+        Ok(())
+    }
+
+    fn ensure_book_columns(&self) -> CoreResult<()> {
+        let columns = [
+            ("sort", "ALTER TABLE books ADD COLUMN sort TEXT"),
+            ("timestamp", "ALTER TABLE books ADD COLUMN timestamp TEXT"),
+            ("pubdate", "ALTER TABLE books ADD COLUMN pubdate TEXT"),
+            (
+                "author_sort",
+                "ALTER TABLE books ADD COLUMN author_sort TEXT",
+            ),
+            ("uuid", "ALTER TABLE books ADD COLUMN uuid TEXT"),
+            (
+                "has_cover",
+                "ALTER TABLE books ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "last_modified",
+                "ALTER TABLE books ADD COLUMN last_modified TEXT",
+            ),
+        ];
+        let mut stmt = self
+            .conn
+            .prepare("PRAGMA table_info(books)")
+            .map_err(|err| {
+                CoreError::Io(
+                    "read books schema".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let existing = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|err| {
+                CoreError::Io(
+                    "read books columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()
+            .map_err(|err| {
+                CoreError::Io(
+                    "read books columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        for (column, ddl) in columns {
+            if !existing.contains(column) {
+                self.conn.execute(ddl, []).map_err(|err| {
+                    CoreError::Io(
+                        format!("add books column {column}"),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+            }
         }
         Ok(())
     }
@@ -268,6 +379,122 @@ impl Database {
             .map_err(|err| {
                 CoreError::Io(
                     "update book title".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_sort(&mut self, book_id: i64, sort: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET sort = ?1 WHERE id = ?2",
+                params![sort, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book sort".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_author_sort(&mut self, book_id: i64, author_sort: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET author_sort = ?1 WHERE id = ?2",
+                params![author_sort, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book author sort".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_timestamp(&mut self, book_id: i64, timestamp: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET timestamp = ?1 WHERE id = ?2",
+                params![timestamp, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book timestamp".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_pubdate(&mut self, book_id: i64, pubdate: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET pubdate = ?1 WHERE id = ?2",
+                params![pubdate, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book pubdate".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_last_modified(
+        &mut self,
+        book_id: i64,
+        last_modified: &str,
+    ) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET last_modified = ?1 WHERE id = ?2",
+                params![last_modified, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book last modified".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_uuid(&mut self, book_id: i64, uuid: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET uuid = ?1 WHERE id = ?2",
+                params![uuid, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book uuid".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn update_book_has_cover(&mut self, book_id: i64, has_cover: bool) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE books SET has_cover = ?1 WHERE id = ?2",
+                params![if has_cover { 1 } else { 0 }, book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book cover flag".to_string(),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
@@ -1353,5 +1580,351 @@ impl Database {
                 )
             })?;
         Ok(())
+    }
+
+    pub fn set_book_publisher(&mut self, book_id: i64, name: &str) -> CoreResult<()> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin publisher transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let inserted = tx
+            .execute(
+                "INSERT OR IGNORE INTO publishers (name) VALUES (?1)",
+                params![name],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert publisher".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let publisher_id: i64 = if inserted == 0 {
+            tx.query_row(
+                "SELECT id FROM publishers WHERE name = ?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "lookup publisher".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?
+        } else {
+            tx.last_insert_rowid()
+        };
+        tx.execute(
+            "DELETE FROM books_publishers_link WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear book publisher".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "INSERT OR IGNORE INTO books_publishers_link (book_id, publisher_id) VALUES (?1, ?2)",
+            params![book_id, publisher_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "insert book publisher".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit publisher transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn clear_book_publisher(&mut self, book_id: i64) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "DELETE FROM books_publishers_link WHERE book_id = ?1",
+                params![book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "clear book publisher".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    pub fn set_book_rating(&mut self, book_id: i64, rating: i64) -> CoreResult<()> {
+        if !(0..=10).contains(&rating) {
+            return Err(CoreError::ConfigValidate(
+                "rating must be between 0 and 10".to_string(),
+            ));
+        }
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin rating transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        if rating == 0 {
+            tx.execute(
+                "DELETE FROM books_ratings_link WHERE book_id = ?1",
+                params![book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "clear book rating".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+            tx.commit().map_err(|err| {
+                CoreError::Io(
+                    "commit rating transaction".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+            return Ok(());
+        }
+        let inserted = tx
+            .execute(
+                "INSERT OR IGNORE INTO ratings (rating) VALUES (?1)",
+                params![rating],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert rating".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rating_id: i64 = if inserted == 0 {
+            tx.query_row(
+                "SELECT id FROM ratings WHERE rating = ?1",
+                params![rating],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "lookup rating".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?
+        } else {
+            tx.last_insert_rowid()
+        };
+        tx.execute(
+            "DELETE FROM books_ratings_link WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear book rating".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "INSERT OR IGNORE INTO books_ratings_link (book_id, rating_id) VALUES (?1, ?2)",
+            params![book_id, rating_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "insert book rating".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit rating transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn set_book_languages(&mut self, book_id: i64, languages: &[String]) -> CoreResult<()> {
+        let tx = self.conn.transaction().map_err(|err| {
+            CoreError::Io(
+                "begin language transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "DELETE FROM books_languages_link WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "clear book languages".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        for (order, lang) in languages
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .enumerate()
+        {
+            let inserted = tx
+                .execute(
+                    "INSERT OR IGNORE INTO languages (lang_code) VALUES (?1)",
+                    params![lang],
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "insert language".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+            let language_id: i64 = if inserted == 0 {
+                tx.query_row(
+                    "SELECT id FROM languages WHERE lang_code = ?1",
+                    params![lang],
+                    |row| row.get(0),
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "lookup language".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?
+            } else {
+                tx.last_insert_rowid()
+            };
+            tx.execute(
+                "INSERT OR IGNORE INTO books_languages_link (book_id, language_id, item_order) VALUES (?1, ?2, ?3)",
+                params![book_id, language_id, order as i64],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert book language".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        }
+        tx.commit().map_err(|err| {
+            CoreError::Io(
+                "commit language transaction".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        Ok(())
+    }
+
+    pub fn get_book_extras(&self, book_id: i64) -> CoreResult<BookExtras> {
+        let (sort, timestamp, pubdate, author_sort, uuid, has_cover, last_modified): (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            Option<String>,
+        ) = self
+            .conn
+            .query_row(
+                "SELECT sort, timestamp, pubdate, author_sort, uuid, has_cover, last_modified
+                 FROM books WHERE id = ?1",
+                params![book_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "query book extras".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let publisher = self
+            .conn
+            .query_row(
+                "SELECT p.name
+                 FROM books_publishers_link bpl
+                 JOIN publishers p ON p.id = bpl.publisher_id
+                 WHERE bpl.book_id = ?1",
+                params![book_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query publisher".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rating = self
+            .conn
+            .query_row(
+                "SELECT r.rating
+                 FROM books_ratings_link brl
+                 JOIN ratings r ON r.id = brl.rating_id
+                 WHERE brl.book_id = ?1",
+                params![book_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query rating".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT l.lang_code
+                 FROM books_languages_link bll
+                 JOIN languages l ON l.id = bll.language_id
+                 WHERE bll.book_id = ?1
+                 ORDER BY bll.item_order",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map(params![book_id], |row| row.get(0))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut languages = Vec::new();
+        for row in rows {
+            languages.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+
+        Ok(BookExtras {
+            sort,
+            timestamp,
+            pubdate,
+            author_sort,
+            uuid,
+            has_cover: has_cover != 0,
+            last_modified,
+            publisher,
+            rating,
+            languages,
+        })
     }
 }
