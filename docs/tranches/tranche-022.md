@@ -1,0 +1,33 @@
+# Tranche 022
+
+- [x] Register title_sort scalar function
+- [x] Register books_list_filter scalar function
+- [x] Register uuid4 scalar function
+- [x] Register concat aggregate function
+- [x] Register sortconcat aggregate function
+- [x] Add meta view
+- [x] Add tag_browser_authors view
+- [x] Add tag_browser_filtered_authors view
+- [x] Add tag_browser_filtered_publishers view
+- [x] Add tag_browser_filtered_ratings view
+- [x] Add tag_browser_filtered_series view
+- [x] Add tag_browser_filtered_tags view
+- [x] Add tag_browser_publishers view
+- [x] Add tag_browser_ratings view
+- [x] Add tag_browser_series view
+- [x] Add tag_browser_tags view
+- [x] Add Calibre indices for author/book/links
+- [x] Add Calibre indices for comments/conversion/custom/data
+- [x] Add Calibre indices for lrp/annotations/formats/languages/publishers/series/tags
+- [x] Add books_delete_trg cleanup trigger
+- [x] Add books_insert_trg sort/uuid trigger
+- [x] Add books_update_trg title_sort trigger
+- [x] Add foreign-key guard triggers for comments/data/lrp/annotations
+- [x] Add delete-guard triggers for authors/languages/publishers/series/tags
+- [x] Add insert-guard triggers for link tables
+- [x] Add update-guard triggers for link tables
+- [x] Add series_insert_trg title_sort trigger
+- [x] Add series_update_trg title_sort trigger
+- [x] Set Calibre application_id and user_version pragmas
+- [x] Add view/trigger/index existence tests for Calibre parity
+- [x] Add Calibre SQL function behavior tests

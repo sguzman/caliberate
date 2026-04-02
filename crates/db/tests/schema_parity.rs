@@ -78,6 +78,149 @@ fn schema_columns_match_calibre_naming() {
 }
 
 #[test]
+fn schema_includes_calibre_views_triggers_indices() {
+    let (db, _tmp) = open_db();
+    let views = [
+        "meta",
+        "tag_browser_authors",
+        "tag_browser_filtered_authors",
+        "tag_browser_filtered_publishers",
+        "tag_browser_filtered_ratings",
+        "tag_browser_filtered_series",
+        "tag_browser_filtered_tags",
+        "tag_browser_publishers",
+        "tag_browser_ratings",
+        "tag_browser_series",
+        "tag_browser_tags",
+    ];
+    for view in views {
+        assert!(
+            db.schema_object_exists("view", view).unwrap_or(false),
+            "missing view {view}"
+        );
+    }
+
+    let triggers = [
+        "books_delete_trg",
+        "books_insert_trg",
+        "books_update_trg",
+        "fkc_comments_insert",
+        "fkc_comments_update",
+        "fkc_data_insert",
+        "fkc_data_update",
+        "fkc_lrp_insert",
+        "fkc_lrp_update",
+        "fkc_annot_insert",
+        "fkc_annot_update",
+        "fkc_delete_on_authors",
+        "fkc_delete_on_languages",
+        "fkc_delete_on_languages_link",
+        "fkc_delete_on_publishers",
+        "fkc_delete_on_series",
+        "fkc_delete_on_tags",
+        "fkc_insert_books_authors_link",
+        "fkc_insert_books_publishers_link",
+        "fkc_insert_books_ratings_link",
+        "fkc_insert_books_series_link",
+        "fkc_insert_books_tags_link",
+        "fkc_update_books_authors_link_a",
+        "fkc_update_books_authors_link_b",
+        "fkc_update_books_languages_link_a",
+        "fkc_update_books_languages_link_b",
+        "fkc_update_books_publishers_link_a",
+        "fkc_update_books_publishers_link_b",
+        "fkc_update_books_ratings_link_a",
+        "fkc_update_books_ratings_link_b",
+        "fkc_update_books_series_link_a",
+        "fkc_update_books_series_link_b",
+        "fkc_update_books_tags_link_a",
+        "fkc_update_books_tags_link_b",
+        "series_insert_trg",
+        "series_update_trg",
+    ];
+    for trigger in triggers {
+        assert!(
+            db.schema_object_exists("trigger", trigger).unwrap_or(false),
+            "missing trigger {trigger}"
+        );
+    }
+
+    let indices = [
+        "authors_idx",
+        "books_authors_link_aidx",
+        "books_authors_link_bidx",
+        "books_idx",
+        "books_languages_link_aidx",
+        "books_languages_link_bidx",
+        "books_publishers_link_aidx",
+        "books_publishers_link_bidx",
+        "books_ratings_link_aidx",
+        "books_ratings_link_bidx",
+        "books_series_link_aidx",
+        "books_series_link_bidx",
+        "books_tags_link_aidx",
+        "books_tags_link_bidx",
+        "comments_idx",
+        "conversion_options_idx_a",
+        "conversion_options_idx_b",
+        "custom_columns_idx",
+        "data_idx",
+        "lrp_idx",
+        "annot_idx",
+        "formats_idx",
+        "languages_idx",
+        "publishers_idx",
+        "series_idx",
+        "tags_idx",
+    ];
+    for index in indices {
+        assert!(
+            db.schema_object_exists("index", index).unwrap_or(false),
+            "missing index {index}"
+        );
+    }
+}
+
+#[test]
+fn calibre_sql_functions_behave() {
+    let (db, _tmp) = open_db();
+    let title = db
+        .query_scalar_string("SELECT title_sort('The Hobbit')")
+        .expect("title sort")
+        .expect("value");
+    assert_eq!(title, "hobbit");
+
+    let list_filter = db
+        .query_scalar_i64("SELECT books_list_filter(1)")
+        .expect("list filter")
+        .expect("value");
+    assert_eq!(list_filter, 1);
+
+    let concat = db
+        .query_scalar_string(
+            "SELECT concat(val) FROM (SELECT 'b' AS val UNION ALL SELECT 'a' AS val ORDER BY val)",
+        )
+        .expect("concat")
+        .expect("value");
+    assert_eq!(concat, "a, b");
+
+    let sortconcat = db
+        .query_scalar_string(
+            "SELECT sortconcat(ord, val) FROM (SELECT 2 AS ord, 'b' AS val UNION ALL SELECT 1 AS ord, 'a' AS val)",
+        )
+        .expect("sortconcat")
+        .expect("value");
+    assert_eq!(sortconcat, "a, b");
+
+    let uuid = db
+        .query_scalar_string("SELECT uuid4()")
+        .expect("uuid4")
+        .expect("value");
+    assert_eq!(uuid.len(), 36);
+    assert!(uuid.contains('-'));
+}
+
+#[test]
 fn books_pages_link_auto_creates_entry() {
     let (db, _tmp) = open_db();
     let book_id = db

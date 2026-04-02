@@ -6,6 +6,8 @@
 - [x] Add books_pages_link trigger test
 - [x] Add schema column naming tests for Calibre compatibility
 - [x] Add table column helper for schema tests
+- [x] Add view/trigger/index existence tests for Calibre parity
+- [x] Add Calibre SQL function behavior tests
 - [x] Add ingest pipeline tests (copy vs reference)
 - [x] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add 7z archive preview/extraction test
