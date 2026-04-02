@@ -1098,6 +1098,248 @@ fn calibredb_embed_metadata() {
         .expect("book parent");
     assert!(book_dir.join("metadata.opf").exists());
 }
+
+#[test]
+fn calibredb_show_metadata_default() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("showmeta.epub");
+    std::fs::write(&book_path, b"showmeta").expect("write show meta book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .to_string();
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "show-metadata",
+            "--id",
+            &id,
+        ])
+        .output()
+        .expect("run calibredb show-metadata");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"title\""));
+}
+
+#[test]
+fn calibredb_show_metadata_opf() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("showmeta-opf.epub");
+    std::fs::write(&book_path, b"showmeta opf").expect("write show meta opf book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .to_string();
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "show-metadata",
+            "--id",
+            &id,
+            "--as-opf",
+        ])
+        .output()
+        .expect("run calibredb show-metadata opf");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("<dc:title>"));
+}
+
+#[test]
+fn calibredb_set_metadata_list_fields() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set-metadata",
+            "--id",
+            "1",
+            "--list-fields",
+        ])
+        .output()
+        .expect("run calibredb set-metadata list-fields");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("title"));
+}
+
+#[test]
+fn calibredb_set_metadata_title() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("setmeta.epub");
+    std::fs::write(&book_path, b"setmeta").expect("write set meta book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set-metadata",
+            "--id",
+            &id.to_string(),
+            "--field",
+            "title:New Title",
+        ])
+        .output()
+        .expect("run calibredb set-metadata title");
+    assert!(output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let book = db.get_book(id).expect("get book").expect("book");
+    assert_eq!(book.title, "New Title");
+}
+
+#[test]
+fn calibredb_set_metadata_identifiers() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("setmeta-id.epub");
+    std::fs::write(&book_path, b"setmeta id").expect("write set meta id book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set-metadata",
+            "--id",
+            &id.to_string(),
+            "--field",
+            "identifiers:isbn:1234,asin:ZXCV",
+        ])
+        .output()
+        .expect("run calibredb set-metadata identifiers");
+    assert!(output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let identifiers = db.list_book_identifiers(id).expect("list identifiers");
+    assert!(identifiers.iter().any(|item| item.id_type == "isbn"));
+}
+
+#[test]
+fn calibredb_set_metadata_series_index() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("setmeta-series.epub");
+    std::fs::write(&book_path, b"setmeta series").expect("write set meta series");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set-metadata",
+            "--id",
+            &id.to_string(),
+            "--field",
+            "series:Saga",
+            "--field",
+            "series_index:2.5",
+        ])
+        .output()
+        .expect("run calibredb set-metadata series");
+    assert!(output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let series = db.get_book_series(id).expect("get series");
+    assert_eq!(series.map(|entry| entry.index), Some(2.5));
+}
 fn workspace_config() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir

@@ -36,6 +36,12 @@ enum CalibredbCommand {
         #[arg(long)]
         id: i64,
     },
+    ShowMetadata {
+        #[arg(long)]
+        id: i64,
+        #[arg(long, default_value_t = false)]
+        as_opf: bool,
+    },
     Remove {
         #[arg(long)]
         id: i64,
@@ -84,6 +90,14 @@ enum CalibredbCommand {
         label: String,
         #[arg(long)]
         value: String,
+    },
+    SetMetadata {
+        #[arg(long)]
+        id: i64,
+        #[arg(long, default_value_t = false)]
+        list_fields: bool,
+        #[arg(long)]
+        field: Vec<String>,
     },
     RestoreDatabase {
         #[arg(long)]
@@ -549,6 +563,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Some(CalibredbCommand::ShowMetadata { id, as_opf }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let output = build_metadata_output(&db, id)?;
+            if as_opf {
+                let opf = render_opf(&output)?;
+                println!("{opf}");
+            } else {
+                let json = serde_json::to_string_pretty(&output)?;
+                println!("{json}");
+            }
+        }
         Some(CalibredbCommand::Remove {
             id,
             delete_files,
@@ -789,6 +814,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             db.set_custom_value(id, &label, &value)?;
             println!("Updated custom column {label} for book {id}");
+        }
+        Some(CalibredbCommand::SetMetadata {
+            id,
+            list_fields,
+            field,
+        }) => {
+            if list_fields {
+                print_metadata_fields();
+                return Ok(());
+            }
+            if field.is_empty() {
+                return Err("set-metadata requires --field or --list-fields".into());
+            }
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            if db.get_book(id)?.is_none() {
+                return Err(format!("book not found: {id}").into());
+            }
+            apply_metadata_fields(&mut db, id, &field)?;
+            println!("Updated metadata for book {id}");
         }
         Some(CalibredbCommand::RestoreDatabase { input_dir }) => {
             let mut db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -1302,6 +1346,27 @@ struct BackupMetadata {
     last_modified: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct ShowMetadataOutput {
+    id: i64,
+    title: String,
+    format: String,
+    path: String,
+    authors: Vec<String>,
+    tags: Vec<String>,
+    series: Option<String>,
+    series_index: Option<f64>,
+    identifiers: Vec<BackupIdentifier>,
+    comment: Option<String>,
+    publisher: Option<String>,
+    rating: Option<i64>,
+    languages: Vec<String>,
+    uuid: Option<String>,
+    timestamp: Option<String>,
+    pubdate: Option<String>,
+    last_modified: Option<String>,
+}
+
 fn backup_metadata(
     db: &Database,
     ids: &[i64],
@@ -1349,6 +1414,220 @@ fn backup_metadata(
         std::fs::write(out_path, encoded)?;
     }
     Ok(())
+}
+
+fn build_metadata_output(
+    db: &Database,
+    id: i64,
+) -> Result<ShowMetadataOutput, Box<dyn std::error::Error>> {
+    let book = db
+        .get_book(id)?
+        .ok_or_else(|| format!("Id #{id} is not present in database."))?;
+    let authors = db.list_book_authors(id)?;
+    let tags = db.list_book_tags(id)?;
+    let series = db.get_book_series(id)?;
+    let identifiers = db
+        .list_book_identifiers(id)?
+        .into_iter()
+        .map(|item| BackupIdentifier {
+            id_type: item.id_type,
+            value: item.value,
+        })
+        .collect::<Vec<_>>();
+    let comment = db.get_book_comment(id)?;
+    let extras = db.get_book_extras(id)?;
+    Ok(ShowMetadataOutput {
+        id: book.id,
+        title: book.title,
+        format: book.format,
+        path: book.path,
+        authors,
+        tags,
+        series: series.as_ref().map(|entry| entry.name.clone()),
+        series_index: series.map(|entry| entry.index),
+        identifiers,
+        comment,
+        publisher: extras.publisher,
+        rating: extras.rating,
+        languages: extras.languages,
+        uuid: extras.uuid,
+        timestamp: extras.timestamp,
+        pubdate: extras.pubdate,
+        last_modified: extras.last_modified,
+    })
+}
+
+fn render_opf(metadata: &ShowMetadataOutput) -> Result<String, Box<dyn std::error::Error>> {
+    let mut opf = String::new();
+    opf.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    opf.push_str(
+        "<package version=\"2.0\" xmlns=\"http://www.idpf.org/2007/opf\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n",
+    );
+    opf.push_str("  <metadata>\n");
+    opf.push_str(&format!(
+        "    <dc:title>{}</dc:title>\n",
+        xml_escape(&metadata.title)
+    ));
+    for author in &metadata.authors {
+        opf.push_str(&format!(
+            "    <dc:creator>{}</dc:creator>\n",
+            xml_escape(author)
+        ));
+    }
+    for tag in &metadata.tags {
+        opf.push_str(&format!(
+            "    <dc:subject>{}</dc:subject>\n",
+            xml_escape(tag)
+        ));
+    }
+    for identifier in &metadata.identifiers {
+        opf.push_str(&format!(
+            "    <dc:identifier id=\"{}\">{}</dc:identifier>\n",
+            xml_escape(&identifier.id_type),
+            xml_escape(&identifier.value)
+        ));
+    }
+    if let Some(series) = metadata.series.as_ref() {
+        opf.push_str(&format!(
+            "    <meta name=\"calibre:series\" content=\"{}\" />\n",
+            xml_escape(series)
+        ));
+    }
+    if let Some(series_index) = metadata.series_index {
+        opf.push_str(&format!(
+            "    <meta name=\"calibre:series_index\" content=\"{}\" />\n",
+            series_index
+        ));
+    }
+    if let Some(publisher) = metadata.publisher.as_ref() {
+        opf.push_str(&format!(
+            "    <dc:publisher>{}</dc:publisher>\n",
+            xml_escape(publisher)
+        ));
+    }
+    if let Some(comment) = metadata.comment.as_ref() {
+        opf.push_str(&format!(
+            "    <dc:description>{}</dc:description>\n",
+            xml_escape(comment)
+        ));
+    }
+    opf.push_str("  </metadata>\n");
+    opf.push_str("</package>\n");
+    Ok(opf)
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn print_metadata_fields() {
+    println!("title");
+    println!("authors");
+    println!("tags");
+    println!("series");
+    println!("series_index");
+    println!("identifiers");
+    println!("comment");
+    println!("publisher");
+    println!("rating");
+    println!("languages");
+    println!("timestamp");
+    println!("pubdate");
+    println!("last_modified");
+}
+
+fn apply_metadata_fields(
+    db: &mut Database,
+    id: i64,
+    fields: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fields {
+        let (field, raw) = entry
+            .split_once(':')
+            .ok_or_else(|| format!("invalid field format: {entry}"))?;
+        match field {
+            "title" => {
+                db.update_book_title(id, raw)?;
+            }
+            "authors" => {
+                let values = split_list(raw);
+                db.replace_book_authors(id, &values)?;
+            }
+            "tags" => {
+                let values = split_list(raw);
+                db.replace_book_tags(id, &values)?;
+            }
+            "series" => {
+                db.set_book_series(id, raw, 1.0)?;
+            }
+            "series_index" => {
+                let index: f64 = raw.parse()?;
+                if let Some(series) = db.get_book_series(id)? {
+                    db.set_book_series(id, &series.name, index)?;
+                } else {
+                    return Err("series_index requires series to be set".into());
+                }
+            }
+            "identifiers" => {
+                let identifiers = parse_identifiers_field(raw)?;
+                db.replace_book_identifiers(id, &identifiers)?;
+            }
+            "comment" => {
+                db.set_book_comment(id, raw)?;
+            }
+            "publisher" => {
+                db.set_book_publisher(id, raw)?;
+            }
+            "rating" => {
+                let rating: i64 = raw.parse()?;
+                db.set_book_rating(id, rating)?;
+            }
+            "languages" => {
+                let values = split_list(raw);
+                db.set_book_languages(id, &values)?;
+            }
+            "timestamp" => {
+                db.update_book_timestamp(id, raw)?;
+            }
+            "pubdate" => {
+                db.update_book_pubdate(id, raw)?;
+            }
+            "last_modified" => {
+                db.update_book_last_modified(id, raw)?;
+            }
+            _ => {
+                return Err(format!("unknown field: {field}").into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn split_list(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn parse_identifiers_field(raw: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    let mut identifiers = Vec::new();
+    for entry in raw.split(',') {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (key, value) = trimmed
+            .split_once(':')
+            .ok_or_else(|| format!("invalid identifier: {trimmed}"))?;
+        identifiers.push((key.trim().to_string(), value.trim().to_string()));
+    }
+    Ok(identifiers)
 }
 
 fn write_catalog(

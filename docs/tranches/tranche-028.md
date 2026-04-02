@@ -1,0 +1,32 @@
+# Tranche 028
+
+- [x] Add `calibredb show-metadata` command
+- [x] Add `calibredb show-metadata --as-opf` output
+- [x] Add `calibredb show-metadata` JSON output
+- [x] Add `calibredb show-metadata` not-found guard
+- [x] Add `calibredb show-metadata` OPF title/author output
+- [x] Add `calibredb show-metadata` OPF tags/identifiers output
+- [x] Add `calibredb show-metadata` OPF series output
+- [x] Add `calibredb show-metadata` OPF publisher/comment output
+- [x] Add `calibredb set-metadata` command
+- [x] Add `calibredb set-metadata --list-fields` output
+- [x] Add `calibredb set-metadata` title field support
+- [x] Add `calibredb set-metadata` authors field support
+- [x] Add `calibredb set-metadata` tags field support
+- [x] Add `calibredb set-metadata` series field support
+- [x] Add `calibredb set-metadata` series_index field support
+- [x] Add `calibredb set-metadata` identifiers field support
+- [x] Add `calibredb set-metadata` comment field support
+- [x] Add `calibredb set-metadata` publisher field support
+- [x] Add `calibredb set-metadata` rating field support
+- [x] Add `calibredb set-metadata` languages field support
+- [x] Add `calibredb set-metadata` timestamp/pubdate/last_modified field support
+- [x] Add `calibredb set-metadata` unknown field guard
+- [x] Add `calibredb set-metadata` multi-field updates
+- [x] Add `calibredb set-metadata` summary output
+- [x] Add CLI test for calibredb show-metadata default output
+- [x] Add CLI test for calibredb show-metadata --as-opf
+- [x] Add CLI test for calibredb set-metadata --list-fields
+- [x] Add CLI test for calibredb set-metadata title field
+- [x] Add CLI test for calibredb set-metadata identifiers field
+- [x] Add CLI test for calibredb set-metadata series_index field
