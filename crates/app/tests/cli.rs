@@ -902,6 +902,115 @@ fn calibredb_list_categories() {
 }
 
 #[test]
+fn calibredb_info_with_library_override_updates_paths() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let library_override = temp_dir.path().join("override-library");
+    std::fs::create_dir_all(&library_override).expect("create override library");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--with-library",
+            library_override.to_str().unwrap(),
+            "info",
+        ])
+        .output()
+        .expect("run calibredb info with override");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&format!("Library dir: {}", library_override.display())));
+    assert!(stdout.contains(&format!(
+        "DB path: {}",
+        library_override.join("metadata.db").display()
+    )));
+}
+
+#[test]
+fn calibredb_with_library_init_creates_missing_dir() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let library_override = temp_dir.path().join("new-library");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--with-library",
+            library_override.to_str().unwrap(),
+            "init",
+        ])
+        .output()
+        .expect("run calibredb init with override");
+    assert!(output.status.success());
+    assert!(library_override.exists());
+}
+
+#[test]
+fn calibredb_rejects_missing_library_override_on_info() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let library_override = temp_dir.path().join("missing-library");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--with-library",
+            library_override.to_str().unwrap(),
+            "info",
+        ])
+        .output()
+        .expect("run calibredb info with missing override");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn calibredb_rejects_remote_library_override() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--with-library",
+            "https://example.com/#library",
+            "info",
+        ])
+        .output()
+        .expect("run calibredb info with remote override");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn calibredb_with_library_expands_home_directory() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let home_dir = temp_dir.path().join("home");
+    let library_override = home_dir.join("library");
+    std::fs::create_dir_all(&library_override).expect("create home library");
+
+    let output = Command::new(exe)
+        .env("HOME", &home_dir)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--with-library",
+            "~/library",
+            "info",
+        ])
+        .output()
+        .expect("run calibredb info with home override");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&format!("Library dir: {}", library_override.display())));
+}
+
+#[test]
 fn calibredb_check_library() {
     let (temp_dir, config_path) = setup_library_config();
     let exe = env!("CARGO_BIN_EXE_calibredb");

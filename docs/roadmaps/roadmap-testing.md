@@ -5,6 +5,12 @@
 - [x] Add schema parity test for books defaults/collations
 - [x] Add schema parity tests for core metadata table collations
 - [x] Add schema parity tests for format collations and ratings check
+- [x] Add CLI test for calibredb library override info output
+- [x] Add CLI test for calibredb library override db path
+- [x] Add CLI test for calibredb override init creates directory
+- [x] Add CLI test for calibredb override missing path guard
+- [x] Add CLI test for calibredb override remote guard
+- [x] Add CLI test for calibredb home expansion override
 - [x] Add schema column parity test for books table core fields
 - [x] Add schema column parity test for authors table
 - [x] Add schema column parity test for tags table

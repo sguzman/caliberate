@@ -7,6 +7,27 @@
 - [x] Implement `calibre-server` binary scaffold
 - [x] Implement `calibredb` init/add/list/search stubs
 - [ ] Implement library management commands parity set
+- [x] Add `calibredb --with-library` override
+- [x] Add `calibredb --library-path` alias
+- [x] Add `calibredb` library override for config library_dir
+- [x] Add `calibredb` library override for metadata db path
+- [x] Add `calibredb` library override expansion for home directory
+- [x] Add `calibredb` library override missing path guard
+- [x] Add `calibredb` library override init auto-create
+- [x] Add `calibredb` remote library override guard
+- [x] Add `calibredb` library override tracing log
+- [x] Add `calibredb` library override helper
+- [x] Add `calibredb` home expansion helper
+- [x] Add `calibredb` remote library detection helper
+- [x] Add `calibredb` CLI flags for username/password
+- [x] Add `calibredb` CLI flag for network timeout
+- [x] Add `calibredb` info output for library override path
+- [x] Add CLI test for `calibredb` info library override
+- [x] Add CLI test for `calibredb` library override db path
+- [x] Add CLI test for `calibredb` override creates missing dir on init
+- [x] Add CLI test for `calibredb` missing override path guard
+- [x] Add CLI test for `calibredb` remote override guard
+- [x] Add CLI test for `calibredb` home expansion override
 - [x] Add format management command group
 - [x] Add `calibredb formats list` command
 - [x] Add `calibredb formats add` command

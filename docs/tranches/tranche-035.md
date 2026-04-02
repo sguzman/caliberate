@@ -1,0 +1,32 @@
+# Tranche 035
+
+- [x] Add `calibredb --with-library` override
+- [x] Add `calibredb --library-path` alias
+- [x] Add `calibredb` library override for config library_dir
+- [x] Add `calibredb` library override for metadata db path
+- [x] Add `calibredb` library override expansion for home directory
+- [x] Add `calibredb` library override missing path guard
+- [x] Add `calibredb` library override init auto-create
+- [x] Add `calibredb` remote library override guard
+- [x] Add `calibredb` library override tracing log
+- [x] Add `calibredb` library override helper
+- [x] Add `calibredb` home expansion helper
+- [x] Add `calibredb` remote library detection helper
+- [x] Add `calibredb` CLI flags for username/password
+- [x] Add `calibredb` CLI flag for network timeout
+- [x] Add `calibredb` info output for library override path
+- [x] Add CLI test for `calibredb` info library override
+- [x] Add CLI test for `calibredb` library override db path
+- [x] Add CLI test for `calibredb` override creates missing dir on init
+- [x] Add CLI test for `calibredb` missing override path guard
+- [x] Add CLI test for `calibredb` remote override guard
+- [x] Add CLI test for `calibredb` home expansion override
+- [x] Add `calibredb` library override wiring in main
+- [x] Add `calibredb` override applies before command dispatch
+- [x] Add `calibredb` override validation for non-init commands
+- [x] Add `calibredb` override metadata db default to metadata.db
+- [x] Add `calibredb` override create dir helper usage
+- [x] Add `calibredb` override error for unsupported remote
+- [x] Add `calibredb` override expansion for tilde home path
+- [x] Add CLI test for `calibredb` override unsupported remote error path
+- [x] Add CLI test for `calibredb` override tilde expansion

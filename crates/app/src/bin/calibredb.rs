@@ -18,6 +18,14 @@ use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 struct CalibredbCli {
     #[arg(long, default_value = "config/control-plane.toml")]
     config: PathBuf,
+    #[arg(long = "with-library", alias = "library-path")]
+    library_path: Option<PathBuf>,
+    #[arg(long)]
+    username: Option<String>,
+    #[arg(long)]
+    password: Option<String>,
+    #[arg(long, default_value_t = 120.0)]
+    timeout: f64,
     #[command(subcommand)]
     command: Option<CalibredbCommand>,
 }
@@ -407,6 +415,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = CalibredbCli::parse();
     let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
     let mut config = bootstrap.config;
+    apply_library_override(&mut config, &cli)?;
 
     match cli.command {
         Some(CalibredbCommand::CheckConfig) => {
@@ -1239,6 +1248,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn apply_library_override(
+    config: &mut caliberate_core::config::ControlPlane,
+    cli: &CalibredbCli,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(library_path) = cli.library_path.clone() else {
+        return Ok(());
+    };
+    let library_path = expand_home(&library_path)?;
+    if is_remote_library(&library_path) {
+        return Err("remote calibre libraries are not supported yet".into());
+    }
+    if !library_path.exists() {
+        if matches!(cli.command, Some(CalibredbCommand::Init)) {
+            std::fs::create_dir_all(&library_path)?;
+        } else {
+            return Err(format!("library path does not exist: {}", library_path.display()).into());
+        }
+    }
+    config.paths.library_dir = library_path.clone();
+    config.db.sqlite_path = library_path.join("metadata.db");
+    tracing::info!(
+        component = "calibredb",
+        library_dir = %config.paths.library_dir.display(),
+        db_path = %config.db.sqlite_path.display(),
+        "applied library override"
+    );
+    Ok(())
+}
+
+fn is_remote_library(path: &PathBuf) -> bool {
+    let Some(value) = path.to_str() else {
+        return false;
+    };
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+fn expand_home(path: &PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let Some(value) = path.to_str() else {
+        return Ok(path.clone());
+    };
+    if value == "~" || value.starts_with("~/") {
+        let home = std::env::var("HOME")?;
+        let suffix = value.strip_prefix("~").unwrap_or("");
+        return Ok(PathBuf::from(home).join(suffix.trim_start_matches('/')));
+    }
+    Ok(path.clone())
 }
 
 fn resolve_device(
