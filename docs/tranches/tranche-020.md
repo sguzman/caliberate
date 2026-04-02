@@ -1,0 +1,32 @@
+# Tranche 020
+
+- [x] Add books series_index column to match Calibre schema
+- [x] Add author sort/link columns
+- [x] Add publisher sort/link columns
+- [x] Add series sort/link columns
+- [x] Add tag link column
+- [x] Add language link column
+- [x] Add rating link column
+- [x] Add books_plugin_data table
+- [x] Add books_pages_link table
+- [x] Add books_pages_link create trigger
+- [x] Add books_pages_link needs_scan index
+- [x] Add conversion_options table
+- [x] Add custom_columns table
+- [x] Add data table
+- [x] Add feeds table
+- [x] Add library_id table
+- [x] Add metadata_dirtied table
+- [x] Add annotations_dirtied table
+- [x] Add preferences table
+- [x] Add last_read_positions table
+- [x] Add annotations table
+- [x] Add annotations FTS tables
+- [x] Add annotations FTS triggers
+- [x] Add format management command group
+- [x] Add `calibredb formats list` command
+- [x] Add `calibredb formats add` command
+- [x] Add `calibredb formats remove` command
+- [x] Add CLI tests for format management commands
+- [x] Add schema parity tests for Calibre tables
+- [x] Add books_pages_link trigger test

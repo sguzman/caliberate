@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 #[derive(Debug)]
 pub struct Database {
@@ -69,6 +69,17 @@ pub struct BookExtras {
     pub publisher: Option<String>,
     pub rating: Option<i64>,
     pub languages: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BooksPagesEntry {
+    pub book_id: i64,
+    pub pages: i64,
+    pub algorithm: i64,
+    pub format: String,
+    pub format_size: i64,
+    pub timestamp: String,
+    pub needs_scan: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -180,7 +191,9 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS authors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    name TEXT NOT NULL UNIQUE,
+                    sort TEXT,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_authors_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,7 +206,8 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author_id);
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    name TEXT NOT NULL UNIQUE,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_tags_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -206,7 +220,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag_id);
                 CREATE TABLE IF NOT EXISTS series (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    name TEXT NOT NULL UNIQUE,
+                    sort TEXT,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_series_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -258,7 +274,9 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);
                 CREATE TABLE IF NOT EXISTS publishers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    name TEXT NOT NULL UNIQUE,
+                    sort TEXT,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_publishers_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -271,7 +289,8 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher_id);
                 CREATE TABLE IF NOT EXISTS ratings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    rating INTEGER NOT NULL UNIQUE
+                    rating INTEGER NOT NULL UNIQUE,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_ratings_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,7 +303,8 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating_id);
                 CREATE TABLE IF NOT EXISTS languages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    lang_code TEXT NOT NULL UNIQUE
+                    lang_code TEXT NOT NULL UNIQUE,
+                    link TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS books_languages_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -295,7 +315,130 @@ impl Database {
                     FOREIGN KEY(language_id) REFERENCES languages(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(language_id);",
+                CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(language_id);
+                CREATE TABLE IF NOT EXISTS books_plugin_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    val TEXT NOT NULL,
+                    UNIQUE(book, name)
+                );
+                CREATE TABLE IF NOT EXISTS books_pages_link (
+                    book INTEGER PRIMARY KEY,
+                    pages INTEGER NOT NULL DEFAULT 0,
+                    algorithm INTEGER NOT NULL DEFAULT 0,
+                    format TEXT NOT NULL DEFAULT '',
+                    format_size INTEGER NOT NULL DEFAULT 0,
+                    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    needs_scan INTEGER NOT NULL DEFAULT 0 CHECK(needs_scan IN (0, 1)),
+                    FOREIGN KEY(book) REFERENCES books(id) ON DELETE CASCADE
+                );
+                CREATE TRIGGER IF NOT EXISTS books_pages_link_create_trigger
+                    AFTER INSERT ON books
+                    FOR EACH ROW
+                BEGIN
+                    INSERT INTO books_pages_link(book) VALUES(NEW.id);
+                END;
+                CREATE INDEX IF NOT EXISTS idx_books_pages_link_needs_scan ON books_pages_link(needs_scan);
+                CREATE TABLE IF NOT EXISTS conversion_options (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    format TEXT NOT NULL,
+                    book INTEGER,
+                    data BLOB NOT NULL,
+                    UNIQUE(format, book)
+                );
+                CREATE TABLE IF NOT EXISTS custom_columns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    datatype TEXT NOT NULL,
+                    mark_for_delete INTEGER NOT NULL DEFAULT 0,
+                    editable INTEGER NOT NULL DEFAULT 1,
+                    display TEXT NOT NULL DEFAULT '{}',
+                    is_multiple INTEGER NOT NULL DEFAULT 0,
+                    normalized INTEGER NOT NULL,
+                    UNIQUE(label)
+                );
+                CREATE TABLE IF NOT EXISTS data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    format TEXT NOT NULL,
+                    uncompressed_size INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    UNIQUE(book, format)
+                );
+                CREATE TABLE IF NOT EXISTS feeds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    script TEXT NOT NULL,
+                    UNIQUE(title)
+                );
+                CREATE TABLE IF NOT EXISTS library_id (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid TEXT NOT NULL,
+                    UNIQUE(uuid)
+                );
+                CREATE TABLE IF NOT EXISTS metadata_dirtied (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    UNIQUE(book)
+                );
+                CREATE TABLE IF NOT EXISTS annotations_dirtied (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    UNIQUE(book)
+                );
+                CREATE TABLE IF NOT EXISTS preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL,
+                    val TEXT NOT NULL,
+                    UNIQUE(key)
+                );
+                CREATE TABLE IF NOT EXISTS last_read_positions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    format TEXT NOT NULL,
+                    user TEXT NOT NULL,
+                    device TEXT NOT NULL,
+                    cfi TEXT NOT NULL,
+                    epoch REAL NOT NULL,
+                    pos_frac REAL NOT NULL DEFAULT 0,
+                    UNIQUE(user, device, book, format)
+                );
+                CREATE TABLE IF NOT EXISTS annotations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    format TEXT NOT NULL,
+                    user_type TEXT NOT NULL,
+                    user TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    annot_id TEXT NOT NULL,
+                    annot_type TEXT NOT NULL,
+                    annot_data TEXT NOT NULL,
+                    searchable_text TEXT NOT NULL DEFAULT '',
+                    UNIQUE(book, user_type, user, format, annot_type, annot_id)
+                );
+                CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'unicode61');
+                CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts_stemmed
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'porter unicode61');
+                CREATE TRIGGER IF NOT EXISTS annotations_fts_insert_trg AFTER INSERT ON annotations
+                BEGIN
+                    INSERT INTO annotations_fts(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS annotations_fts_delete_trg AFTER DELETE ON annotations
+                BEGIN
+                    INSERT INTO annotations_fts(annotations_fts, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(annotations_fts_stemmed, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS annotations_fts_update_trg AFTER UPDATE ON annotations
+                BEGIN
+                    INSERT INTO annotations_fts(annotations_fts, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(annotations_fts_stemmed, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                END;",
             )
             .map_err(|err| {
                 CoreError::Io(
@@ -304,6 +447,12 @@ impl Database {
                 )
             })?;
         self.ensure_book_columns()?;
+        self.ensure_author_columns()?;
+        self.ensure_publisher_columns()?;
+        self.ensure_series_columns()?;
+        self.ensure_tag_columns()?;
+        self.ensure_language_columns()?;
+        self.ensure_rating_columns()?;
         if self.fts.enabled {
             self.ensure_fts_schema()?;
         }
@@ -315,6 +464,10 @@ impl Database {
             ("sort", "ALTER TABLE books ADD COLUMN sort TEXT"),
             ("timestamp", "ALTER TABLE books ADD COLUMN timestamp TEXT"),
             ("pubdate", "ALTER TABLE books ADD COLUMN pubdate TEXT"),
+            (
+                "series_index",
+                "ALTER TABLE books ADD COLUMN series_index REAL NOT NULL DEFAULT 1.0",
+            ),
             (
                 "author_sort",
                 "ALTER TABLE books ADD COLUMN author_sort TEXT",
@@ -329,12 +482,80 @@ impl Database {
                 "ALTER TABLE books ADD COLUMN last_modified TEXT",
             ),
         ];
+        self.ensure_columns("books", &columns, "books")?;
+        Ok(())
+    }
+
+    fn ensure_author_columns(&self) -> CoreResult<()> {
+        let columns = [
+            ("sort", "ALTER TABLE authors ADD COLUMN sort TEXT"),
+            (
+                "link",
+                "ALTER TABLE authors ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+            ),
+        ];
+        self.ensure_columns("authors", &columns, "authors")?;
+        Ok(())
+    }
+
+    fn ensure_publisher_columns(&self) -> CoreResult<()> {
+        let columns = [
+            ("sort", "ALTER TABLE publishers ADD COLUMN sort TEXT"),
+            (
+                "link",
+                "ALTER TABLE publishers ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+            ),
+        ];
+        self.ensure_columns("publishers", &columns, "publishers")?;
+        Ok(())
+    }
+
+    fn ensure_series_columns(&self) -> CoreResult<()> {
+        let columns = [
+            ("sort", "ALTER TABLE series ADD COLUMN sort TEXT"),
+            (
+                "link",
+                "ALTER TABLE series ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+            ),
+        ];
+        self.ensure_columns("series", &columns, "series")?;
+        Ok(())
+    }
+
+    fn ensure_tag_columns(&self) -> CoreResult<()> {
+        let columns = [(
+            "link",
+            "ALTER TABLE tags ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+        )];
+        self.ensure_columns("tags", &columns, "tags")?;
+        Ok(())
+    }
+
+    fn ensure_language_columns(&self) -> CoreResult<()> {
+        let columns = [(
+            "link",
+            "ALTER TABLE languages ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+        )];
+        self.ensure_columns("languages", &columns, "languages")?;
+        Ok(())
+    }
+
+    fn ensure_rating_columns(&self) -> CoreResult<()> {
+        let columns = [(
+            "link",
+            "ALTER TABLE ratings ADD COLUMN link TEXT NOT NULL DEFAULT ''",
+        )];
+        self.ensure_columns("ratings", &columns, "ratings")?;
+        Ok(())
+    }
+
+    fn ensure_columns(&self, table: &str, columns: &[(&str, &str)], label: &str) -> CoreResult<()> {
         let mut stmt = self
             .conn
-            .prepare("PRAGMA table_info(books)")
+            .prepare(&format!("PRAGMA table_info({table})"))
             .map_err(|err| {
                 CoreError::Io(
-                    "read books schema".to_string(),
+                    format!("read {label} schema"),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
@@ -342,22 +563,22 @@ impl Database {
             .query_map([], |row| row.get::<_, String>(1))
             .map_err(|err| {
                 CoreError::Io(
-                    "read books columns".to_string(),
+                    format!("read {label} columns"),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?
             .collect::<Result<std::collections::BTreeSet<_>, _>>()
             .map_err(|err| {
                 CoreError::Io(
-                    "read books columns".to_string(),
+                    format!("read {label} columns"),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
         for (column, ddl) in columns {
-            if !existing.contains(column) {
-                self.conn.execute(ddl, []).map_err(|err| {
+            if !existing.contains(*column) {
+                self.conn.execute(*ddl, []).map_err(|err| {
                     CoreError::Io(
-                        format!("add books column {column}"),
+                        format!("add {label} column {column}"),
                         std::io::Error::new(std::io::ErrorKind::Other, err),
                     )
                 })?;
@@ -893,6 +1114,52 @@ impl Database {
             })?);
         }
         Ok(results)
+    }
+
+    pub fn schema_object_exists(&self, object_type: &str, name: &str) -> CoreResult<bool> {
+        let exists: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = ?1 AND name = ?2",
+                params![object_type, name],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query schema object".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(exists.is_some())
+    }
+
+    pub fn get_books_pages_entry(&self, book_id: i64) -> CoreResult<Option<BooksPagesEntry>> {
+        self.conn
+            .query_row(
+                "SELECT book, pages, algorithm, format, format_size, timestamp, needs_scan
+                 FROM books_pages_link WHERE book = ?1",
+                params![book_id],
+                |row| {
+                    let needs_scan: i64 = row.get(6)?;
+                    Ok(BooksPagesEntry {
+                        book_id: row.get(0)?,
+                        pages: row.get(1)?,
+                        algorithm: row.get(2)?,
+                        format: row.get(3)?,
+                        format_size: row.get(4)?,
+                        timestamp: row.get(5)?,
+                        needs_scan: needs_scan != 0,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query books pages link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
     }
 
     pub fn list_assets_for_book(&self, book_id: i64) -> CoreResult<Vec<AssetRow>> {

@@ -5,6 +5,33 @@
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table
 - [ ] Expand metadata schema migrations to full Calibre parity
+- [x] Add books series_index column to match Calibre schema
+- [x] Add author sort/link columns
+- [x] Add publisher sort/link columns
+- [x] Add series sort/link columns
+- [x] Add tag link column
+- [x] Add language link column
+- [x] Add rating link column
+- [x] Add books_plugin_data table
+- [x] Add books_pages_link table
+- [x] Add books_pages_link create trigger
+- [x] Add books_pages_link needs_scan index
+- [x] Add conversion_options table
+- [x] Add custom_columns table
+- [x] Add data table
+- [x] Add feeds table
+- [x] Add library_id table
+- [x] Add metadata_dirtied table
+- [x] Add annotations_dirtied table
+- [x] Add preferences table
+- [x] Add last_read_positions table
+- [x] Add annotations table
+- [x] Add annotations FTS tables
+- [x] Add annotations FTS triggers
+- [ ] Align comments table schema with Calibre (id/book columns)
+- [ ] Align identifiers table schema with Calibre (type/val columns)
+- [ ] Align link tables to Calibre naming (book/author/tag/series columns)
+- [ ] Add Calibre meta/tag browser views (requires custom SQL functions)
 - [x] Add publishers schema and book link support
 - [x] Add ratings schema and book link support
 - [x] Add languages schema and book link support

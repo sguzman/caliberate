@@ -4,13 +4,13 @@ use std::path::PathBuf;
 use caliberate_assets::stats::{
     AssetDescriptor, apply_compaction, compute_storage_stats, plan_compaction, verify_assets,
 };
-use caliberate_assets::storage::{LocalAssetStore, StorageMode};
+use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode};
 use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
-use caliberate_metadata::extract::extract_archive_entry;
+use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 
 #[derive(Debug, Parser)]
 #[command(name = "calibredb", version, about = "Caliberate database CLI")]
@@ -64,6 +64,10 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: FtsCommand,
     },
+    Formats {
+        #[command(subcommand)]
+        command: FormatsCommand,
+    },
     Device {
         #[command(subcommand)]
         command: DeviceCommand,
@@ -92,6 +96,36 @@ enum AssetsCommand {
 enum FtsCommand {
     Status,
     Rebuild,
+}
+
+#[derive(Debug, Subcommand)]
+enum FormatsCommand {
+    List {
+        #[arg(long)]
+        id: i64,
+    },
+    Add {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        mode: Option<IngestModeValue>,
+        #[arg(long)]
+        format: Option<String>,
+    },
+    Remove {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        format: Option<String>,
+        #[arg(long)]
+        asset_id: Option<i64>,
+        #[arg(long, default_value_t = false)]
+        delete_files: bool,
+        #[arg(long, default_value_t = false)]
+        delete_reference_files: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -448,6 +482,117 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Some(CalibredbCommand::Formats { command }) => match command {
+            FormatsCommand::List { id } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let assets = db.list_assets_for_book(id)?;
+                if assets.is_empty() {
+                    println!("No formats found for book {id}");
+                } else {
+                    for asset in assets {
+                        let format = format_from_path(&asset.stored_path)
+                            .unwrap_or_else(|| "unknown".to_string());
+                        println!("{}\t{}\t{}", format, asset.id, asset.stored_path);
+                    }
+                }
+            }
+            FormatsCommand::Add {
+                id,
+                path,
+                mode,
+                format,
+            } => {
+                let store = LocalAssetStore::from_config(&config);
+                let storage_mode = match mode.map(Into::into) {
+                    Some(IngestMode::Reference) => StorageMode::Reference,
+                    _ => StorageMode::Copy,
+                };
+                let format = match format {
+                    Some(format) => format,
+                    None => extract_basic(&path, &config.formats)?.format,
+                };
+                let asset_outcome = store.store(&path, storage_mode)?;
+                let asset = match asset_outcome {
+                    caliberate_assets::storage::StoreOutcome::Stored(asset) => asset,
+                    caliberate_assets::storage::StoreOutcome::Skipped(skip) => {
+                        println!(
+                            "Skipped add-format; duplicate {:?} at {}",
+                            skip.reason,
+                            skip.existing_path.display()
+                        );
+                        return Ok(());
+                    }
+                };
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let created_at =
+                    time::OffsetDateTime::now_utc().format(&time::format_description::parse(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second]Z",
+                    )?)?;
+                let storage_mode_label = match asset.storage_mode {
+                    StorageMode::Copy => "copy",
+                    StorageMode::Reference => "reference",
+                };
+                let _asset_id = db.add_asset(
+                    id,
+                    storage_mode_label,
+                    &asset.stored_path.display().to_string(),
+                    asset
+                        .source_path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .as_deref(),
+                    asset.size_bytes,
+                    asset.stored_size_bytes,
+                    asset.checksum.as_deref(),
+                    asset.is_compressed,
+                    &created_at,
+                )?;
+                println!("Added format {format} for book {id}");
+            }
+            FormatsCommand::Remove {
+                id,
+                format,
+                asset_id,
+                delete_files,
+                delete_reference_files,
+            } => {
+                if format.is_none() && asset_id.is_none() {
+                    return Err("remove-format requires --format or --asset-id".into());
+                }
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                let assets = db.list_assets_for_book(id)?;
+                let delete_files = delete_files || config.library.delete_files_on_remove;
+                let delete_reference_files =
+                    delete_reference_files || config.library.delete_reference_files;
+                let mut targets = Vec::new();
+                for asset in &assets {
+                    if let Some(asset_id) = asset_id {
+                        if asset.id == asset_id {
+                            targets.push(asset.clone());
+                        }
+                        continue;
+                    }
+                    if let Some(format) = &format {
+                        if format_from_path(&asset.stored_path)
+                            .map(|value| value == *format)
+                            .unwrap_or(false)
+                        {
+                            targets.push(asset.clone());
+                        }
+                    }
+                }
+                if targets.is_empty() {
+                    println!("No matching formats found for book {id}");
+                    return Ok(());
+                }
+                if delete_files {
+                    delete_asset_files(&targets, delete_reference_files)?;
+                }
+                let ids = targets.iter().map(|asset| asset.id).collect::<Vec<_>>();
+                let deleted = db.delete_assets(&ids)?;
+                println!("Removed {deleted} formats for book {id}");
+            }
+        },
         Some(CalibredbCommand::Device { command }) => match command {
             DeviceCommand::List => {
                 let devices = detect_devices(&config.device)?;
@@ -526,6 +671,20 @@ fn resolve_device(
         return Ok(devices.into_iter().next().expect("device"));
     }
     Err("multiple devices detected; pass --device".into())
+}
+
+fn format_from_path(path: &str) -> Option<String> {
+    let path = std::path::Path::new(path);
+    let file_name = path.file_name()?.to_string_lossy();
+    if let Some(stripped) = file_name.strip_suffix(".zst") {
+        return std::path::Path::new(stripped)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_string());
+    }
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_string())
 }
 
 fn delete_asset_files(

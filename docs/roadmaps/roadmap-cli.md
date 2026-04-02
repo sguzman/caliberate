@@ -7,6 +7,11 @@
 - [x] Implement `calibre-server` binary scaffold
 - [x] Implement `calibredb` init/add/list/search stubs
 - [ ] Implement library management commands parity set
+- [x] Add format management command group
+- [x] Add `calibredb formats list` command
+- [x] Add `calibredb formats add` command
+- [x] Add `calibredb formats remove` command
+- [x] Add CLI tests for format management commands
 - [x] Add `calibredb show` command for book details
 - [x] Add `calibredb show` output for authors/tags/series/identifiers/comments
 - [x] Add `calibredb remove` command for books

@@ -2,6 +2,8 @@
 
 - [x] Define Rust test harness structure and fixtures
 - [ ] Port Calibre DB tests for metadata and FTS parity
+- [x] Add schema parity tests for Calibre tables
+- [x] Add books_pages_link trigger test
 - [x] Add ingest pipeline tests (copy vs reference)
 - [x] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add 7z archive preview/extraction test
