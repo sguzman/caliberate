@@ -74,6 +74,30 @@
 - [x] Add `calibredb set-metadata` unknown field guard
 - [x] Add `calibredb set-metadata` multi-field updates
 - [x] Add `calibredb set-metadata` summary output
+- [x] Add `calibredb list --fields` option
+- [x] Add `calibredb list --sort-by` option
+- [x] Add `calibredb list --ascending` option
+- [x] Add `calibredb list --limit` option
+- [x] Add `calibredb list --for-machine` output
+- [x] Add `calibredb list` authors field output
+- [x] Add `calibredb list` tags field output
+- [x] Add `calibredb list` series field output
+- [x] Add `calibredb list` publisher field output
+- [x] Add `calibredb list` rating field output
+- [x] Add `calibredb list` languages field output
+- [x] Add `calibredb list` timestamp/pubdate/last_modified output
+- [x] Add `calibredb search --fields` option
+- [x] Add `calibredb search --sort-by` option
+- [x] Add `calibredb search --ascending` option
+- [x] Add `calibredb search --limit` option
+- [x] Add `calibredb search --for-machine` output
+- [x] Add shared list/search renderer for book fields
+- [x] Add list/search field parsing helper
+- [x] Add list/search default field set
+- [x] Add list/search sort comparator helper
+- [x] Add list/search JSON output struct
+- [x] Add list/search plain output formatter
+- [x] Add list/search limit handling helper
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

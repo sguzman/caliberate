@@ -58,10 +58,31 @@ enum CalibredbCommand {
         #[arg(long)]
         output_dir: Option<PathBuf>,
     },
-    List,
+    List {
+        #[arg(long)]
+        fields: Vec<String>,
+        #[arg(long)]
+        sort_by: Option<String>,
+        #[arg(long, default_value_t = false)]
+        ascending: bool,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, default_value_t = false)]
+        for_machine: bool,
+    },
     Search {
         #[arg(long)]
         query: String,
+        #[arg(long)]
+        fields: Vec<String>,
+        #[arg(long)]
+        sort_by: Option<String>,
+        #[arg(long, default_value_t = false)]
+        ascending: bool,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, default_value_t = false)]
+        for_machine: bool,
     },
     Assets {
         #[command(subcommand)]
@@ -610,23 +631,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             println!("Extracted to {}", extracted.display());
         }
-        Some(CalibredbCommand::List) => {
+        Some(CalibredbCommand::List {
+            fields,
+            sort_by,
+            ascending,
+            limit,
+            for_machine,
+        }) => {
             let db = Database::open_with_fts(&config.db, &config.fts)?;
-            for book in db.list_books()? {
-                println!(
-                    "{}\t{}\t{}\t{}",
-                    book.id, book.title, book.format, book.path
-                );
-            }
+            let books = db.list_books()?;
+            let displays = build_displays(&db, &books)?;
+            render_books(
+                &displays,
+                &fields,
+                sort_by.as_deref(),
+                ascending,
+                limit,
+                for_machine,
+            )?;
         }
-        Some(CalibredbCommand::Search { query }) => {
+        Some(CalibredbCommand::Search {
+            query,
+            fields,
+            sort_by,
+            ascending,
+            limit,
+            for_machine,
+        }) => {
             let db = Database::open_with_fts(&config.db, &config.fts)?;
-            for book in db.search_books(&query)? {
-                println!(
-                    "{}\t{}\t{}\t{}",
-                    book.id, book.title, book.format, book.path
-                );
-            }
+            let books = db.search_books(&query)?;
+            let displays = build_displays(&db, &books)?;
+            render_books(
+                &displays,
+                &fields,
+                sort_by.as_deref(),
+                ascending,
+                limit,
+                for_machine,
+            )?;
         }
         Some(CalibredbCommand::Assets { command }) => {
             let mut db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -1367,6 +1409,24 @@ struct ShowMetadataOutput {
     last_modified: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct BookDisplay {
+    id: i64,
+    title: String,
+    format: String,
+    path: String,
+    authors: Vec<String>,
+    tags: Vec<String>,
+    series: Option<String>,
+    series_index: Option<f64>,
+    publisher: Option<String>,
+    rating: Option<i64>,
+    languages: Vec<String>,
+    timestamp: Option<String>,
+    pubdate: Option<String>,
+    last_modified: Option<String>,
+}
+
 fn backup_metadata(
     db: &Database,
     ids: &[i64],
@@ -1414,6 +1474,260 @@ fn backup_metadata(
         std::fs::write(out_path, encoded)?;
     }
     Ok(())
+}
+
+fn build_displays(
+    db: &Database,
+    books: &[caliberate_db::database::BookRecord],
+) -> Result<Vec<BookDisplay>, Box<dyn std::error::Error>> {
+    let mut displays = Vec::new();
+    for book in books {
+        displays.push(build_display(db, book)?);
+    }
+    Ok(displays)
+}
+
+fn build_display(
+    db: &Database,
+    book: &caliberate_db::database::BookRecord,
+) -> Result<BookDisplay, Box<dyn std::error::Error>> {
+    let authors = db.list_book_authors(book.id)?;
+    let tags = db.list_book_tags(book.id)?;
+    let series = db.get_book_series(book.id)?;
+    let extras = db.get_book_extras(book.id)?;
+    Ok(BookDisplay {
+        id: book.id,
+        title: book.title.clone(),
+        format: book.format.clone(),
+        path: book.path.clone(),
+        authors,
+        tags,
+        series: series.as_ref().map(|entry| entry.name.clone()),
+        series_index: series.map(|entry| entry.index),
+        publisher: extras.publisher,
+        rating: extras.rating,
+        languages: extras.languages,
+        timestamp: extras.timestamp,
+        pubdate: extras.pubdate,
+        last_modified: extras.last_modified,
+    })
+}
+
+fn render_books(
+    displays: &[BookDisplay],
+    fields: &[String],
+    sort_by: Option<&str>,
+    ascending: bool,
+    limit: Option<usize>,
+    for_machine: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let selected = parse_fields(fields)?;
+    let mut items = displays.to_vec();
+    if let Some(sort_by) = sort_by {
+        sort_displays(&mut items, sort_by, ascending)?;
+    }
+    if let Some(limit) = limit {
+        items.truncate(limit);
+    }
+    if for_machine {
+        for item in items {
+            let value = build_json_fields(&item, &selected)?;
+            println!("{}", serde_json::to_string(&value)?);
+        }
+    } else {
+        for item in items {
+            let line = selected
+                .iter()
+                .map(|field| field_to_string(&item, field))
+                .collect::<Result<Vec<_>, _>>()?
+                .join("\t");
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn parse_fields(values: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    if values.is_empty() {
+        return Ok(vec![
+            "id".to_string(),
+            "title".to_string(),
+            "format".to_string(),
+            "path".to_string(),
+        ]);
+    }
+    let mut fields = Vec::new();
+    for value in values {
+        for part in value.split(',') {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            fields.push(trimmed.to_string());
+        }
+    }
+    if fields.is_empty() {
+        return Err("no fields selected".into());
+    }
+    Ok(fields)
+}
+
+fn sort_displays(
+    items: &mut [BookDisplay],
+    sort_by: &str,
+    ascending: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !matches!(
+        sort_by,
+        "id" | "title"
+            | "format"
+            | "path"
+            | "authors"
+            | "author"
+            | "tags"
+            | "series"
+            | "publisher"
+            | "rating"
+            | "languages"
+            | "timestamp"
+            | "pubdate"
+            | "last_modified"
+    ) {
+        return Err(format!("unknown sort field: {sort_by}").into());
+    }
+    let key = sort_by.to_string();
+    items.sort_by(|a, b| {
+        let left = sort_key(a, &key);
+        let right = sort_key(b, &key);
+        if ascending {
+            left.cmp(&right)
+        } else {
+            right.cmp(&left)
+        }
+    });
+    Ok(())
+}
+
+fn sort_key(display: &BookDisplay, field: &str) -> String {
+    match field {
+        "id" => display.id.to_string(),
+        "title" => display.title.clone(),
+        "format" => display.format.clone(),
+        "path" => display.path.clone(),
+        "authors" | "author" => display.authors.join(", "),
+        "tags" => display.tags.join(", "),
+        "series" => display.series.clone().unwrap_or_default(),
+        "publisher" => display.publisher.clone().unwrap_or_default(),
+        "rating" => display.rating.map(|v| v.to_string()).unwrap_or_default(),
+        "languages" => display.languages.join(", "),
+        "timestamp" => display.timestamp.clone().unwrap_or_default(),
+        "pubdate" => display.pubdate.clone().unwrap_or_default(),
+        "last_modified" => display.last_modified.clone().unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+fn field_to_string(
+    display: &BookDisplay,
+    field: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let value = match field {
+        "id" => display.id.to_string(),
+        "title" => display.title.clone(),
+        "format" => display.format.clone(),
+        "path" => display.path.clone(),
+        "authors" | "author" => display.authors.join(", "),
+        "tags" => display.tags.join(", "),
+        "series" => display.series.clone().unwrap_or_default(),
+        "series_index" => display
+            .series_index
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        "publisher" => display.publisher.clone().unwrap_or_default(),
+        "rating" => display
+            .rating
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        "languages" => display.languages.join(", "),
+        "timestamp" => display.timestamp.clone().unwrap_or_default(),
+        "pubdate" => display.pubdate.clone().unwrap_or_default(),
+        "last_modified" => display.last_modified.clone().unwrap_or_default(),
+        _ => return Err(format!("unknown field: {field}").into()),
+    };
+    Ok(value)
+}
+
+fn build_json_fields(
+    display: &BookDisplay,
+    fields: &[String],
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let mut map = serde_json::Map::new();
+    for field in fields {
+        let value = match field.as_str() {
+            "id" => serde_json::Value::Number(display.id.into()),
+            "title" => serde_json::Value::String(display.title.clone()),
+            "format" => serde_json::Value::String(display.format.clone()),
+            "path" => serde_json::Value::String(display.path.clone()),
+            "authors" | "author" => serde_json::Value::Array(
+                display
+                    .authors
+                    .iter()
+                    .map(|value| serde_json::Value::String(value.clone()))
+                    .collect(),
+            ),
+            "tags" => serde_json::Value::Array(
+                display
+                    .tags
+                    .iter()
+                    .map(|value| serde_json::Value::String(value.clone()))
+                    .collect(),
+            ),
+            "series" => display
+                .series
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+            "series_index" => display
+                .series_index
+                .and_then(serde_json::Number::from_f64)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            "publisher" => display
+                .publisher
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+            "rating" => display
+                .rating
+                .map(|value| serde_json::Value::Number(value.into()))
+                .unwrap_or(serde_json::Value::Null),
+            "languages" => serde_json::Value::Array(
+                display
+                    .languages
+                    .iter()
+                    .map(|value| serde_json::Value::String(value.clone()))
+                    .collect(),
+            ),
+            "timestamp" => display
+                .timestamp
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+            "pubdate" => display
+                .pubdate
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+            "last_modified" => display
+                .last_modified
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+            _ => return Err(format!("unknown field: {field}").into()),
+        };
+        map.insert(field.clone(), value);
+    }
+    Ok(serde_json::Value::Object(map))
 }
 
 fn build_metadata_output(

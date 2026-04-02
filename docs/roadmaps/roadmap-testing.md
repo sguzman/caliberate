@@ -58,6 +58,12 @@
 - [x] Add CLI test for calibredb set-metadata title field
 - [x] Add CLI test for calibredb set-metadata identifiers field
 - [x] Add CLI test for calibredb set-metadata series_index field
+- [x] Add CLI test for calibredb list --fields output
+- [x] Add CLI test for calibredb list --sort-by and --limit
+- [x] Add CLI test for calibredb list --for-machine
+- [x] Add CLI test for calibredb search --fields output
+- [x] Add CLI test for calibredb search --sort-by and --limit
+- [x] Add CLI test for calibredb search --for-machine
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests

@@ -1340,6 +1340,262 @@ fn calibredb_set_metadata_series_index() {
     let series = db.get_book_series(id).expect("get series");
     assert_eq!(series.map(|entry| entry.index), Some(2.5));
 }
+
+#[test]
+fn calibredb_list_fields_output() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("list-fields.epub");
+    std::fs::write(&book_path, b"list fields").expect("write list fields book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let mut db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let book = db.list_books().expect("list books").pop().expect("book");
+    db.add_book_authors(book.id, &["Ada".to_string()])
+        .expect("add author");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "list",
+            "--fields",
+            "title,authors",
+        ])
+        .output()
+        .expect("run calibredb list fields");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Ada"));
+}
+
+#[test]
+fn calibredb_list_sort_limit() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let first = temp_dir.path().join("b.epub");
+    let second = temp_dir.path().join("a.epub");
+    std::fs::write(&first, b"b").expect("write b");
+    std::fs::write(&second, b"a").expect("write a");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            first.to_str().unwrap(),
+        ])
+        .output()
+        .expect("add first");
+    assert!(output.status.success());
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            second.to_str().unwrap(),
+        ])
+        .output()
+        .expect("add second");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "list",
+            "--sort-by",
+            "title",
+            "--ascending",
+            "--limit",
+            "1",
+            "--fields",
+            "title",
+        ])
+        .output()
+        .expect("list sorted");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().count() == 1);
+}
+
+#[test]
+fn calibredb_list_for_machine() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("list-machine.epub");
+    std::fs::write(&book_path, b"machine").expect("write machine book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "list",
+            "--for-machine",
+            "--fields",
+            "title",
+        ])
+        .output()
+        .expect("run calibredb list for-machine");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"title\""));
+}
+
+#[test]
+fn calibredb_search_fields_output() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("search-fields.epub");
+    std::fs::write(&book_path, b"search fields").expect("write search fields book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "search",
+            "--query",
+            "search",
+            "--fields",
+            "title",
+        ])
+        .output()
+        .expect("run calibredb search fields");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("search-fields"));
+}
+
+#[test]
+fn calibredb_search_sort_limit() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let first = temp_dir.path().join("search-b.epub");
+    let second = temp_dir.path().join("search-a.epub");
+    std::fs::write(&first, b"search b").expect("write search b");
+    std::fs::write(&second, b"search a").expect("write search a");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            first.to_str().unwrap(),
+        ])
+        .output()
+        .expect("add first");
+    assert!(output.status.success());
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            second.to_str().unwrap(),
+        ])
+        .output()
+        .expect("add second");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "search",
+            "--query",
+            "search",
+            "--sort-by",
+            "title",
+            "--ascending",
+            "--limit",
+            "1",
+            "--fields",
+            "title",
+        ])
+        .output()
+        .expect("search sorted");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().count() == 1);
+}
+
+#[test]
+fn calibredb_search_for_machine() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("search-machine.epub");
+    std::fs::write(&book_path, b"search machine").expect("write search machine");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "search",
+            "--query",
+            "search",
+            "--for-machine",
+            "--fields",
+            "title",
+        ])
+        .output()
+        .expect("run calibredb search for-machine");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"title\""));
+}
 fn workspace_config() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
