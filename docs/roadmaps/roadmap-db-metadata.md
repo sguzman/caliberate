@@ -28,9 +28,34 @@
 - [x] Add annotations table
 - [x] Add annotations FTS tables
 - [x] Add annotations FTS triggers
-- [ ] Align comments table schema with Calibre (id/book columns)
-- [ ] Align identifiers table schema with Calibre (type/val columns)
-- [ ] Align link tables to Calibre naming (book/author/tag/series columns)
+- [x] Align comments table schema with Calibre (id/book columns)
+- [x] Migrate comments table to id/book schema
+- [x] Update comment queries to use book column
+- [x] Add comments schema column tests
+- [x] Align identifiers table schema with Calibre (type/val columns)
+- [x] Migrate identifiers table to book/type/val schema
+- [x] Update identifier queries to use book/type/val columns
+- [x] Add identifiers schema column tests
+- [x] Align link tables to Calibre naming (book/author/tag/series columns)
+- [x] Migrate books_authors_link to book/author columns
+- [x] Migrate books_tags_link to book/tag columns
+- [x] Migrate books_series_link to book/series columns
+- [x] Migrate books_publishers_link to book/publisher columns
+- [x] Migrate books_ratings_link to book/rating columns
+- [x] Migrate books_languages_link to book/lang_code columns
+- [x] Migrate series_index from link table into books.series_index
+- [x] Update author link queries to use book/author columns
+- [x] Update tag link queries to use book/tag columns
+- [x] Update series link queries to use book/series columns
+- [x] Update publisher link queries to use book/publisher columns
+- [x] Update rating link queries to use book/rating columns
+- [x] Update language link queries to use book/lang_code columns
+- [x] Update search joins to use Calibre link column names
+- [x] Update BookQuery identifier filter to use type/val columns
+- [x] Update get_book_extras joins to Calibre link column names
+- [x] Update search_books_like joins to Calibre link column names
+- [x] Ensure link table indices after migration
+- [x] Add link table schema column tests
 - [ ] Add Calibre meta/tag browser views (requires custom SQL functions)
 - [x] Add publishers schema and book link support
 - [x] Add ratings schema and book link support

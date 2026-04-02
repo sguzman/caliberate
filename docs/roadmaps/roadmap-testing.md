@@ -4,6 +4,8 @@
 - [ ] Port Calibre DB tests for metadata and FTS parity
 - [x] Add schema parity tests for Calibre tables
 - [x] Add books_pages_link trigger test
+- [x] Add schema column naming tests for Calibre compatibility
+- [x] Add table column helper for schema tests
 - [x] Add ingest pipeline tests (copy vs reference)
 - [x] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add 7z archive preview/extraction test

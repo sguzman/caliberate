@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 #[derive(Debug)]
 pub struct Database {
@@ -197,13 +197,14 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_authors_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    author_id INTEGER NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(author_id) REFERENCES authors(id)
+                    book INTEGER NOT NULL,
+                    author INTEGER NOT NULL,
+                    UNIQUE(book, author),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(author) REFERENCES authors(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_authors_book_id ON books_authors_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author_id);
+                CREATE INDEX IF NOT EXISTS idx_books_authors_book_id ON books_authors_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author);
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
@@ -211,13 +212,14 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_tags_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    tag_id INTEGER NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(tag_id) REFERENCES tags(id)
+                    book INTEGER NOT NULL,
+                    tag INTEGER NOT NULL,
+                    UNIQUE(book, tag),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(tag) REFERENCES tags(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_tags_book_id ON books_tags_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag_id);
+                CREATE INDEX IF NOT EXISTS idx_books_tags_book_id ON books_tags_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag);
                 CREATE TABLE IF NOT EXISTS series (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
@@ -226,28 +228,30 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_series_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    series_id INTEGER NOT NULL,
-                    series_index REAL NOT NULL DEFAULT 0,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(series_id) REFERENCES series(id)
+                    book INTEGER NOT NULL,
+                    series INTEGER NOT NULL,
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(series) REFERENCES series(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_series_book_id ON books_series_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_series_series_id ON books_series_link(series_id);
+                CREATE INDEX IF NOT EXISTS idx_books_series_book_id ON books_series_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_series_series_id ON books_series_link(series);
                 CREATE TABLE IF NOT EXISTS identifiers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    identifier_type TEXT NOT NULL,
-                    identifier_value TEXT NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id)
+                    book INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    val TEXT NOT NULL,
+                    UNIQUE(book, type),
+                    FOREIGN KEY(book) REFERENCES books(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_identifiers_book_id ON identifiers(book_id);
-                CREATE INDEX IF NOT EXISTS idx_identifiers_type ON identifiers(identifier_type);
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_identifiers_unique ON identifiers(book_id, identifier_type);
+                CREATE INDEX IF NOT EXISTS idx_identifiers_book_id ON identifiers(book);
+                CREATE INDEX IF NOT EXISTS idx_identifiers_type ON identifiers(type);
                 CREATE TABLE IF NOT EXISTS comments (
-                    book_id INTEGER PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
                     text TEXT NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id)
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id)
                 );
                 CREATE TABLE IF NOT EXISTS notes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,13 +284,14 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_publishers_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    publisher_id INTEGER NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(publisher_id) REFERENCES publishers(id)
+                    book INTEGER NOT NULL,
+                    publisher INTEGER NOT NULL,
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(publisher) REFERENCES publishers(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_publishers_book_id ON books_publishers_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher_id);
+                CREATE INDEX IF NOT EXISTS idx_books_publishers_book_id ON books_publishers_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher);
                 CREATE TABLE IF NOT EXISTS ratings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     rating INTEGER NOT NULL UNIQUE,
@@ -294,13 +299,14 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_ratings_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    rating_id INTEGER NOT NULL,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(rating_id) REFERENCES ratings(id)
+                    book INTEGER NOT NULL,
+                    rating INTEGER NOT NULL,
+                    UNIQUE(book, rating),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(rating) REFERENCES ratings(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_ratings_book_id ON books_ratings_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating_id);
+                CREATE INDEX IF NOT EXISTS idx_books_ratings_book_id ON books_ratings_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating);
                 CREATE TABLE IF NOT EXISTS languages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     lang_code TEXT NOT NULL UNIQUE,
@@ -308,14 +314,15 @@ impl Database {
                 );
                 CREATE TABLE IF NOT EXISTS books_languages_link (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    book_id INTEGER NOT NULL,
-                    language_id INTEGER NOT NULL,
+                    book INTEGER NOT NULL,
+                    lang_code INTEGER NOT NULL,
                     item_order INTEGER NOT NULL DEFAULT 0,
-                    FOREIGN KEY(book_id) REFERENCES books(id),
-                    FOREIGN KEY(language_id) REFERENCES languages(id)
+                    UNIQUE(book, lang_code),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(lang_code) REFERENCES languages(id)
                 );
-                CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book_id);
-                CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(language_id);
+                CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book);
+                CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(lang_code);
                 CREATE TABLE IF NOT EXISTS books_plugin_data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book INTEGER NOT NULL,
@@ -453,6 +460,7 @@ impl Database {
         self.ensure_tag_columns()?;
         self.ensure_language_columns()?;
         self.ensure_rating_columns()?;
+        self.ensure_calibre_link_schema()?;
         if self.fts.enabled {
             self.ensure_fts_schema()?;
         }
@@ -584,6 +592,328 @@ impl Database {
                 })?;
             }
         }
+        Ok(())
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> CoreResult<bool> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .map_err(|err| {
+                CoreError::Io(
+                    format!("read {table} schema"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut rows = stmt.query([]).map_err(|err| {
+            CoreError::Io(
+                format!("read {table} columns"),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        while let Some(row) = rows.next().map_err(|err| {
+            CoreError::Io(
+                format!("read {table} columns"),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })? {
+            let name: String = row.get(1).map_err(|err| {
+                CoreError::Io(
+                    format!("read {table} column name"),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+            if name == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn ensure_calibre_link_schema(&self) -> CoreResult<()> {
+        if self.column_exists("comments", "book_id")? {
+            self.migrate_comments_table()?;
+        }
+        if self.column_exists("identifiers", "identifier_type")? {
+            self.migrate_identifiers_table()?;
+        }
+        if self.column_exists("books_authors_link", "book_id")? {
+            self.migrate_books_authors_link()?;
+        }
+        if self.column_exists("books_tags_link", "book_id")? {
+            self.migrate_books_tags_link()?;
+        }
+        if self.column_exists("books_series_link", "book_id")?
+            || self.column_exists("books_series_link", "series_index")?
+        {
+            self.migrate_books_series_link()?;
+        }
+        if self.column_exists("books_publishers_link", "book_id")? {
+            self.migrate_books_publishers_link()?;
+        }
+        if self.column_exists("books_ratings_link", "book_id")? {
+            self.migrate_books_ratings_link()?;
+        }
+        if self.column_exists("books_languages_link", "book_id")?
+            || self.column_exists("books_languages_link", "language_id")?
+        {
+            self.migrate_books_languages_link()?;
+        }
+        self.ensure_link_indices()?;
+        Ok(())
+    }
+
+    fn ensure_link_indices(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_books_authors_book_id ON books_authors_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author);
+                 CREATE INDEX IF NOT EXISTS idx_books_tags_book_id ON books_tags_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag);
+                 CREATE INDEX IF NOT EXISTS idx_books_series_book_id ON books_series_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_series_series_id ON books_series_link(series);
+                 CREATE INDEX IF NOT EXISTS idx_books_publishers_book_id ON books_publishers_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher);
+                 CREATE INDEX IF NOT EXISTS idx_books_ratings_book_id ON books_ratings_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating);
+                 CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book);
+                 CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(lang_code);
+                 CREATE INDEX IF NOT EXISTS idx_identifiers_book_id ON identifiers(book);
+                 CREATE INDEX IF NOT EXISTS idx_identifiers_type ON identifiers(type);",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "create link indices".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_comments_table(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE comments_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id)
+                 );
+                 INSERT INTO comments_new (book, text)
+                    SELECT book_id, text FROM comments;
+                 DROP TABLE comments;
+                 ALTER TABLE comments_new RENAME TO comments;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate comments table".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_identifiers_table(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE identifiers_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    val TEXT NOT NULL,
+                    UNIQUE(book, type),
+                    FOREIGN KEY(book) REFERENCES books(id)
+                 );
+                 INSERT INTO identifiers_new (book, type, val)
+                    SELECT book_id, identifier_type, identifier_value FROM identifiers;
+                 DROP TABLE identifiers;
+                 ALTER TABLE identifiers_new RENAME TO identifiers;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate identifiers table".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_authors_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_authors_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    author INTEGER NOT NULL,
+                    UNIQUE(book, author),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(author) REFERENCES authors(id)
+                 );
+                 INSERT INTO books_authors_link_new (book, author)
+                    SELECT book_id, author_id FROM books_authors_link;
+                 DROP TABLE books_authors_link;
+                 ALTER TABLE books_authors_link_new RENAME TO books_authors_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_authors_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_tags_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_tags_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    tag INTEGER NOT NULL,
+                    UNIQUE(book, tag),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(tag) REFERENCES tags(id)
+                 );
+                 INSERT INTO books_tags_link_new (book, tag)
+                    SELECT book_id, tag_id FROM books_tags_link;
+                 DROP TABLE books_tags_link;
+                 ALTER TABLE books_tags_link_new RENAME TO books_tags_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_tags_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_series_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_series_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    series INTEGER NOT NULL,
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(series) REFERENCES series(id)
+                 );
+                 INSERT INTO books_series_link_new (book, series)
+                    SELECT book_id, series_id FROM books_series_link;
+                 UPDATE books
+                    SET series_index = (
+                        SELECT series_index
+                        FROM books_series_link
+                        WHERE book_id = books.id
+                    )
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM books_series_link
+                        WHERE book_id = books.id
+                    );
+                 DROP TABLE books_series_link;
+                 ALTER TABLE books_series_link_new RENAME TO books_series_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_series_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_publishers_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_publishers_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    publisher INTEGER NOT NULL,
+                    UNIQUE(book),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(publisher) REFERENCES publishers(id)
+                 );
+                 INSERT INTO books_publishers_link_new (book, publisher)
+                    SELECT book_id, publisher_id FROM books_publishers_link;
+                 DROP TABLE books_publishers_link;
+                 ALTER TABLE books_publishers_link_new RENAME TO books_publishers_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_publishers_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_ratings_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_ratings_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    rating INTEGER NOT NULL,
+                    UNIQUE(book, rating),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(rating) REFERENCES ratings(id)
+                 );
+                 INSERT INTO books_ratings_link_new (book, rating)
+                    SELECT book_id, rating_id FROM books_ratings_link;
+                 DROP TABLE books_ratings_link;
+                 ALTER TABLE books_ratings_link_new RENAME TO books_ratings_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_ratings_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    fn migrate_books_languages_link(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE books_languages_link_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book INTEGER NOT NULL,
+                    lang_code INTEGER NOT NULL,
+                    item_order INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(book, lang_code),
+                    FOREIGN KEY(book) REFERENCES books(id),
+                    FOREIGN KEY(lang_code) REFERENCES languages(id)
+                 );
+                 INSERT INTO books_languages_link_new (book, lang_code, item_order)
+                    SELECT book_id, language_id, item_order FROM books_languages_link;
+                 DROP TABLE books_languages_link;
+                 ALTER TABLE books_languages_link_new RENAME TO books_languages_link;
+                 COMMIT;",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "migrate books_languages_link".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
         Ok(())
     }
 
@@ -818,36 +1148,36 @@ impl Database {
 
         if query.author.is_some() {
             joins.push(
-                "LEFT JOIN books_authors_link bal ON bal.book_id = b.id \
-                 LEFT JOIN authors a ON a.id = bal.author_id",
+                "LEFT JOIN books_authors_link bal ON bal.book = b.id \
+                 LEFT JOIN authors a ON a.id = bal.author",
             );
         }
         if query.tag.is_some() {
             joins.push(
-                "LEFT JOIN books_tags_link btl ON btl.book_id = b.id \
-                 LEFT JOIN tags t ON t.id = btl.tag_id",
+                "LEFT JOIN books_tags_link btl ON btl.book = b.id \
+                 LEFT JOIN tags t ON t.id = btl.tag",
             );
         }
         if query.series.is_some() {
             joins.push(
-                "LEFT JOIN books_series_link bsl ON bsl.book_id = b.id \
-                 LEFT JOIN series s ON s.id = bsl.series_id",
+                "LEFT JOIN books_series_link bsl ON bsl.book = b.id \
+                 LEFT JOIN series s ON s.id = bsl.series",
             );
         }
         if query.publisher.is_some() {
             joins.push(
-                "LEFT JOIN books_publishers_link bpl ON bpl.book_id = b.id \
-                 LEFT JOIN publishers p ON p.id = bpl.publisher_id",
+                "LEFT JOIN books_publishers_link bpl ON bpl.book = b.id \
+                 LEFT JOIN publishers p ON p.id = bpl.publisher",
             );
         }
         if query.language.is_some() {
             joins.push(
-                "LEFT JOIN books_languages_link bll ON bll.book_id = b.id \
-                 LEFT JOIN languages l ON l.id = bll.language_id",
+                "LEFT JOIN books_languages_link bll ON bll.book = b.id \
+                 LEFT JOIN languages l ON l.id = bll.lang_code",
             );
         }
         if query.identifier.is_some() {
-            joins.push("LEFT JOIN identifiers i ON i.book_id = b.id");
+            joins.push("LEFT JOIN identifiers i ON i.book = b.id");
         }
 
         if let Some(title) = &query.title {
@@ -875,7 +1205,7 @@ impl Database {
             params.push(Value::from(format!("%{language}%")));
         }
         if let Some(identifier) = &query.identifier {
-            conditions.push("(i.identifier_value LIKE ? OR i.identifier_type LIKE ?)".to_string());
+            conditions.push("(i.val LIKE ? OR i.type LIKE ?)".to_string());
             let pattern = Value::from(format!("%{identifier}%"));
             params.push(pattern.clone());
             params.push(pattern);
@@ -939,12 +1269,12 @@ impl Database {
             .prepare(
                 "SELECT DISTINCT b.id, b.title, b.format, b.path
                  FROM books b
-                 LEFT JOIN books_authors_link bal ON bal.book_id = b.id
-                 LEFT JOIN authors a ON a.id = bal.author_id
-                 LEFT JOIN books_tags_link btl ON btl.book_id = b.id
-                 LEFT JOIN tags t ON t.id = btl.tag_id
-                 LEFT JOIN books_series_link bsl ON bsl.book_id = b.id
-                 LEFT JOIN series s ON s.id = bsl.series_id
+                 LEFT JOIN books_authors_link bal ON bal.book = b.id
+                 LEFT JOIN authors a ON a.id = bal.author
+                 LEFT JOIN books_tags_link btl ON btl.book = b.id
+                 LEFT JOIN tags t ON t.id = btl.tag
+                 LEFT JOIN books_series_link bsl ON bsl.book = b.id
+                 LEFT JOIN series s ON s.id = bsl.series
                  WHERE b.title LIKE ?1
                     OR a.name LIKE ?1
                     OR t.name LIKE ?1
@@ -1132,6 +1462,36 @@ impl Database {
                 )
             })?;
         Ok(exists.is_some())
+    }
+
+    pub fn table_columns(&self, table: &str) -> CoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query table columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query table columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut columns = Vec::new();
+        for row in rows {
+            columns.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read table columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(columns)
     }
 
     pub fn get_books_pages_entry(&self, book_id: i64) -> CoreResult<Option<BooksPagesEntry>> {
@@ -1383,7 +1743,7 @@ impl Database {
                 tx.last_insert_rowid()
             };
             tx.execute(
-                "INSERT OR IGNORE INTO books_authors_link (book_id, author_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO books_authors_link (book, author) VALUES (?1, ?2)",
                 params![book_id, author_id],
             )
             .map_err(|err| {
@@ -1410,7 +1770,7 @@ impl Database {
             )
         })?;
         tx.execute(
-            "DELETE FROM books_authors_link WHERE book_id = ?1",
+            "DELETE FROM books_authors_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -1455,7 +1815,7 @@ impl Database {
                 tx.last_insert_rowid()
             };
             tx.execute(
-                "INSERT OR IGNORE INTO books_authors_link (book_id, author_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO books_authors_link (book, author) VALUES (?1, ?2)",
                 params![book_id, author_id],
             )
             .map_err(|err| {
@@ -1480,8 +1840,8 @@ impl Database {
             .prepare(
                 "SELECT a.name
                  FROM authors a
-                 JOIN books_authors_link bal ON bal.author_id = a.id
-                 WHERE bal.book_id = ?1
+                 JOIN books_authors_link bal ON bal.author = a.id
+                 WHERE bal.book = ?1
                  ORDER BY a.name",
             )
             .map_err(|err| {
@@ -1572,7 +1932,7 @@ impl Database {
                 tx.last_insert_rowid()
             };
             tx.execute(
-                "INSERT OR IGNORE INTO books_tags_link (book_id, tag_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO books_tags_link (book, tag) VALUES (?1, ?2)",
                 params![book_id, tag_id],
             )
             .map_err(|err| {
@@ -1599,7 +1959,7 @@ impl Database {
             )
         })?;
         tx.execute(
-            "DELETE FROM books_tags_link WHERE book_id = ?1",
+            "DELETE FROM books_tags_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -1642,7 +2002,7 @@ impl Database {
                 tx.last_insert_rowid()
             };
             tx.execute(
-                "INSERT OR IGNORE INTO books_tags_link (book_id, tag_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO books_tags_link (book, tag) VALUES (?1, ?2)",
                 params![book_id, tag_id],
             )
             .map_err(|err| {
@@ -1667,8 +2027,8 @@ impl Database {
             .prepare(
                 "SELECT t.name
                  FROM tags t
-                 JOIN books_tags_link btl ON btl.tag_id = t.id
-                 WHERE btl.book_id = ?1
+                 JOIN books_tags_link btl ON btl.tag = t.id
+                 WHERE btl.book = ?1
                  ORDER BY t.name",
             )
             .map_err(|err| {
@@ -1759,7 +2119,7 @@ impl Database {
             }
         };
         tx.execute(
-            "DELETE FROM books_series_link WHERE book_id = ?1",
+            "DELETE FROM books_series_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -1769,12 +2129,22 @@ impl Database {
             )
         })?;
         tx.execute(
-            "INSERT INTO books_series_link (book_id, series_id, series_index) VALUES (?1, ?2, ?3)",
-            params![book_id, series_id, index],
+            "INSERT INTO books_series_link (book, series) VALUES (?1, ?2)",
+            params![book_id, series_id],
         )
         .map_err(|err| {
             CoreError::Io(
                 "insert book series link".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        tx.execute(
+            "UPDATE books SET series_index = ?1 WHERE id = ?2",
+            params![index, book_id],
+        )
+        .map_err(|err| {
+            CoreError::Io(
+                "update book series index".to_string(),
                 std::io::Error::new(std::io::ErrorKind::Other, err),
             )
         })?;
@@ -1790,12 +2160,23 @@ impl Database {
     pub fn clear_book_series(&mut self, book_id: i64) -> CoreResult<()> {
         self.conn
             .execute(
-                "DELETE FROM books_series_link WHERE book_id = ?1",
+                "DELETE FROM books_series_link WHERE book = ?1",
                 params![book_id],
             )
             .map_err(|err| {
                 CoreError::Io(
                     "clear book series".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        self.conn
+            .execute(
+                "UPDATE books SET series_index = 1.0 WHERE id = ?1",
+                params![book_id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "reset book series index".to_string(),
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
@@ -1805,10 +2186,11 @@ impl Database {
     pub fn get_book_series(&self, book_id: i64) -> CoreResult<Option<SeriesEntry>> {
         self.conn
             .query_row(
-                "SELECT s.name, bsl.series_index
+                "SELECT s.name, b.series_index
                  FROM books_series_link bsl
-                 JOIN series s ON s.id = bsl.series_id
-                 WHERE bsl.book_id = ?1",
+                 JOIN series s ON s.id = bsl.series
+                 JOIN books b ON b.id = bsl.book
+                 WHERE bsl.book = ?1",
                 params![book_id],
                 |row| {
                     Ok(SeriesEntry {
@@ -1842,7 +2224,7 @@ impl Database {
         })?;
         for (id_type, value) in identifiers {
             tx.execute(
-                "INSERT OR REPLACE INTO identifiers (book_id, identifier_type, identifier_value)
+                "INSERT OR REPLACE INTO identifiers (book, type, val)
                  VALUES (?1, ?2, ?3)",
                 params![book_id, id_type, value],
             )
@@ -1873,22 +2255,19 @@ impl Database {
                 std::io::Error::new(std::io::ErrorKind::Other, err),
             )
         })?;
-        tx.execute(
-            "DELETE FROM identifiers WHERE book_id = ?1",
-            params![book_id],
-        )
-        .map_err(|err| {
-            CoreError::Io(
-                "clear identifiers".to_string(),
-                std::io::Error::new(std::io::ErrorKind::Other, err),
-            )
-        })?;
+        tx.execute("DELETE FROM identifiers WHERE book = ?1", params![book_id])
+            .map_err(|err| {
+                CoreError::Io(
+                    "clear identifiers".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
         for (id_type, value) in identifiers {
             if id_type.trim().is_empty() || value.trim().is_empty() {
                 continue;
             }
             tx.execute(
-                "INSERT OR REPLACE INTO identifiers (book_id, identifier_type, identifier_value)\n                 VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO identifiers (book, type, val)\n                 VALUES (?1, ?2, ?3)",
                 params![book_id, id_type, value],
             )
             .map_err(|err| {
@@ -1911,10 +2290,10 @@ impl Database {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT identifier_type, identifier_value
+                "SELECT type, val
                  FROM identifiers
-                 WHERE book_id = ?1
-                 ORDER BY identifier_type",
+                 WHERE book = ?1
+                 ORDER BY type",
             )
             .map_err(|err| {
                 CoreError::Io(
@@ -1950,7 +2329,7 @@ impl Database {
     pub fn set_book_comment(&self, book_id: i64, comment: &str) -> CoreResult<()> {
         self.conn
             .execute(
-                "INSERT OR REPLACE INTO comments (book_id, text) VALUES (?1, ?2)",
+                "INSERT OR REPLACE INTO comments (book, text) VALUES (?1, ?2)",
                 params![book_id, comment],
             )
             .map_err(|err| {
@@ -1965,7 +2344,7 @@ impl Database {
     pub fn get_book_comment(&self, book_id: i64) -> CoreResult<Option<String>> {
         self.conn
             .query_row(
-                "SELECT text FROM comments WHERE book_id = ?1",
+                "SELECT text FROM comments WHERE book = ?1",
                 params![book_id],
                 |row| row.get(0),
             )
@@ -1980,7 +2359,7 @@ impl Database {
 
     pub fn clear_book_comment(&mut self, book_id: i64) -> CoreResult<()> {
         self.conn
-            .execute("DELETE FROM comments WHERE book_id = ?1", params![book_id])
+            .execute("DELETE FROM comments WHERE book = ?1", params![book_id])
             .map_err(|err| {
                 CoreError::Io(
                     "clear comment".to_string(),
@@ -2091,7 +2470,7 @@ impl Database {
             tx.last_insert_rowid()
         };
         tx.execute(
-            "DELETE FROM books_publishers_link WHERE book_id = ?1",
+            "DELETE FROM books_publishers_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -2101,7 +2480,7 @@ impl Database {
             )
         })?;
         tx.execute(
-            "INSERT OR IGNORE INTO books_publishers_link (book_id, publisher_id) VALUES (?1, ?2)",
+            "INSERT OR IGNORE INTO books_publishers_link (book, publisher) VALUES (?1, ?2)",
             params![book_id, publisher_id],
         )
         .map_err(|err| {
@@ -2122,7 +2501,7 @@ impl Database {
     pub fn clear_book_publisher(&mut self, book_id: i64) -> CoreResult<()> {
         self.conn
             .execute(
-                "DELETE FROM books_publishers_link WHERE book_id = ?1",
+                "DELETE FROM books_publishers_link WHERE book = ?1",
                 params![book_id],
             )
             .map_err(|err| {
@@ -2148,7 +2527,7 @@ impl Database {
         })?;
         if rating == 0 {
             tx.execute(
-                "DELETE FROM books_ratings_link WHERE book_id = ?1",
+                "DELETE FROM books_ratings_link WHERE book = ?1",
                 params![book_id],
             )
             .map_err(|err| {
@@ -2192,7 +2571,7 @@ impl Database {
             tx.last_insert_rowid()
         };
         tx.execute(
-            "DELETE FROM books_ratings_link WHERE book_id = ?1",
+            "DELETE FROM books_ratings_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -2202,7 +2581,7 @@ impl Database {
             )
         })?;
         tx.execute(
-            "INSERT OR IGNORE INTO books_ratings_link (book_id, rating_id) VALUES (?1, ?2)",
+            "INSERT OR IGNORE INTO books_ratings_link (book, rating) VALUES (?1, ?2)",
             params![book_id, rating_id],
         )
         .map_err(|err| {
@@ -2228,7 +2607,7 @@ impl Database {
             )
         })?;
         tx.execute(
-            "DELETE FROM books_languages_link WHERE book_id = ?1",
+            "DELETE FROM books_languages_link WHERE book = ?1",
             params![book_id],
         )
         .map_err(|err| {
@@ -2270,7 +2649,7 @@ impl Database {
                 tx.last_insert_rowid()
             };
             tx.execute(
-                "INSERT OR IGNORE INTO books_languages_link (book_id, language_id, item_order) VALUES (?1, ?2, ?3)",
+                "INSERT OR IGNORE INTO books_languages_link (book, lang_code, item_order) VALUES (?1, ?2, ?3)",
                 params![book_id, language_id, order as i64],
             )
             .map_err(|err| {
@@ -2327,8 +2706,8 @@ impl Database {
             .query_row(
                 "SELECT p.name
                  FROM books_publishers_link bpl
-                 JOIN publishers p ON p.id = bpl.publisher_id
-                 WHERE bpl.book_id = ?1",
+                 JOIN publishers p ON p.id = bpl.publisher
+                 WHERE bpl.book = ?1",
                 params![book_id],
                 |row| row.get(0),
             )
@@ -2344,8 +2723,8 @@ impl Database {
             .query_row(
                 "SELECT r.rating
                  FROM books_ratings_link brl
-                 JOIN ratings r ON r.id = brl.rating_id
-                 WHERE brl.book_id = ?1",
+                 JOIN ratings r ON r.id = brl.rating
+                 WHERE brl.book = ?1",
                 params![book_id],
                 |row| row.get(0),
             )
@@ -2361,8 +2740,8 @@ impl Database {
             .prepare(
                 "SELECT l.lang_code
                  FROM books_languages_link bll
-                 JOIN languages l ON l.id = bll.language_id
-                 WHERE bll.book_id = ?1
+                 JOIN languages l ON l.id = bll.lang_code
+                 WHERE bll.book = ?1
                  ORDER BY bll.item_order",
             )
             .map_err(|err| {
