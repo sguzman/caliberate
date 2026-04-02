@@ -739,6 +739,123 @@ fn calibredb_catalog_command() {
     assert!(contents.contains("catalog"));
 }
 
+#[test]
+fn calibredb_saved_searches() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let list_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "saved-searches",
+            "list",
+        ])
+        .output()
+        .expect("run calibredb saved-searches list");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("No saved searches"));
+
+    let add_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "saved-searches",
+            "add",
+            "--name",
+            "favorites",
+            "--query",
+            "title:favorites",
+        ])
+        .output()
+        .expect("run calibredb saved-searches add");
+    assert!(add_output.status.success());
+
+    let list_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "saved-searches",
+            "list",
+        ])
+        .output()
+        .expect("run calibredb saved-searches list after add");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("favorites"));
+    assert!(list_stdout.contains("title:favorites"));
+
+    let remove_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "saved-searches",
+            "remove",
+            "--name",
+            "favorites",
+        ])
+        .output()
+        .expect("run calibredb saved-searches remove");
+    assert!(remove_output.status.success());
+}
+
+#[test]
+fn calibredb_fts_search() {
+    let (temp_dir, config_path) = setup_library_config_with_fts();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("fts.epub");
+    std::fs::write(&book_path, b"fts").expect("write fts book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "fts",
+            "search",
+            "--query",
+            "fts",
+        ])
+        .output()
+        .expect("run calibredb fts search");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("fts"));
+}
+
+#[test]
+fn calibredb_fts_enable_disable() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let enable_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "fts", "enable"])
+        .output()
+        .expect("run calibredb fts enable");
+    assert!(enable_output.status.success());
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    assert!(config.fts.enabled);
+
+    let disable_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "fts", "disable"])
+        .output()
+        .expect("run calibredb fts disable");
+    assert!(disable_output.status.success());
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    assert!(!config.fts.enabled);
+}
 fn workspace_config() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
@@ -822,6 +939,14 @@ fn setup_library_config() -> (TempDir, std::path::PathBuf) {
     let config_path = temp_dir.path().join("control-plane.toml");
     config.save_to_path(&config_path).expect("write config");
 
+    (temp_dir, config_path)
+}
+
+fn setup_library_config_with_fts() -> (TempDir, std::path::PathBuf) {
+    let (temp_dir, config_path) = setup_library_config();
+    let mut config = ControlPlane::load_from_path(&config_path).expect("load config");
+    config.fts.enabled = true;
+    config.save_to_path(&config_path).expect("write config");
     (temp_dir, config_path)
 }
 

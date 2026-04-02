@@ -37,6 +37,12 @@
 - [x] Add `calibredb export` command
 - [x] Add `calibredb backup-metadata` command
 - [x] Add `calibredb catalog` command
+- [x] Add `calibredb saved-searches list` command
+- [x] Add `calibredb saved-searches add` command
+- [x] Add `calibredb saved-searches remove` command
+- [x] Add `calibredb fts search` command
+- [x] Add `calibredb fts enable` command
+- [x] Add `calibredb fts disable` command
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

@@ -42,6 +42,11 @@
 - [x] Add CLI test for calibredb export
 - [x] Add CLI test for calibredb backup-metadata
 - [x] Add CLI test for calibredb catalog
+- [x] Add CLI test for calibredb saved-searches
+- [x] Add CLI test for calibredb fts search
+- [x] Add CLI test for calibredb fts enable/disable
+- [x] Add DB preference JSON roundtrip test
+- [x] Add DB saved searches test
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests

@@ -8,6 +8,7 @@ caliberate-core = { path = "../core" }
 tracing = "0.1.44"
 rusqlite = { version = "0.39.0", features = ["bundled", "functions"] }
 uuid = { version = "1.18.1", features = ["v4"] }
+serde_json = "1.0.138"
 
 [dev-dependencies]
 tempfile = "3.27.0"

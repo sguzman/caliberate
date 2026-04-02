@@ -6,6 +6,7 @@ use caliberate_core::config::{DbConfig, FtsConfig};
 use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use serde_json::Value as JsonValue;
 use std::path::Path;
 use tracing::info;
 
@@ -2125,6 +2126,108 @@ impl Database {
             })?);
         }
         Ok(columns)
+    }
+
+    pub fn get_preference_json(&self, key: &str) -> CoreResult<Option<JsonValue>> {
+        let value: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT val FROM preferences WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "query preference".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let Some(raw) = value else {
+            return Ok(None);
+        };
+        let parsed = serde_json::from_str(&raw).map_err(|err| {
+            CoreError::Io(
+                "parse preference".to_string(),
+                std::io::Error::new(std::io::ErrorKind::InvalidData, err),
+            )
+        })?;
+        Ok(Some(parsed))
+    }
+
+    pub fn set_preference_json(&self, key: &str, value: &JsonValue) -> CoreResult<()> {
+        let raw = serde_json::to_string_pretty(value).map_err(|err| {
+            CoreError::Io(
+                "encode preference".to_string(),
+                std::io::Error::new(std::io::ErrorKind::InvalidData, err),
+            )
+        })?;
+        self.conn
+            .execute(
+                "INSERT INTO preferences (key, val) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET val = excluded.val",
+                params![key, raw],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "write preference".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    pub fn delete_preference(&self, key: &str) -> CoreResult<()> {
+        self.conn
+            .execute("DELETE FROM preferences WHERE key = ?1", params![key])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete preference".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    pub fn list_saved_searches(&self) -> CoreResult<std::collections::BTreeMap<String, String>> {
+        let mut searches = std::collections::BTreeMap::new();
+        let value = self.get_preference_json("saved_searches")?;
+        let Some(value) = value else {
+            return Ok(searches);
+        };
+        let Some(map) = value.as_object() else {
+            return Err(CoreError::Io(
+                "saved_searches is not a map".to_string(),
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid saved_searches"),
+            ));
+        };
+        for (key, value) in map {
+            if let Some(query) = value.as_str() {
+                searches.insert(key.clone(), query.to_string());
+            }
+        }
+        Ok(searches)
+    }
+
+    pub fn add_saved_search(&self, name: &str, query: &str) -> CoreResult<()> {
+        let mut searches = self.list_saved_searches()?;
+        searches.insert(name.to_string(), query.to_string());
+        let mut map = serde_json::Map::new();
+        for (key, value) in searches {
+            map.insert(key, JsonValue::String(value));
+        }
+        self.set_preference_json("saved_searches", &JsonValue::Object(map))
+    }
+
+    pub fn remove_saved_search(&self, name: &str) -> CoreResult<bool> {
+        let mut searches = self.list_saved_searches()?;
+        let removed = searches.remove(name).is_some();
+        let mut map = serde_json::Map::new();
+        for (key, value) in searches {
+            map.insert(key, JsonValue::String(value));
+        }
+        self.set_preference_json("saved_searches", &JsonValue::Object(map))?;
+        Ok(removed)
     }
 
     fn list_category_counts(

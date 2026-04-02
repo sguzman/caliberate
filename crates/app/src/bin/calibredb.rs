@@ -69,6 +69,10 @@ enum CalibredbCommand {
         #[arg(long)]
         category: Option<CategoryValue>,
     },
+    SavedSearches {
+        #[command(subcommand)]
+        command: SavedSearchesCommand,
+    },
     Formats {
         #[command(subcommand)]
         command: FormatsCommand,
@@ -144,6 +148,15 @@ enum AssetsCommand {
 enum FtsCommand {
     Status,
     Rebuild,
+    Search {
+        #[arg(long)]
+        query: String,
+    },
+    Enable {
+        #[arg(long, default_value_t = false)]
+        rebuild: bool,
+    },
+    Disable,
 }
 
 #[derive(Debug, Subcommand)]
@@ -176,6 +189,20 @@ enum FormatsCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum SavedSearchesCommand {
+    List,
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        query: String,
+    },
+    Remove {
+        #[arg(long)]
+        name: String,
+    },
+}
 #[derive(Debug, Subcommand)]
 enum NotesCommand {
     Add {
@@ -299,7 +326,7 @@ impl From<IngestModeValue> for IngestMode {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = CalibredbCli::parse();
     let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
-    let config = bootstrap.config;
+    let mut config = bootstrap.config;
 
     match cli.command {
         Some(CalibredbCommand::CheckConfig) => {
@@ -615,6 +642,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 FtsCommand::Rebuild => {
                     db.rebuild_fts()?;
                     println!("FTS index rebuilt");
+                }
+                FtsCommand::Search { query } => {
+                    if !config.fts.enabled {
+                        return Err("fts is disabled".into());
+                    }
+                    let results = db.search_books_fts(&query)?;
+                    for book in results {
+                        println!(
+                            "{}\t{}\t{}\t{}",
+                            book.id, book.title, book.format, book.path
+                        );
+                    }
+                }
+                FtsCommand::Enable { rebuild } => {
+                    if !config.fts.enabled {
+                        config.fts.enabled = true;
+                        config.save_to_path(&cli.config)?;
+                    }
+                    let db = Database::open_with_fts(&config.db, &config.fts)?;
+                    if rebuild {
+                        db.rebuild_fts()?;
+                        println!("FTS enabled and rebuilt");
+                    } else {
+                        println!("FTS enabled");
+                    }
+                }
+                FtsCommand::Disable => {
+                    if config.fts.enabled {
+                        config.fts.enabled = false;
+                        config.save_to_path(&cli.config)?;
+                    }
+                    println!("FTS disabled");
+                }
+            }
+        }
+        Some(CalibredbCommand::SavedSearches { command }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            match command {
+                SavedSearchesCommand::List => {
+                    let searches = db.list_saved_searches()?;
+                    if searches.is_empty() {
+                        println!("No saved searches");
+                    } else {
+                        for (name, query) in searches {
+                            println!("{name}\t{query}");
+                        }
+                    }
+                }
+                SavedSearchesCommand::Add { name, query } => {
+                    db.add_saved_search(&name, &query)?;
+                    println!("Saved search added: {name}");
+                }
+                SavedSearchesCommand::Remove { name } => {
+                    if db.remove_saved_search(&name)? {
+                        println!("Saved search removed: {name}");
+                    } else {
+                        println!("Saved search not found: {name}");
+                    }
                 }
             }
         }

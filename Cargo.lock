@@ -750,6 +750,7 @@ version = "0.1.0"
 dependencies = [
  "caliberate-core",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "tracing",
  "uuid",

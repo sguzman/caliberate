@@ -1,0 +1,32 @@
+# Tranche 025
+
+- [x] Add serde_json dependency for DB preferences
+- [x] Add DB preference JSON getter
+- [x] Add DB preference JSON setter
+- [x] Add DB preference delete helper
+- [x] Add DB saved searches list helper
+- [x] Add DB saved searches add helper
+- [x] Add DB saved searches remove helper
+- [x] Add saved searches JSON map serialization
+- [x] Add `calibredb saved-searches` subcommand group
+- [x] Add `calibredb saved-searches list` command
+- [x] Add `calibredb saved-searches add` command
+- [x] Add `calibredb saved-searches remove` command
+- [x] Add saved-searches empty output messaging
+- [x] Add `calibredb fts search` command
+- [x] Add `calibredb fts search` output formatting
+- [x] Add `calibredb fts search` disabled guard
+- [x] Add `calibredb fts enable` command
+- [x] Add `calibredb fts enable` rebuild flag
+- [x] Add `calibredb fts disable` command
+- [x] Add `calibredb fts enable` config persistence
+- [x] Add `calibredb fts disable` config persistence
+- [x] Add CLI helper for FTS-enabled configs in tests
+- [x] Add CLI test for saved-searches
+- [x] Add CLI test for fts search
+- [x] Add CLI test for fts enable/disable
+- [x] Add DB preference JSON roundtrip test
+- [x] Add DB saved searches test
+- [x] Update CLI roadmap for saved searches and fts commands
+- [x] Update testing roadmap for saved searches and fts tests
+- [x] Create tranche 025 record
