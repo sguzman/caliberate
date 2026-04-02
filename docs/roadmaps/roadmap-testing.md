@@ -49,6 +49,9 @@
 - [x] Add DB saved searches test
 - [x] Add CLI test for calibredb custom-columns and set-custom
 - [x] Add DB custom columns test
+- [x] Add CLI test for calibredb restore-database
+- [x] Add CLI test for calibredb clone
+- [x] Add CLI test for calibredb embed-metadata
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests

@@ -949,6 +949,155 @@ fn calibredb_custom_columns_and_set_custom() {
         .expect("run calibredb custom-columns remove");
     assert!(remove_output.status.success());
 }
+
+#[test]
+fn calibredb_restore_database() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("restore.epub");
+    std::fs::write(&book_path, b"restore").expect("write restore book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let backup_dir = temp_dir.path().join("restore_metadata");
+    let backup_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "backup-metadata",
+            "--id",
+            &id.to_string(),
+            "--output-dir",
+            backup_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb backup-metadata");
+    assert!(backup_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let mut db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    db.update_book_title(id, "Temporary").expect("update title");
+
+    let restore_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "restore-database",
+            "--input-dir",
+            backup_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb restore-database");
+    assert!(restore_output.status.success());
+
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let book = db.get_book(id).expect("get book").expect("book");
+    assert_ne!(book.title, "Temporary");
+}
+
+#[test]
+fn calibredb_clone_library() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("clone.epub");
+    std::fs::write(&book_path, b"clone").expect("write clone book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+
+    let clone_dir = temp_dir.path().join("clone_out");
+    let clone_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "clone",
+            "--output-dir",
+            clone_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb clone");
+    assert!(clone_output.status.success());
+
+    let db_path = clone_dir.join("caliberate.db");
+    assert!(db_path.exists());
+    let cloned_db = Database::open_path(&db_path, 100).expect("open cloned db");
+    let books = cloned_db.list_books().expect("list books");
+    assert!(!books.is_empty());
+    assert!(books[0].path.contains("clone_out"));
+}
+
+#[test]
+fn calibredb_embed_metadata() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("embed.epub");
+    std::fs::write(&book_path, b"embed").expect("write embed book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let embed_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "embed-metadata",
+            "--id",
+            &id.to_string(),
+        ])
+        .output()
+        .expect("run calibredb embed-metadata");
+    assert!(embed_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let book = db.get_book(id).expect("get book").expect("book");
+    let book_dir = std::path::Path::new(&book.path)
+        .parent()
+        .expect("book parent");
+    assert!(book_dir.join("metadata.opf").exists());
+}
 fn workspace_config() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir

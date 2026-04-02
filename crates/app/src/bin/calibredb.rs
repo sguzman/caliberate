@@ -85,6 +85,22 @@ enum CalibredbCommand {
         #[arg(long)]
         value: String,
     },
+    RestoreDatabase {
+        #[arg(long)]
+        input_dir: PathBuf,
+    },
+    Clone {
+        #[arg(long)]
+        output_dir: PathBuf,
+        #[arg(long, default_value_t = false)]
+        include_references: bool,
+    },
+    EmbedMetadata {
+        #[arg(long)]
+        id: Vec<i64>,
+        #[arg(long, default_value_t = false)]
+        all: bool,
+    },
     Formats {
         #[command(subcommand)]
         command: FormatsCommand,
@@ -774,6 +790,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             db.set_custom_value(id, &label, &value)?;
             println!("Updated custom column {label} for book {id}");
         }
+        Some(CalibredbCommand::RestoreDatabase { input_dir }) => {
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            let restored = restore_database(&mut db, &input_dir)?;
+            println!("Restored metadata for {restored} books");
+        }
+        Some(CalibredbCommand::Clone {
+            output_dir,
+            include_references,
+        }) => {
+            clone_library(&config, &output_dir, include_references)?;
+            println!("Cloned library to {}", output_dir.display());
+        }
+        Some(CalibredbCommand::EmbedMetadata { id, all }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            let ids = resolve_book_ids(&db, &id, all)?;
+            let written = embed_metadata(&db, &ids)?;
+            println!("Wrote metadata for {written} books");
+        }
         Some(CalibredbCommand::ListCategories { category }) => {
             let db = Database::open_with_fts(&config.db, &config.fts)?;
             if let Some(category) = category {
@@ -1241,13 +1275,13 @@ fn export_books(
     Ok(())
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 struct BackupIdentifier {
     id_type: String,
     value: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 struct BackupMetadata {
     id: i64,
     title: String,
@@ -1374,6 +1408,182 @@ fn write_catalog(
     }
     writer.flush()?;
     Ok(())
+}
+
+fn restore_database(
+    db: &mut Database,
+    input_dir: &PathBuf,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut restored = 0usize;
+    if !input_dir.exists() {
+        return Err("input directory does not exist".into());
+    }
+    for entry in std::fs::read_dir(input_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path)?;
+        let metadata: BackupMetadata = serde_json::from_str(&raw)?;
+        if db.get_book(metadata.id)?.is_none() {
+            continue;
+        }
+        db.update_book_title(metadata.id, &metadata.title)?;
+        db.replace_book_authors(metadata.id, &metadata.authors)?;
+        db.replace_book_tags(metadata.id, &metadata.tags)?;
+        if let Some(series) = metadata.series.as_ref() {
+            let index = metadata.series_index.unwrap_or(1.0);
+            db.set_book_series(metadata.id, series, index)?;
+        }
+        let identifiers = metadata
+            .identifiers
+            .into_iter()
+            .map(|item| (item.id_type, item.value))
+            .collect::<Vec<_>>();
+        db.replace_book_identifiers(metadata.id, &identifiers)?;
+        if let Some(comment) = metadata.comment.as_ref() {
+            db.set_book_comment(metadata.id, comment)?;
+        }
+        if let Some(publisher) = metadata.publisher.as_ref() {
+            db.set_book_publisher(metadata.id, publisher)?;
+        }
+        if let Some(rating) = metadata.rating {
+            db.set_book_rating(metadata.id, rating)?;
+        }
+        if !metadata.languages.is_empty() {
+            db.set_book_languages(metadata.id, &metadata.languages)?;
+        }
+        if let Some(timestamp) = metadata.timestamp.as_ref() {
+            db.update_book_timestamp(metadata.id, timestamp)?;
+        }
+        if let Some(pubdate) = metadata.pubdate.as_ref() {
+            db.update_book_pubdate(metadata.id, pubdate)?;
+        }
+        if let Some(last_modified) = metadata.last_modified.as_ref() {
+            db.update_book_last_modified(metadata.id, last_modified)?;
+        }
+        restored += 1;
+    }
+    Ok(restored)
+}
+
+fn clone_library(
+    config: &caliberate_core::config::ControlPlane,
+    output_dir: &PathBuf,
+    include_references: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(output_dir)?;
+    let output_library_dir = output_dir.join("library");
+    std::fs::create_dir_all(&output_library_dir)?;
+    let output_db_path = output_dir.join("caliberate.db");
+    std::fs::copy(&config.db.sqlite_path, &output_db_path)?;
+
+    let mut cloned_config = config.db.clone();
+    cloned_config.sqlite_path = output_db_path;
+    let db = Database::open_with_fts(&cloned_config, &config.fts)?;
+
+    let assets = db.list_assets()?;
+    for asset in &assets {
+        let stored_path = PathBuf::from(&asset.stored_path);
+        if stored_path.starts_with(&config.paths.library_dir) {
+            let relative = stored_path.strip_prefix(&config.paths.library_dir)?;
+            let dest = output_library_dir.join(relative);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&stored_path, &dest)?;
+            db.update_asset_paths(
+                asset.id,
+                &dest.display().to_string(),
+                &asset.storage_mode,
+                asset.source_path.as_deref(),
+            )?;
+        } else if include_references {
+            let file_name = stored_path.file_name().ok_or("invalid stored path")?;
+            let dest = output_library_dir.join("references").join(file_name);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&stored_path, &dest)?;
+            db.update_asset_paths(
+                asset.id,
+                &dest.display().to_string(),
+                "copy",
+                Some(&asset.stored_path),
+            )?;
+        }
+    }
+
+    let books = db.list_books()?;
+    for book in books {
+        let path = PathBuf::from(&book.path);
+        if path.starts_with(&config.paths.library_dir) {
+            let relative = path.strip_prefix(&config.paths.library_dir)?;
+            let dest = output_library_dir.join(relative);
+            db.update_book_path(book.id, &dest.display().to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn embed_metadata(db: &Database, ids: &[i64]) -> Result<usize, Box<dyn std::error::Error>> {
+    let mut written = 0usize;
+    for book_id in ids {
+        let book = db.get_book(*book_id)?.ok_or("book not found")?;
+        let authors = db.list_book_authors(*book_id)?;
+        let tags = db.list_book_tags(*book_id)?;
+        let identifiers = db.list_book_identifiers(*book_id)?;
+        let comment = db.get_book_comment(*book_id)?;
+        let extras = db.get_book_extras(*book_id)?;
+        let series = db.get_book_series(*book_id)?;
+
+        let mut opf = String::new();
+        opf.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        opf.push_str(
+            "<package version=\"2.0\" xmlns=\"http://www.idpf.org/2007/opf\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n",
+        );
+        opf.push_str("  <metadata>\n");
+        opf.push_str(&format!("    <dc:title>{}</dc:title>\n", book.title));
+        for author in &authors {
+            opf.push_str(&format!("    <dc:creator>{author}</dc:creator>\n"));
+        }
+        for tag in &tags {
+            opf.push_str(&format!("    <dc:subject>{tag}</dc:subject>\n"));
+        }
+        for identifier in &identifiers {
+            opf.push_str(&format!(
+                "    <dc:identifier id=\"{}\">{}</dc:identifier>\n",
+                identifier.id_type, identifier.value
+            ));
+        }
+        if let Some(series) = series.as_ref() {
+            opf.push_str(&format!(
+                "    <meta name=\"calibre:series\" content=\"{}\" />\n",
+                series.name
+            ));
+            opf.push_str(&format!(
+                "    <meta name=\"calibre:series_index\" content=\"{}\" />\n",
+                series.index
+            ));
+        }
+        if let Some(publisher) = extras.publisher.as_ref() {
+            opf.push_str(&format!("    <dc:publisher>{publisher}</dc:publisher>\n"));
+        }
+        if let Some(comment) = comment.as_ref() {
+            opf.push_str(&format!("    <dc:description>{comment}</dc:description>\n"));
+        }
+        opf.push_str("  </metadata>\n");
+        opf.push_str("</package>\n");
+
+        let path = PathBuf::from(&book.path);
+        let dir = path.parent().ok_or("book path missing parent")?;
+        std::fs::create_dir_all(dir)?;
+        let opf_path = dir.join("metadata.opf");
+        std::fs::write(opf_path, opf)?;
+        written += 1;
+    }
+    Ok(written)
 }
 
 fn delete_asset_files(

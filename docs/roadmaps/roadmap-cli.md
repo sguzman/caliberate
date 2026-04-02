@@ -47,6 +47,9 @@
 - [x] Add `calibredb custom-columns add` command
 - [x] Add `calibredb custom-columns remove` command
 - [x] Add `calibredb set-custom` command
+- [x] Add `calibredb restore-database` command
+- [x] Add `calibredb clone` command
+- [x] Add `calibredb embed-metadata` command
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

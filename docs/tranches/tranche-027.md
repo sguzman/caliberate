@@ -1,0 +1,33 @@
+# Tranche 027
+
+- [x] Add DB book path update helper
+- [x] Add DB asset path update helper
+- [x] Add restore-database CLI command
+- [x] Add restore-database metadata loader
+- [x] Add restore-database metadata applier
+- [x] Add restore-database result summary
+- [x] Add clone CLI command
+- [x] Add clone output directory creation
+- [x] Add clone database copy
+- [x] Add clone library directory creation
+- [x] Add clone asset copy for managed assets
+- [x] Add clone asset copy for referenced assets when enabled
+- [x] Add clone asset path rewrite
+- [x] Add clone book path rewrite
+- [x] Add embed-metadata CLI command
+- [x] Add embed-metadata OPF writer
+- [x] Add embed-metadata identifiers export
+- [x] Add embed-metadata tags export
+- [x] Add embed-metadata series export
+- [x] Add embed-metadata publisher export
+- [x] Add embed-metadata comment export
+- [x] Add embed-metadata output file creation
+- [x] Add CLI test for restore-database
+- [x] Add CLI test for clone
+- [x] Add CLI test for embed-metadata
+- [x] Add roadmap entries for restore/clone/embed commands
+- [x] Add testing roadmap entries for restore/clone/embed tests
+- [x] Add restore-database JSON deserialization
+- [x] Add clone reference inclusion flag
+- [x] Add clone completion messaging
+- [x] Create tranche 027 record

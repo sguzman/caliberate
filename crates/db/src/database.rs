@@ -1658,6 +1658,21 @@ impl Database {
             })
     }
 
+    pub fn update_book_path(&self, id: i64, path: &str) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE books SET path = ?1 WHERE id = ?2",
+                params![path, id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update book path".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
     pub fn search_books(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
         if self.fts.enabled && query.chars().count() >= self.fts.min_query_len {
             if let Ok(results) = self.search_books_fts(query) {
@@ -1923,6 +1938,27 @@ impl Database {
                 )
             })?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn update_asset_paths(
+        &self,
+        id: i64,
+        stored_path: &str,
+        storage_mode: &str,
+        source_path: Option<&str>,
+    ) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE assets SET stored_path = ?1, storage_mode = ?2, source_path = ?3 WHERE id = ?4",
+                params![stored_path, storage_mode, source_path, id],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update asset path".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
     }
 
     pub fn list_assets(&self) -> CoreResult<Vec<AssetRow>> {
