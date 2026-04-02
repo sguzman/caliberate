@@ -98,6 +98,19 @@ pub struct CategoryCount {
     pub count: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct CustomColumn {
+    pub id: i64,
+    pub label: String,
+    pub name: String,
+    pub datatype: String,
+    pub mark_for_delete: bool,
+    pub editable: bool,
+    pub display: String,
+    pub is_multiple: bool,
+    pub normalized: bool,
+}
+
 impl Database {
     pub fn open(config: &DbConfig) -> CoreResult<Self> {
         Self::open_with_fts(config, &FtsConfig::default())
@@ -2080,6 +2093,166 @@ impl Database {
         Ok(results)
     }
 
+    pub fn list_custom_columns(&self) -> CoreResult<Vec<CustomColumn>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, label, name, datatype, mark_for_delete, editable, display, is_multiple, normalized
+                 FROM custom_columns ORDER BY id",
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list custom columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                let mark_for_delete: i64 = row.get(4)?;
+                let editable: i64 = row.get(5)?;
+                let is_multiple: i64 = row.get(7)?;
+                let normalized: i64 = row.get(8)?;
+                Ok(CustomColumn {
+                    id: row.get(0)?,
+                    label: row.get(1)?,
+                    name: row.get(2)?,
+                    datatype: row.get(3)?,
+                    mark_for_delete: mark_for_delete != 0,
+                    editable: editable != 0,
+                    display: row.get(6)?,
+                    is_multiple: is_multiple != 0,
+                    normalized: normalized != 0,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list custom columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list custom columns".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn create_custom_column(
+        &self,
+        label: &str,
+        name: &str,
+        datatype: &str,
+        display: &str,
+    ) -> CoreResult<i64> {
+        let normalized = if matches!(datatype, "int" | "float") {
+            1
+        } else {
+            0
+        };
+        self.conn
+            .execute(
+                "INSERT INTO custom_columns (label, name, datatype, display, normalized)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![label, name, datatype, display, normalized],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "insert custom column".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let id = self.conn.last_insert_rowid();
+        self.create_custom_column_table(label, datatype)?;
+        Ok(id)
+    }
+
+    pub fn delete_custom_column(&self, label: &str) -> CoreResult<bool> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE custom_columns SET mark_for_delete = 1 WHERE label = ?1",
+                params![label],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "mark custom column delete".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        let table_name = format!("custom_column_{label}");
+        self.conn
+            .execute(&format!("DROP TABLE IF EXISTS {table_name}"), [])
+            .map_err(|err| {
+                CoreError::Io(
+                    "drop custom column table".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        self.conn
+            .execute(
+                "DELETE FROM custom_columns WHERE label = ?1",
+                params![label],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete custom column row".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(true)
+    }
+
+    pub fn set_custom_value(&self, book_id: i64, label: &str, value: &str) -> CoreResult<()> {
+        let table_name = format!("custom_column_{label}");
+        if !self.schema_object_exists("table", &table_name)? {
+            let datatype = self.lookup_custom_column_datatype(label)?;
+            self.create_custom_column_table(label, &datatype)?;
+        }
+        self.conn
+            .execute(
+                &format!(
+                    "INSERT INTO {table_name} (book, value) VALUES (?1, ?2)
+                     ON CONFLICT(book) DO UPDATE SET value = excluded.value"
+                ),
+                params![book_id, value],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "set custom column value".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
+    }
+
+    pub fn get_custom_value(&self, book_id: i64, label: &str) -> CoreResult<Option<String>> {
+        let table_name = format!("custom_column_{label}");
+        if !self.schema_object_exists("table", &table_name)? {
+            return Ok(None);
+        }
+        self.conn
+            .query_row(
+                &format!("SELECT value FROM {table_name} WHERE book = ?1"),
+                params![book_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| {
+                CoreError::Io(
+                    "get custom column value".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
+    }
+
     pub fn schema_object_exists(&self, object_type: &str, name: &str) -> CoreResult<bool> {
         let exists: Option<i64> = self
             .conn
@@ -2274,6 +2447,51 @@ impl Database {
             })?);
         }
         Ok(results)
+    }
+
+    fn lookup_custom_column_datatype(&self, label: &str) -> CoreResult<String> {
+        self.conn
+            .query_row(
+                "SELECT datatype FROM custom_columns WHERE label = ?1",
+                params![label],
+                |row| row.get(0),
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "lookup custom column datatype".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
+    }
+
+    fn create_custom_column_table(&self, label: &str, datatype: &str) -> CoreResult<()> {
+        let table_name = format!("custom_column_{label}");
+        let column_type = match datatype {
+            "int" => "INTEGER",
+            "float" => "REAL",
+            "bool" => "INTEGER",
+            "datetime" => "TEXT",
+            _ => "TEXT",
+        };
+        self.conn
+            .execute(
+                &format!(
+                    "CREATE TABLE IF NOT EXISTS {table_name} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        book INTEGER NOT NULL UNIQUE,
+                        value {column_type} NOT NULL DEFAULT '',
+                        FOREIGN KEY(book) REFERENCES books(id)
+                    )"
+                ),
+                [],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "create custom column table".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(())
     }
 
     pub fn query_scalar_string(&self, sql: &str) -> CoreResult<Option<String>> {

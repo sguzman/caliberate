@@ -856,6 +856,99 @@ fn calibredb_fts_enable_disable() {
     let config = ControlPlane::load_from_path(&config_path).expect("load config");
     assert!(!config.fts.enabled);
 }
+
+#[test]
+fn calibredb_custom_columns_and_set_custom() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let add_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "custom-columns",
+            "add",
+            "--label",
+            "rating_text",
+            "--name",
+            "Rating Text",
+            "--datatype",
+            "text",
+        ])
+        .output()
+        .expect("run calibredb custom-columns add");
+    assert!(add_output.status.success());
+
+    let list_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "custom-columns",
+            "list",
+        ])
+        .output()
+        .expect("run calibredb custom-columns list");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("rating_text"));
+
+    let book_path = temp_dir.path().join("custom.epub");
+    std::fs::write(&book_path, b"custom").expect("write custom book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let set_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set-custom",
+            "--id",
+            &id.to_string(),
+            "--label",
+            "rating_text",
+            "--value",
+            "Loved it",
+        ])
+        .output()
+        .expect("run calibredb set-custom");
+    assert!(set_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let value = db
+        .get_custom_value(id, "rating_text")
+        .expect("get custom value");
+    assert_eq!(value.as_deref(), Some("Loved it"));
+
+    let remove_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "custom-columns",
+            "remove",
+            "--label",
+            "rating_text",
+        ])
+        .output()
+        .expect("run calibredb custom-columns remove");
+    assert!(remove_output.status.success());
+}
 fn workspace_config() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir

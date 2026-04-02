@@ -1,0 +1,32 @@
+# Tranche 026
+
+- [x] Add custom column model struct
+- [x] Add custom column list query
+- [x] Add custom column create helper
+- [x] Add custom column delete helper
+- [x] Add custom column datatype lookup
+- [x] Add custom column table creator
+- [x] Add custom column set value helper
+- [x] Add custom column get value helper
+- [x] Add `calibredb custom-columns` subcommand group
+- [x] Add `calibredb custom-columns list` command
+- [x] Add `calibredb custom-columns add` command
+- [x] Add `calibredb custom-columns remove` command
+- [x] Add `calibredb set-custom` command
+- [x] Add custom columns CLI output formatting
+- [x] Add custom columns CLI error handling
+- [x] Add custom columns CLI wiring for DB writes
+- [x] Add saved-searches CLI remains intact after new subcommand
+- [x] Add custom columns DB table creation on set
+- [x] Add custom columns datatype mapping
+- [x] Add custom columns delete cleanup
+- [x] Add CLI test for custom-columns and set-custom
+- [x] Add DB test for custom columns lifecycle
+- [x] Add DB dependency for preference JSON handling
+- [x] Update CLI roadmap with custom columns commands
+- [x] Update testing roadmap with custom columns tests
+- [x] Add custom column table naming convention
+- [x] Add custom column normalized flag default
+- [x] Add custom column display defaults
+- [x] Add custom column mark-for-delete handling
+- [x] Create tranche 026 record

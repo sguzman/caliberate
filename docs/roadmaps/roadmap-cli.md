@@ -43,6 +43,10 @@
 - [x] Add `calibredb fts search` command
 - [x] Add `calibredb fts enable` command
 - [x] Add `calibredb fts disable` command
+- [x] Add `calibredb custom-columns list` command
+- [x] Add `calibredb custom-columns add` command
+- [x] Add `calibredb custom-columns remove` command
+- [x] Add `calibredb set-custom` command
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command

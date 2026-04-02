@@ -73,6 +73,18 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: SavedSearchesCommand,
     },
+    CustomColumns {
+        #[command(subcommand)]
+        command: CustomColumnsCommand,
+    },
+    SetCustom {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        value: String,
+    },
     Formats {
         #[command(subcommand)]
         command: FormatsCommand,
@@ -201,6 +213,23 @@ enum SavedSearchesCommand {
     Remove {
         #[arg(long)]
         name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CustomColumnsCommand {
+    List,
+    Add {
+        #[arg(long)]
+        label: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        datatype: String,
+    },
+    Remove {
+        #[arg(long)]
+        label: String,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -702,6 +731,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+        }
+        Some(CalibredbCommand::CustomColumns { command }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            match command {
+                CustomColumnsCommand::List => {
+                    let columns = db.list_custom_columns()?;
+                    if columns.is_empty() {
+                        println!("No custom columns");
+                    } else {
+                        for column in columns {
+                            println!(
+                                "{}\t{}\t{}\t{}",
+                                column.label, column.name, column.datatype, column.id
+                            );
+                        }
+                    }
+                }
+                CustomColumnsCommand::Add {
+                    label,
+                    name,
+                    datatype,
+                } => {
+                    let display = "{}";
+                    let id = db.create_custom_column(&label, &name, &datatype, display)?;
+                    println!("Added custom column {label} ({id})");
+                }
+                CustomColumnsCommand::Remove { label } => {
+                    if db.delete_custom_column(&label)? {
+                        println!("Removed custom column {label}");
+                    } else {
+                        println!("Custom column not found: {label}");
+                    }
+                }
+            }
+        }
+        Some(CalibredbCommand::SetCustom { id, label, value }) => {
+            let db = Database::open_with_fts(&config.db, &config.fts)?;
+            if db.get_book(id)?.is_none() {
+                return Err(format!("book not found: {id}").into());
+            }
+            db.set_custom_value(id, &label, &value)?;
+            println!("Updated custom column {label} for book {id}");
         }
         Some(CalibredbCommand::ListCategories { category }) => {
             let db = Database::open_with_fts(&config.db, &config.fts)?;
