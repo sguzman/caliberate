@@ -9,6 +9,7 @@
 - [x] Add asset storage tests (compression, integrity, compaction)
 - [x] Add DB FTS tests (search, rebuild, min length)
 - [x] Add DB metadata relation tests (authors, tags, series, identifiers, comments)
+- [x] Add metadata filename parsing tests
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test

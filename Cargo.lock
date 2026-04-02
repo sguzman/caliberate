@@ -770,6 +770,7 @@ name = "caliberate-gui"
 version = "0.1.0"
 dependencies = [
  "caliberate-core",
+ "caliberate-db",
  "eframe",
  "tracing",
 ]

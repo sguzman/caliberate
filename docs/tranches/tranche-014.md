@@ -1,0 +1,32 @@
+# Tranche 014
+
+- [x] Add GUI DB dependency for data-backed views
+- [x] Wire GUI startup to accept ControlPlane config
+- [x] Add `caliberate-gui` CLI config flag
+- [x] Add GUI navigation between library and preferences
+- [x] Add library view model
+- [x] Add book list row model
+- [x] Add book details model
+- [x] Load library list from DB
+- [x] Add library search using DB query
+- [x] Load book details from DB (book/assets/metadata relations)
+- [x] Render book details panel in GUI
+- [x] Render assets list in GUI
+- [x] Add library refresh control
+- [x] Add library list count display
+- [x] Add search submit control in GUI
+- [x] Add status/error banner for library view
+- [x] Add preferences view model
+- [x] Add read-only preferences notice
+- [x] Render preferences app/path/logging/db/server sections
+- [x] Render preferences assets/ingest/conversion/fts sections
+- [x] Add GUI status bar rendering
+- [x] Add GUI logging for refresh and detail loads
+- [x] Display authors/tags/series in GUI details panel
+- [x] Display identifiers in GUI details panel
+- [x] Display comments in GUI details panel
+- [x] Add metadata filename parsing tests
+- [x] Update GUI roadmap with refined items
+- [x] Update testing roadmap with metadata parsing tests
+- [x] Use bootstrap logging/metrics in GUI binary
+- [x] Create tranche 014 record

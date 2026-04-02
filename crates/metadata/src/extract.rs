@@ -341,3 +341,32 @@ fn parse_authors(raw: &str) -> Vec<String> {
         .map(|value| value.to_string())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_title_and_authors;
+
+    #[test]
+    fn parses_author_and_title() {
+        let (title, authors) = parse_title_and_authors("Jane Doe - The Book");
+        assert_eq!(title, "The Book");
+        assert_eq!(authors, vec!["Jane Doe".to_string()]);
+    }
+
+    #[test]
+    fn parses_multiple_authors() {
+        let (title, authors) = parse_title_and_authors("Jane Doe & John Roe - Story");
+        assert_eq!(title, "Story");
+        assert_eq!(
+            authors,
+            vec!["Jane Doe".to_string(), "John Roe".to_string()]
+        );
+    }
+
+    #[test]
+    fn falls_back_without_separator() {
+        let (title, authors) = parse_title_and_authors("Standalone Title");
+        assert_eq!(title, "Standalone Title");
+        assert!(authors.is_empty());
+    }
+}
