@@ -8,6 +8,11 @@
 - [x] Add table column helper for schema tests
 - [x] Add view/trigger/index existence tests for Calibre parity
 - [x] Add Calibre SQL function behavior tests
+- [x] Add DB trigger test for books_insert_trg
+- [x] Add DB trigger test for books_update_trg
+- [x] Add DB trigger test for books_delete_trg cleanup
+- [x] Add series_insert_trg sort trigger test
+- [x] Add meta view content test
 - [x] Add ingest pipeline tests (copy vs reference)
 - [x] Add archive reference tests (metadata extraction, on-demand extraction)
 - [x] Add 7z archive preview/extraction test
@@ -26,6 +31,12 @@
 - [x] Add plugin discovery tests
 - [x] Add plugin permission tests
 - [x] Add CLI regression tests for parity commands
+- [x] Add CLI tests for calibredb notes commands
+- [x] Add CLI test for calibredb set title
+- [x] Add CLI test for calibredb set identifiers
+- [x] Add CLI test for calibredb set dates
+- [x] Add CLI tests for ebook-convert list/info flags
+- [x] Add CLI tests for calibre-server users commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests

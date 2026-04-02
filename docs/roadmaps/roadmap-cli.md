@@ -19,6 +19,19 @@
 - [x] Add `calibredb show` asset listing output
 - [x] Persist metadata relations during `calibredb add`
 - [x] Add `calibredb show` output for publisher/language/rating metadata
+- [x] Add `calibredb notes add` command
+- [x] Add `calibredb notes list` command
+- [x] Add `calibredb notes delete` command
+- [x] Add `calibredb set title` command
+- [x] Add `calibredb set authors` command
+- [x] Add `calibredb set tags` command
+- [x] Add `calibredb set series` command
+- [x] Add `calibredb set identifiers` command
+- [x] Add `calibredb set comment` command
+- [x] Add `calibredb set publisher` command
+- [x] Add `calibredb set rating` command
+- [x] Add `calibredb set languages` command
+- [x] Add `calibredb set dates` command
 - [x] Add `calibredb assets list` command
 - [x] Add `calibredb assets stats` command
 - [x] Add `calibredb assets verify` command
@@ -29,6 +42,9 @@
 - [ ] Implement conversion commands parity set
 - [x] Add `ebook-convert` binary scaffold
 - [x] Add `ebook-convert` conversion wiring
+- [x] Add `ebook-convert --list-formats` command
+- [x] Add `ebook-convert --list-archives` command
+- [x] Add `ebook-convert --info` command
 - [x] Implement device commands parity set
 - [x] Add device command scaffolding
 - [x] Add `calibredb device list` command
@@ -42,3 +58,6 @@
 - [x] Add `calibre-server opds-books` command
 - [x] Add `calibre-server opds-search` command
 - [x] Add `calibre-server download` command
+- [x] Add `calibre-server users list` command
+- [x] Add `calibre-server users add` command
+- [x] Add `calibre-server users remove` command

@@ -1,0 +1,32 @@
+# Tranche 023
+
+- [x] Add `calibredb notes add` command
+- [x] Add `calibredb notes list` command
+- [x] Add `calibredb notes delete` command
+- [x] Add `calibredb set title` command
+- [x] Add `calibredb set authors` command
+- [x] Add `calibredb set tags` command
+- [x] Add `calibredb set series` command
+- [x] Add `calibredb set identifiers` command
+- [x] Add `calibredb set comment` command
+- [x] Add `calibredb set publisher` command
+- [x] Add `calibredb set rating` command
+- [x] Add `calibredb set languages` command
+- [x] Add `calibredb set dates` command
+- [x] Add `ebook-convert --list-formats` command
+- [x] Add `ebook-convert --list-archives` command
+- [x] Add `ebook-convert --info` command
+- [x] Add `calibre-server users list` command
+- [x] Add `calibre-server users add` command
+- [x] Add `calibre-server users remove` command
+- [x] Add CLI tests for calibredb notes commands
+- [x] Add CLI test for calibredb set title
+- [x] Add CLI test for calibredb set identifiers
+- [x] Add CLI test for calibredb set dates
+- [x] Add CLI tests for ebook-convert list/info flags
+- [x] Add CLI tests for calibre-server users commands
+- [x] Add DB trigger test for books_insert_trg
+- [x] Add DB trigger test for books_update_trg
+- [x] Add DB trigger test for books_delete_trg cleanup
+- [x] Add series_insert_trg sort trigger test
+- [x] Add meta view content test

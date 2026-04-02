@@ -18,6 +18,10 @@ struct ServerCli {
 enum ServerCommand {
     CheckConfig,
     Health,
+    Users {
+        #[command(subcommand)]
+        command: UsersCommand,
+    },
     OpdsRoot,
     OpdsBooks,
     OpdsSearch {
@@ -29,6 +33,19 @@ enum ServerCommand {
         id: i64,
         #[arg(long)]
         output: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum UsersCommand {
+    List,
+    Add {
+        #[arg(long)]
+        key: String,
+    },
+    Remove {
+        #[arg(long)]
+        key: String,
     },
 }
 
@@ -86,6 +103,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bytes = response.bytes()?;
             fs::write(output, &bytes)?;
             println!("Downloaded to {}", output.display());
+            return Ok(());
+        }
+        Some(ServerCommand::Users { command }) => {
+            let mut config = config;
+            match command {
+                UsersCommand::List => {
+                    if config.server.api_keys.is_empty() {
+                        println!("No API keys configured");
+                    } else {
+                        for key in &config.server.api_keys {
+                            println!("{key}");
+                        }
+                    }
+                }
+                UsersCommand::Add { key } => {
+                    if config.server.api_keys.contains(key) {
+                        println!("API key already exists");
+                    } else {
+                        config.server.api_keys.push(key.clone());
+                        config.save_to_path(&cli.config)?;
+                        println!("Added API key");
+                    }
+                }
+                UsersCommand::Remove { key } => {
+                    let before = config.server.api_keys.len();
+                    config.server.api_keys.retain(|existing| existing != key);
+                    if config.server.api_keys.len() == before {
+                        println!("API key not found");
+                    } else {
+                        config.save_to_path(&cli.config)?;
+                        println!("Removed API key");
+                    }
+                }
+            }
             return Ok(());
         }
         None => {}

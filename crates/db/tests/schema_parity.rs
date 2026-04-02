@@ -221,6 +221,166 @@ fn calibre_sql_functions_behave() {
 }
 
 #[test]
+fn books_insert_trigger_sets_sort_and_uuid() {
+    let (db, _tmp) = open_db();
+    let book_id = db
+        .add_book(
+            "The Hobbit",
+            "epub",
+            "/library/hobbit.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add book");
+    let sort = db
+        .query_scalar_string(&format!("SELECT sort FROM books WHERE id = {book_id}"))
+        .expect("query sort")
+        .expect("sort");
+    assert_eq!(sort, "hobbit");
+    let uuid = db
+        .query_scalar_string(&format!("SELECT uuid FROM books WHERE id = {book_id}"))
+        .expect("query uuid")
+        .expect("uuid");
+    assert_eq!(uuid.len(), 36);
+}
+
+#[test]
+fn books_update_trigger_updates_sort() {
+    let (db, _tmp) = open_db();
+    let book_id = db
+        .add_book(
+            "The Hobbit",
+            "epub",
+            "/library/hobbit.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add book");
+    let mut db = db;
+    db.update_book_title(book_id, "A Tale of Two Cities")
+        .expect("update title");
+    let sort = db
+        .query_scalar_string(&format!("SELECT sort FROM books WHERE id = {book_id}"))
+        .expect("query sort")
+        .expect("sort");
+    assert_eq!(sort, "tale of two cities");
+}
+
+#[test]
+fn books_delete_trigger_cleans_link_tables() {
+    let (db, _tmp) = open_db();
+    let book_id = db
+        .add_book(
+            "Delete Me",
+            "epub",
+            "/library/delete.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add book");
+    let mut db = db;
+    db.add_book_authors(book_id, &["Author One".to_string()])
+        .expect("add author");
+    db.add_book_tags(book_id, &["tag-one".to_string()])
+        .expect("add tag");
+    let authors_before = db
+        .query_scalar_i64(&format!(
+            "SELECT COUNT(*) FROM books_authors_link WHERE book = {book_id}"
+        ))
+        .expect("count authors")
+        .expect("count");
+    assert_eq!(authors_before, 1);
+    let tags_before = db
+        .query_scalar_i64(&format!(
+            "SELECT COUNT(*) FROM books_tags_link WHERE book = {book_id}"
+        ))
+        .expect("count tags")
+        .expect("count");
+    assert_eq!(tags_before, 1);
+
+    let summary = db.delete_book_with_assets(book_id).expect("delete book");
+    assert!(summary.book_deleted);
+
+    let authors_after = db
+        .query_scalar_i64(&format!(
+            "SELECT COUNT(*) FROM books_authors_link WHERE book = {book_id}"
+        ))
+        .expect("count authors after")
+        .expect("count");
+    assert_eq!(authors_after, 0);
+    let tags_after = db
+        .query_scalar_i64(&format!(
+            "SELECT COUNT(*) FROM books_tags_link WHERE book = {book_id}"
+        ))
+        .expect("count tags after")
+        .expect("count");
+    assert_eq!(tags_after, 0);
+}
+
+#[test]
+fn meta_view_exposes_metadata() {
+    let (db, _tmp) = open_db();
+    let book_id = db
+        .add_book(
+            "Meta Book",
+            "epub",
+            "/library/meta.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add book");
+    let mut db = db;
+    db.add_book_authors(book_id, &["Ada Lovelace".to_string()])
+        .expect("add authors");
+    db.add_book_tags(book_id, &["computing".to_string()])
+        .expect("add tags");
+    db.set_book_series(book_id, "Meta Series", 1.0)
+        .expect("set series");
+    db.set_book_comment(book_id, "Notes for meta view")
+        .expect("set comment");
+    db.set_book_publisher(book_id, "Meta Press")
+        .expect("set publisher");
+
+    let authors = db
+        .query_scalar_string(&format!("SELECT authors FROM meta WHERE id = {book_id}"))
+        .expect("authors")
+        .expect("authors");
+    assert!(authors.contains("Ada Lovelace"));
+    let tags = db
+        .query_scalar_string(&format!("SELECT tags FROM meta WHERE id = {book_id}"))
+        .expect("tags")
+        .expect("tags");
+    assert!(tags.contains("computing"));
+    let series = db
+        .query_scalar_string(&format!("SELECT series FROM meta WHERE id = {book_id}"))
+        .expect("series")
+        .expect("series");
+    assert_eq!(series, "Meta Series");
+    let publisher = db
+        .query_scalar_string(&format!("SELECT publisher FROM meta WHERE id = {book_id}"))
+        .expect("publisher")
+        .expect("publisher");
+    assert_eq!(publisher, "Meta Press");
+}
+
+#[test]
+fn series_insert_trigger_sets_sort() {
+    let (db, _tmp) = open_db();
+    let book_id = db
+        .add_book(
+            "Series Book",
+            "epub",
+            "/library/series.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add book");
+    let mut db = db;
+    db.set_book_series(book_id, "The Series", 1.0)
+        .expect("set series");
+    let sort = db
+        .query_scalar_string("SELECT sort FROM series WHERE name = 'The Series'")
+        .expect("query sort")
+        .expect("sort");
+    assert_eq!(sort, "series");
+}
+
+#[test]
 fn books_pages_link_auto_creates_entry() {
     let (db, _tmp) = open_db();
     let book_id = db

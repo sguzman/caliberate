@@ -9,19 +9,60 @@ struct EbookConvertCli {
     #[arg(long, default_value = "config/control-plane.toml")]
     config: PathBuf,
     #[arg(long)]
-    input: PathBuf,
+    input: Option<PathBuf>,
     #[arg(long)]
-    output: PathBuf,
+    output: Option<PathBuf>,
     #[arg(long)]
     input_format: Option<String>,
     #[arg(long)]
     output_format: Option<String>,
+    #[arg(long, default_value_t = false)]
+    list_formats: bool,
+    #[arg(long, default_value_t = false)]
+    list_archives: bool,
+    #[arg(long, default_value_t = false)]
+    info: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = EbookConvertCli::parse();
     let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
     let config = bootstrap.config;
+
+    if cli.list_formats {
+        for format in &config.formats.supported {
+            println!("{format}");
+        }
+        return Ok(());
+    }
+
+    if cli.list_archives {
+        for format in &config.formats.archive_formats {
+            println!("{format}");
+        }
+        return Ok(());
+    }
+
+    if cli.info {
+        println!("Conversion enabled: {}", config.conversion.enabled);
+        println!("Allow passthrough: {}", config.conversion.allow_passthrough);
+        println!(
+            "Default output format: {}",
+            config.conversion.default_output_format
+        );
+        println!("Max input bytes: {}", config.conversion.max_input_bytes);
+        println!("Temp dir: {}", config.conversion.temp_dir.display());
+        println!("Output dir: {}", config.conversion.output_dir.display());
+        println!("Supported formats: {}", config.formats.supported.join(", "));
+        println!(
+            "Archive formats: {}",
+            config.formats.archive_formats.join(", ")
+        );
+        return Ok(());
+    }
+
+    let input = cli.input.ok_or("--input is required")?;
+    let output = cli.output.ok_or("--output is required")?;
 
     if !config.conversion.enabled {
         return Err("conversion disabled by config".into());
@@ -32,13 +73,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_output_format(cli.output_format);
 
     let runner = ConversionJobRunner::new();
-    let request = build_request(&cli.input, &cli.output, settings);
+    let request = build_request(&input, &output, settings);
     let summary = runner.run(request)?;
 
     println!(
         "Converted {} -> {} ({:?})",
-        cli.input.display(),
-        cli.output.display(),
+        input.display(),
+        output.display(),
         summary.duration
     );
 

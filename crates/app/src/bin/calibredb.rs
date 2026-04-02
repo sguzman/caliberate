@@ -68,6 +68,14 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: FormatsCommand,
     },
+    Notes {
+        #[command(subcommand)]
+        command: NotesCommand,
+    },
+    Set {
+        #[command(subcommand)]
+        command: SetCommand,
+    },
     Device {
         #[command(subcommand)]
         command: DeviceCommand,
@@ -125,6 +133,94 @@ enum FormatsCommand {
         delete_files: bool,
         #[arg(long, default_value_t = false)]
         delete_reference_files: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum NotesCommand {
+    Add {
+        #[arg(long)]
+        book_id: i64,
+        #[arg(long)]
+        text: String,
+    },
+    List {
+        #[arg(long)]
+        book_id: i64,
+    },
+    Delete {
+        #[arg(long)]
+        note_id: i64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SetCommand {
+    Title {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        title: String,
+    },
+    Authors {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        value: Vec<String>,
+    },
+    Tags {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        value: Vec<String>,
+    },
+    Series {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value_t = 1.0)]
+        index: f64,
+    },
+    Identifiers {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        identifier: Vec<String>,
+    },
+    Comment {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        text: String,
+    },
+    Publisher {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        name: String,
+    },
+    Rating {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        rating: i64,
+    },
+    Languages {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        value: Vec<String>,
+    },
+    Dates {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        timestamp: Option<String>,
+        #[arg(long)]
+        pubdate: Option<String>,
+        #[arg(long)]
+        last_modified: Option<String>,
     },
 }
 
@@ -593,6 +689,108 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Removed {deleted} formats for book {id}");
             }
         },
+        Some(CalibredbCommand::Notes { command }) => match command {
+            NotesCommand::Add { book_id, text } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                let created_at =
+                    time::OffsetDateTime::now_utc().format(&time::format_description::parse(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second]Z",
+                    )?)?;
+                let note_id = db.add_note(book_id, &text, &created_at)?;
+                println!("Added note {note_id} for book {book_id}");
+            }
+            NotesCommand::List { book_id } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let notes = db.list_notes_for_book(book_id)?;
+                if notes.is_empty() {
+                    println!("No notes for book {book_id}");
+                } else {
+                    for note in notes {
+                        println!("{}\t{}\t{}", note.id, note.created_at, note.text);
+                    }
+                }
+            }
+            NotesCommand::Delete { note_id } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                if db.delete_note(note_id)? {
+                    println!("Deleted note {note_id}");
+                } else {
+                    println!("Note not found: {note_id}");
+                }
+            }
+        },
+        Some(CalibredbCommand::Set { command }) => match command {
+            SetCommand::Title { id, title } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                if db.update_book_title(id, &title)? {
+                    println!("Updated title for book {id}");
+                } else {
+                    println!("Book not found: {id}");
+                }
+            }
+            SetCommand::Authors { id, value } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.replace_book_authors(id, &value)?;
+                println!("Updated authors for book {id}");
+            }
+            SetCommand::Tags { id, value } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.replace_book_tags(id, &value)?;
+                println!("Updated tags for book {id}");
+            }
+            SetCommand::Series { id, name, index } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.set_book_series(id, &name, index)?;
+                println!("Updated series for book {id}");
+            }
+            SetCommand::Identifiers { id, identifier } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                let parsed = parse_identifiers(&identifier)?;
+                db.replace_book_identifiers(id, &parsed)?;
+                println!("Updated identifiers for book {id}");
+            }
+            SetCommand::Comment { id, text } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.set_book_comment(id, &text)?;
+                println!("Updated comment for book {id}");
+            }
+            SetCommand::Publisher { id, name } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.set_book_publisher(id, &name)?;
+                println!("Updated publisher for book {id}");
+            }
+            SetCommand::Rating { id, rating } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.set_book_rating(id, rating)?;
+                println!("Updated rating for book {id}");
+            }
+            SetCommand::Languages { id, value } => {
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                db.set_book_languages(id, &value)?;
+                println!("Updated languages for book {id}");
+            }
+            SetCommand::Dates {
+                id,
+                timestamp,
+                pubdate,
+                last_modified,
+            } => {
+                if timestamp.is_none() && pubdate.is_none() && last_modified.is_none() {
+                    return Err("set dates requires at least one value".into());
+                }
+                let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+                if let Some(value) = timestamp {
+                    db.update_book_timestamp(id, &value)?;
+                }
+                if let Some(value) = pubdate {
+                    db.update_book_pubdate(id, &value)?;
+                }
+                if let Some(value) = last_modified {
+                    db.update_book_last_modified(id, &value)?;
+                }
+                println!("Updated dates for book {id}");
+            }
+        },
         Some(CalibredbCommand::Device { command }) => match command {
             DeviceCommand::List => {
                 let devices = detect_devices(&config.device)?;
@@ -685,6 +883,22 @@ fn format_from_path(path: &str) -> Option<String> {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_string())
+}
+
+fn parse_identifiers(
+    values: &[String],
+) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    let mut parsed = Vec::new();
+    for value in values {
+        let (key, val) = value
+            .split_once('=')
+            .ok_or_else(|| format!("invalid identifier: {value}"))?;
+        if key.trim().is_empty() || val.trim().is_empty() {
+            return Err(format!("invalid identifier: {value}").into());
+        }
+        parsed.push((key.trim().to_string(), val.trim().to_string()));
+    }
+    Ok(parsed)
 }
 
 fn delete_asset_files(

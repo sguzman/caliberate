@@ -1,4 +1,5 @@
 use caliberate_core::config::ControlPlane;
+use caliberate_db::database::Database;
 use std::process::Command;
 use tempfile::TempDir;
 
@@ -189,6 +190,336 @@ fn calibredb_format_commands() {
     assert!(list_output.status.success());
     let list_stdout = String::from_utf8_lossy(&list_output.stdout);
     assert!(!list_stdout.contains("pdf"));
+}
+
+#[test]
+fn calibredb_notes_commands() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("notes.epub");
+    std::fs::write(&book_path, b"notes").expect("write notes book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .to_string();
+
+    let note_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "notes",
+            "add",
+            "--book-id",
+            &id,
+            "--text",
+            "Remember this",
+        ])
+        .output()
+        .expect("run calibredb notes add");
+    assert!(note_output.status.success());
+    let note_stdout = String::from_utf8_lossy(&note_output.stdout);
+    let note_id = note_stdout
+        .split_whitespace()
+        .nth(2)
+        .expect("note id")
+        .to_string();
+
+    let list_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "notes",
+            "list",
+            "--book-id",
+            &id,
+        ])
+        .output()
+        .expect("run calibredb notes list");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains(&note_id));
+    assert!(list_stdout.contains("Remember this"));
+
+    let delete_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "notes",
+            "delete",
+            "--note-id",
+            &note_id,
+        ])
+        .output()
+        .expect("run calibredb notes delete");
+    assert!(delete_output.status.success());
+
+    let list_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "notes",
+            "list",
+            "--book-id",
+            &id,
+        ])
+        .output()
+        .expect("run calibredb notes list after delete");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("No notes for book"));
+}
+
+#[test]
+fn calibredb_set_title() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("set-title.epub");
+    std::fs::write(&book_path, b"title").expect("write title book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let update_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set",
+            "title",
+            "--id",
+            &id.to_string(),
+            "--title",
+            "Updated Title",
+        ])
+        .output()
+        .expect("run calibredb set title");
+    assert!(update_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let book = db.get_book(id).expect("get book").expect("book");
+    assert_eq!(book.title, "Updated Title");
+}
+
+#[test]
+fn calibredb_set_identifiers() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("set-ident.epub");
+    std::fs::write(&book_path, b"ident").expect("write ident book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let update_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set",
+            "identifiers",
+            "--id",
+            &id.to_string(),
+            "--identifier",
+            "isbn=1234567890",
+            "--identifier",
+            "asin=B00TEST",
+        ])
+        .output()
+        .expect("run calibredb set identifiers");
+    assert!(update_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let identifiers = db.list_book_identifiers(id).expect("list identifiers");
+    assert!(identifiers.iter().any(|i| i.id_type == "isbn"));
+    assert!(identifiers.iter().any(|i| i.id_type == "asin"));
+}
+
+#[test]
+fn calibredb_set_dates() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibredb");
+
+    let book_path = temp_dir.path().join("set-dates.epub");
+    std::fs::write(&book_path, b"dates").expect("write dates book");
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "add",
+            "--path",
+            book_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run calibredb add");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .split_whitespace()
+        .last()
+        .expect("book id")
+        .parse::<i64>()
+        .expect("book id int");
+
+    let update_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "set",
+            "dates",
+            "--id",
+            &id.to_string(),
+            "--timestamp",
+            "2026-04-01T00:00:00Z",
+            "--pubdate",
+            "2026-03-01T00:00:00Z",
+            "--last-modified",
+            "2026-04-02T00:00:00Z",
+        ])
+        .output()
+        .expect("run calibredb set dates");
+    assert!(update_output.status.success());
+
+    let config = ControlPlane::load_from_path(&config_path).expect("load config");
+    let db = Database::open_with_fts(&config.db, &config.fts).expect("open db");
+    let extras = db.get_book_extras(id).expect("extras");
+    assert_eq!(extras.timestamp.as_deref(), Some("2026-04-01T00:00:00Z"));
+    assert_eq!(extras.pubdate.as_deref(), Some("2026-03-01T00:00:00Z"));
+    assert_eq!(
+        extras.last_modified.as_deref(),
+        Some("2026-04-02T00:00:00Z")
+    );
+}
+
+#[test]
+fn ebook_convert_list_and_info() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let list_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "--list-formats"])
+        .output()
+        .expect("run ebook-convert list-formats");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("epub"));
+
+    let archive_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "--list-archives"])
+        .output()
+        .expect("run ebook-convert list-archives");
+    assert!(archive_output.status.success());
+    let archive_stdout = String::from_utf8_lossy(&archive_output.stdout);
+    assert!(archive_stdout.contains("zip"));
+
+    let info_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "--info"])
+        .output()
+        .expect("run ebook-convert info");
+    assert!(info_output.status.success());
+    let info_stdout = String::from_utf8_lossy(&info_output.stdout);
+    assert!(info_stdout.contains("Conversion enabled"));
+}
+
+#[test]
+fn calibre_server_user_commands() {
+    let (_temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_calibre-server");
+
+    let list_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "users", "list"])
+        .output()
+        .expect("run calibre-server users list");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("No API keys configured"));
+
+    let add_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "users",
+            "add",
+            "--key",
+            "abc123",
+        ])
+        .output()
+        .expect("run calibre-server users add");
+    assert!(add_output.status.success());
+
+    let list_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "users", "list"])
+        .output()
+        .expect("run calibre-server users list after add");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("abc123"));
+
+    let remove_output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "users",
+            "remove",
+            "--key",
+            "abc123",
+        ])
+        .output()
+        .expect("run calibre-server users remove");
+    assert!(remove_output.status.success());
+
+    let list_output = Command::new(exe)
+        .args(["--config", config_path.to_str().unwrap(), "users", "list"])
+        .output()
+        .expect("run calibre-server users list after remove");
+    assert!(list_output.status.success());
+    let list_stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(list_stdout.contains("No API keys configured"));
 }
 
 fn workspace_config() -> std::path::PathBuf {
