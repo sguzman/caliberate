@@ -693,12 +693,14 @@ dependencies = [
  "caliberate-conversion",
  "caliberate-core",
  "caliberate-db",
+ "caliberate-device",
  "caliberate-gui",
  "caliberate-library",
  "caliberate-metadata",
  "caliberate-server",
  "clap",
  "reqwest",
+ "tempfile",
  "time",
  "tokio",
  "tracing",
@@ -773,6 +775,7 @@ dependencies = [
  "caliberate-core",
  "caliberate-db",
  "eframe",
+ "tempfile",
  "tracing",
 ]
 

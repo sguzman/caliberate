@@ -24,7 +24,13 @@
 - [ ] Implement conversion commands parity set
 - [x] Add `ebook-convert` binary scaffold
 - [x] Add `ebook-convert` conversion wiring
-- [ ] Implement device commands parity set
+- [x] Implement device commands parity set
+- [x] Add device command scaffolding
+- [x] Add `calibredb device list` command
+- [x] Add `calibredb device list-files` command
+- [x] Add `calibredb device send` command
+- [x] Add `calibredb device cleanup` command
+- [x] Add `calibredb device` CLI tests
 - [ ] Implement server/OPDS commands parity set
 - [x] Add `calibre-server health` command
 - [x] Add `calibre-server opds-root` command

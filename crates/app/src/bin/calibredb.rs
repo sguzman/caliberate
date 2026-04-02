@@ -7,6 +7,8 @@ use caliberate_assets::stats::{
 use caliberate_assets::storage::{LocalAssetStore, StorageMode};
 use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
+use caliberate_device::detection::{DeviceInfo, detect_devices};
+use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use caliberate_metadata::extract::extract_archive_entry;
 
@@ -62,6 +64,10 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: FtsCommand,
     },
+    Device {
+        #[command(subcommand)]
+        command: DeviceCommand,
+    },
     Info,
 }
 
@@ -86,6 +92,29 @@ enum AssetsCommand {
 enum FtsCommand {
     Status,
     Rebuild,
+}
+
+#[derive(Debug, Subcommand)]
+enum DeviceCommand {
+    List,
+    ListFiles {
+        #[arg(long)]
+        device: Option<String>,
+    },
+    Send {
+        #[arg(long)]
+        device: Option<String>,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        dest_name: Option<String>,
+    },
+    Cleanup {
+        #[arg(long)]
+        device: Option<String>,
+        #[arg(long)]
+        keep: Vec<String>,
+    },
 }
 
 impl From<IngestModeValue> for IngestMode {
@@ -419,6 +448,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Some(CalibredbCommand::Device { command }) => match command {
+            DeviceCommand::List => {
+                let devices = detect_devices(&config.device)?;
+                if devices.is_empty() {
+                    println!("No devices detected");
+                } else {
+                    for device in devices {
+                        println!(
+                            "{}\t{}\t{}",
+                            device.name,
+                            device.mount_path.display(),
+                            device.library_path.display()
+                        );
+                    }
+                }
+            }
+            DeviceCommand::ListFiles { device } => {
+                let device = resolve_device(&config.device, device.as_deref())?;
+                let entries = list_device_entries(&device)?;
+                if entries.is_empty() {
+                    println!("No files found on device {}", device.name);
+                } else {
+                    for entry in entries {
+                        println!("{}", entry.display());
+                    }
+                }
+            }
+            DeviceCommand::Send {
+                device,
+                path,
+                dest_name,
+            } => {
+                let device = resolve_device(&config.device, device.as_deref())?;
+                let result = send_to_device(&path, &device, dest_name.as_deref())?;
+                println!(
+                    "Sent {} to {} ({} bytes)",
+                    result.source.display(),
+                    result.destination.display(),
+                    result.bytes_copied
+                );
+            }
+            DeviceCommand::Cleanup { device, keep } => {
+                let device = resolve_device(&config.device, device.as_deref())?;
+                let removed = cleanup_device_orphans(&device, &keep)?;
+                println!("Removed {removed} files from device {}", device.name);
+            }
+        },
         Some(CalibredbCommand::Info) => {
             println!("Caliberate DB CLI");
             println!("Library dir: {}", config.paths.library_dir.display());
@@ -430,6 +506,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn resolve_device(
+    config: &caliberate_core::config::DeviceConfig,
+    name: Option<&str>,
+) -> Result<DeviceInfo, Box<dyn std::error::Error>> {
+    let devices = detect_devices(config)?;
+    if devices.is_empty() {
+        return Err("no devices detected".into());
+    }
+    if let Some(name) = name {
+        return devices
+            .into_iter()
+            .find(|device| device.name == name)
+            .ok_or_else(|| format!("device not found: {name}").into());
+    }
+    if devices.len() == 1 {
+        return Ok(devices.into_iter().next().expect("device"));
+    }
+    Err("multiple devices detected; pass --device".into())
 }
 
 fn delete_asset_files(

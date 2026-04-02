@@ -24,7 +24,8 @@
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests
 - [x] Add DB book deletion test
-- [ ] Add GUI integration test scaffolding
+- [x] Add GUI integration test scaffolding
+- [x] Add GUI app initialization smoke test
 - [x] Add OPDS download tests
 - [x] Add conversion pipeline tests
 - [x] Add calibre-server CLI URL builder tests

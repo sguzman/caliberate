@@ -1,9 +1,11 @@
 //! Database API with migrations and basic operations.
 
 use crate::backend;
+use crate::query::BookQuery;
 use caliberate_core::config::{DbConfig, FtsConfig};
 use caliberate_core::error::{CoreError, CoreResult};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use std::path::Path;
 use tracing::info;
 
@@ -585,6 +587,129 @@ impl Database {
             }
         }
         self.search_books_like(query)
+    }
+
+    pub fn search_books_query(&self, query: &BookQuery) -> CoreResult<Vec<BookRecord>> {
+        let mut sql = String::from("SELECT DISTINCT b.id, b.title, b.format, b.path FROM books b");
+        let mut joins: Vec<&str> = Vec::new();
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<Value> = Vec::new();
+
+        if query.author.is_some() {
+            joins.push(
+                "LEFT JOIN books_authors_link bal ON bal.book_id = b.id \
+                 LEFT JOIN authors a ON a.id = bal.author_id",
+            );
+        }
+        if query.tag.is_some() {
+            joins.push(
+                "LEFT JOIN books_tags_link btl ON btl.book_id = b.id \
+                 LEFT JOIN tags t ON t.id = btl.tag_id",
+            );
+        }
+        if query.series.is_some() {
+            joins.push(
+                "LEFT JOIN books_series_link bsl ON bsl.book_id = b.id \
+                 LEFT JOIN series s ON s.id = bsl.series_id",
+            );
+        }
+        if query.publisher.is_some() {
+            joins.push(
+                "LEFT JOIN books_publishers_link bpl ON bpl.book_id = b.id \
+                 LEFT JOIN publishers p ON p.id = bpl.publisher_id",
+            );
+        }
+        if query.language.is_some() {
+            joins.push(
+                "LEFT JOIN books_languages_link bll ON bll.book_id = b.id \
+                 LEFT JOIN languages l ON l.id = bll.language_id",
+            );
+        }
+        if query.identifier.is_some() {
+            joins.push("LEFT JOIN identifiers i ON i.book_id = b.id");
+        }
+
+        if let Some(title) = &query.title {
+            conditions.push("b.title LIKE ?".to_string());
+            params.push(Value::from(format!("%{title}%")));
+        }
+        if let Some(author) = &query.author {
+            conditions.push("a.name LIKE ?".to_string());
+            params.push(Value::from(format!("%{author}%")));
+        }
+        if let Some(tag) = &query.tag {
+            conditions.push("t.name LIKE ?".to_string());
+            params.push(Value::from(format!("%{tag}%")));
+        }
+        if let Some(series) = &query.series {
+            conditions.push("s.name LIKE ?".to_string());
+            params.push(Value::from(format!("%{series}%")));
+        }
+        if let Some(publisher) = &query.publisher {
+            conditions.push("p.name LIKE ?".to_string());
+            params.push(Value::from(format!("%{publisher}%")));
+        }
+        if let Some(language) = &query.language {
+            conditions.push("l.lang_code LIKE ?".to_string());
+            params.push(Value::from(format!("%{language}%")));
+        }
+        if let Some(identifier) = &query.identifier {
+            conditions.push("(i.identifier_value LIKE ? OR i.identifier_type LIKE ?)".to_string());
+            let pattern = Value::from(format!("%{identifier}%"));
+            params.push(pattern.clone());
+            params.push(pattern);
+        }
+        if let Some(format) = &query.format {
+            conditions.push("b.format LIKE ?".to_string());
+            params.push(Value::from(format!("%{format}%")));
+        }
+
+        if !joins.is_empty() {
+            sql.push(' ');
+            sql.push_str(&joins.join(" "));
+        }
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        sql.push_str(" ORDER BY b.id");
+        if let Some(limit) = query.limit {
+            sql.push_str(" LIMIT ?");
+            params.push(Value::from(limit as i64));
+        }
+
+        let mut stmt = self.conn.prepare(&sql).map_err(|err| {
+            CoreError::Io(
+                "prepare search query".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
+        let rows = stmt
+            .query_map(params_from_iter(params), |row| {
+                Ok(BookRecord {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    format: row.get(2)?,
+                    path: row.get(3)?,
+                })
+            })
+            .map_err(|err| {
+                CoreError::Io(
+                    "query search query".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read search query".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(results)
     }
 
     pub fn search_books_like(&self, query: &str) -> CoreResult<Vec<BookRecord>> {

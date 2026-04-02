@@ -1,0 +1,32 @@
+# Tranche 019
+
+- [x] Implement metadata cache: define cached book details payload
+- [x] Implement metadata cache: refresh book list snapshot
+- [x] Implement metadata cache: lazy-load book details
+- [x] Implement metadata cache: per-book invalidation
+- [x] Add metadata cache tests
+- [x] Define BookQuery structure
+- [x] Implement search_books_query database API
+- [x] Support query filter for title
+- [x] Support query filter for author
+- [x] Support query filter for tag
+- [x] Support query filter for series
+- [x] Support query filter for publisher
+- [x] Support query filter for language
+- [x] Support query filter for identifier
+- [x] Support query filter for format
+- [x] Support query limit handling
+- [x] Add query tests for title filter
+- [x] Add query tests for author/tag/series filters
+- [x] Add query tests for publisher/language/identifier filters
+- [x] Add query tests for format + limit filters
+- [x] Add query tests for combined filters
+- [x] Add query tests for empty filter query
+- [x] Add device command scaffolding
+- [x] Add `calibredb device list` command
+- [x] Add `calibredb device list-files` command
+- [x] Add `calibredb device send` command
+- [x] Add `calibredb device cleanup` command
+- [x] Add `calibredb device` CLI tests
+- [x] Add GUI integration test scaffolding
+- [x] Add GUI app initialization smoke test

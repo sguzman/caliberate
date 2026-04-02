@@ -24,5 +24,27 @@
 - [x] Implement FTS schema and indexing pipeline
 - [x] Implement FTS triggers and rebuild flow
 - [x] Implement FTS search API with result limits
-- [ ] Implement metadata cache layer parity behaviors
-- [ ] Implement search/query API compatibility surface
+- [x] Implement metadata cache layer parity behaviors
+- [x] Implement metadata cache: define cached book details payload
+- [x] Implement metadata cache: refresh book list snapshot
+- [x] Implement metadata cache: lazy-load book details
+- [x] Implement metadata cache: per-book invalidation
+- [x] Add metadata cache tests
+- [x] Implement search/query API compatibility surface
+- [x] Define BookQuery structure
+- [x] Implement search_books_query database API
+- [x] Support query filter for title
+- [x] Support query filter for author
+- [x] Support query filter for tag
+- [x] Support query filter for series
+- [x] Support query filter for publisher
+- [x] Support query filter for language
+- [x] Support query filter for identifier
+- [x] Support query filter for format
+- [x] Support query limit handling
+- [x] Add query tests for title filter
+- [x] Add query tests for author/tag/series filters
+- [x] Add query tests for publisher/language/identifier filters
+- [x] Add query tests for format + limit filters
+- [x] Add query tests for combined filters
+- [x] Add query tests for empty filter query
