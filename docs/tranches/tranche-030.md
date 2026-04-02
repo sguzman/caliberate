@@ -1,0 +1,32 @@
+# Tranche 030
+
+- [x] Add `calibre-server --host` override
+- [x] Add `calibre-server --port` override
+- [x] Add `calibre-server --scheme` override
+- [x] Add `calibre-server --url-prefix` override
+- [x] Add `calibre-server` URL prefix normalization
+- [x] Add `calibre-server --enable-auth` override
+- [x] Add `calibre-server --disable-auth` override
+- [x] Add `calibre-server --auth-mode` override
+- [x] Add `calibre-server --server-api-key` override
+- [x] Add `calibre-server --clear-api-keys` override
+- [x] Add `calibre-server --download-enabled` override
+- [x] Add `calibre-server --download-disabled` override
+- [x] Add `calibre-server --download-max-bytes` override
+- [x] Add `calibre-server --download-allow-external` override
+- [x] Add `calibre-server --download-disallow-external` override
+- [x] Add `calibre-server --worker-threads` override
+- [x] Add `calibre-server --max-blocking-threads` override
+- [x] Add `calibre-server --shutdown-timeout-ms` override
+- [x] Add `calibre-server` override application for subcommands
+- [x] Add `calibre-server` override application for runtime
+- [x] Add `calibre-server` auth flag conflict guard
+- [x] Add `calibre-server` download enabled/disabled conflict guard
+- [x] Add `calibre-server` download allow/disallow conflict guard
+- [x] Add `calibre-server` auth mode validation
+- [x] Add `calibre-server` normalized prefix in build_url
+- [x] Add server CLI override test for host/port/scheme
+- [x] Add server CLI override test for url-prefix normalization
+- [x] Add server CLI override test for auth/api-key flags
+- [x] Add server CLI override test for download flags
+- [x] Add server CLI override test for runtime overrides

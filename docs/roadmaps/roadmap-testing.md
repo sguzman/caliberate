@@ -64,6 +64,11 @@
 - [x] Add CLI test for calibredb search --fields output
 - [x] Add CLI test for calibredb search --sort-by and --limit
 - [x] Add CLI test for calibredb search --for-machine
+- [x] Add server CLI override test for host/port/scheme
+- [x] Add server CLI override test for url-prefix normalization
+- [x] Add server CLI override test for auth/api-key flags
+- [x] Add server CLI override test for download flags
+- [x] Add server CLI override test for runtime overrides
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test
 - [x] Add server auth and OPDS feed tests
