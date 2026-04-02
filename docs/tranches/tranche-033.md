@@ -1,0 +1,32 @@
+# Tranche 033
+
+- [x] Normalize `ebook-convert` format flags to lowercase
+- [x] Trim leading dot from `ebook-convert` format flags
+- [x] Add `ebook-convert` output path hyphen guard
+- [x] Add `ebook-convert` output path directory guard
+- [x] Add `ebook-convert` input/output equality guard
+- [x] Resolve `ebook-convert` input path to canonical absolute path
+- [x] Resolve `ebook-convert` output shorthand using config output dir
+- [x] Apply config conversion output dir for relative outputs
+- [x] Apply `ebook-convert --output-dir` precedence over config output dir
+- [x] Normalize `ebook-convert` output path to absolute
+- [x] Validate `ebook-convert` output extension matches output format
+- [x] Ensure `ebook-convert` output parent directory exists
+- [x] Add `ebook-convert` conversion request tracing log
+- [x] Add CLI test for `ebook-convert` output directory rejection
+- [x] Add CLI test for `ebook-convert` output hyphen rejection
+- [x] Add CLI test for `ebook-convert` input/output equality rejection
+- [x] Add CLI test for `ebook-convert` config output dir on relative output
+- [x] Add CLI test for `ebook-convert` output-dir override precedence
+- [x] Add CLI test for `ebook-convert` format flag normalization
+- [x] Add CLI test for `ebook-convert` output format mismatch rejection
+- [x] Update CLI test for `ebook-convert` shorthand output to use config output dir
+- [x] Add `ebook-convert` conversion temp dir override in test config
+- [x] Add `ebook-convert` conversion output dir override in test config
+- [x] Add conversion temp dir creation in test setup
+- [x] Add conversion output dir creation in test setup
+- [x] Add `ebook-convert` output path normalization helper
+- [x] Add `ebook-convert` format normalization helper
+- [x] Add `ebook-convert` output extension match helper
+- [x] Add `ebook-convert` output parent creation helper
+- [x] Add `ebook-convert` distinct path guard helper

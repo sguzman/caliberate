@@ -566,7 +566,11 @@ fn ebook_convert_output_extension_shorthand() {
         .expect("run ebook-convert shorthand");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Output: shorthand.pdf"));
+    let expected = temp_dir
+        .path()
+        .join("conversion-output")
+        .join("shorthand.pdf");
+    assert!(stdout.contains(&format!("Output: {}", expected.display())));
 }
 
 #[test]
@@ -668,6 +672,178 @@ fn ebook_convert_max_input_bytes_override() {
         ])
         .output()
         .expect("run ebook-convert max-input-bytes");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn ebook_convert_rejects_output_directory() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("outdir.epub");
+    std::fs::write(&input, b"outdir").expect("write input");
+    let output_dir = temp_dir.path().join("output-dir");
+    std::fs::create_dir_all(&output_dir).expect("create output dir");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert output dir");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn ebook_convert_rejects_output_starting_with_hyphen() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("hyphen.epub");
+    std::fs::write(&input, b"hyphen").expect("write input");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            "-output.epub",
+        ])
+        .output()
+        .expect("run ebook-convert hyphen output");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn ebook_convert_rejects_input_equals_output() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("same.epub");
+    std::fs::write(&input, b"same").expect("write input");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            input.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert same path");
+    assert!(!output.status.success());
+}
+
+#[test]
+fn ebook_convert_uses_config_output_dir_for_relative_output() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("rel.epub");
+    std::fs::write(&input, b"rel").expect("write input");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            "relative.pdf",
+        ])
+        .output()
+        .expect("run ebook-convert relative output");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = temp_dir
+        .path()
+        .join("conversion-output")
+        .join("relative.pdf");
+    assert!(stdout.contains(&format!("Output: {}", expected.display())));
+}
+
+#[test]
+fn ebook_convert_output_dir_override_precedence() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("override.epub");
+    std::fs::write(&input, b"override").expect("write input");
+    let output_dir = temp_dir.path().join("override-output");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+            "--dry-run",
+            input.to_str().unwrap(),
+            "override.pdf",
+        ])
+        .output()
+        .expect("run ebook-convert output-dir precedence");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = output_dir.join("override.pdf");
+    assert!(stdout.contains(&format!("Output: {}", expected.display())));
+}
+
+#[test]
+fn ebook_convert_normalizes_format_flags() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("normalize.epub");
+    std::fs::write(&input, b"normalize").expect("write input");
+    let output = temp_dir.path().join("normalize");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--input-format",
+            ".EPUB",
+            "--output-format",
+            ".PDF",
+            "--dry-run",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert normalize format");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = temp_dir.path().join("normalize.pdf");
+    assert!(stdout.contains(&format!("Output: {}", expected.display())));
+}
+
+#[test]
+fn ebook_convert_rejects_output_format_mismatch() {
+    let (temp_dir, config_path) = setup_library_config();
+    let exe = env!("CARGO_BIN_EXE_ebook-convert");
+
+    let input = temp_dir.path().join("mismatch.epub");
+    std::fs::write(&input, b"mismatch").expect("write input");
+    let output = temp_dir.path().join("mismatch.pdf");
+
+    let output = Command::new(exe)
+        .args([
+            "--config",
+            config_path.to_str().unwrap(),
+            "--output-format",
+            "epub",
+            "--dry-run",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run ebook-convert mismatch");
     assert!(!output.status.success());
 }
 #[test]
@@ -1810,11 +1986,15 @@ fn setup_library_config() -> (TempDir, std::path::PathBuf) {
     let log_dir = temp_dir.path().join("logs");
     let tmp_dir = temp_dir.path().join("tmp");
     let library_dir = temp_dir.path().join("library");
+    let conversion_temp_dir = temp_dir.path().join("conversion-tmp");
+    let conversion_output_dir = temp_dir.path().join("conversion-output");
     std::fs::create_dir_all(&data_dir).expect("create data dir");
     std::fs::create_dir_all(&cache_dir).expect("create cache dir");
     std::fs::create_dir_all(&log_dir).expect("create log dir");
     std::fs::create_dir_all(&tmp_dir).expect("create tmp dir");
     std::fs::create_dir_all(&library_dir).expect("create library dir");
+    std::fs::create_dir_all(&conversion_temp_dir).expect("create conversion temp dir");
+    std::fs::create_dir_all(&conversion_output_dir).expect("create conversion output dir");
 
     config.paths.data_dir = data_dir.clone();
     config.paths.cache_dir = cache_dir;
@@ -1823,6 +2003,8 @@ fn setup_library_config() -> (TempDir, std::path::PathBuf) {
     config.paths.library_dir = library_dir;
     config.db.sqlite_path = data_dir.join("caliberate.db");
     config.formats.supported = vec!["epub".to_string(), "pdf".to_string()];
+    config.conversion.temp_dir = conversion_temp_dir;
+    config.conversion.output_dir = conversion_output_dir;
 
     let config_path = temp_dir.path().join("control-plane.toml");
     config.save_to_path(&config_path).expect("write config");
