@@ -11,5 +11,6 @@ struct GuiCli {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = GuiCli::parse();
     let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
-    caliberate_gui::run(bootstrap.config).map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
+    caliberate_gui::run(bootstrap.config, cli.config)
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
 }

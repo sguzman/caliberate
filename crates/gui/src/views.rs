@@ -27,10 +27,14 @@ pub struct BookDetails {
 pub struct LibraryView {
     db: Database,
     books: Vec<BookRow>,
+    all_books: Vec<BookRow>,
+    available_formats: Vec<String>,
     selected: Option<i64>,
     details: Option<BookDetails>,
     edit_mode: bool,
     edit: EditState,
+    format_filter: Option<String>,
+    sort_mode: SortMode,
     search_query: String,
     status: String,
     last_error: Option<String>,
@@ -43,10 +47,14 @@ impl LibraryView {
         let mut view = Self {
             db,
             books: Vec::new(),
+            all_books: Vec::new(),
+            available_formats: Vec::new(),
             selected: None,
             details: None,
             edit_mode: false,
             edit: EditState::default(),
+            format_filter: None,
+            sort_mode: SortMode::TitleAsc,
             search_query: String::new(),
             status: "Ready".to_string(),
             last_error: None,
@@ -75,6 +83,60 @@ impl LibraryView {
                     ui.text_edit_singleline(&mut self.search_query);
                     if ui.button("Go").clicked() {
                         self.needs_refresh = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Sort");
+                    egui::ComboBox::from_id_salt("sort_mode")
+                        .selected_text(self.sort_mode.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.sort_mode,
+                                SortMode::TitleAsc,
+                                "Title A-Z",
+                            );
+                            ui.selectable_value(
+                                &mut self.sort_mode,
+                                SortMode::TitleDesc,
+                                "Title Z-A",
+                            );
+                            ui.selectable_value(
+                                &mut self.sort_mode,
+                                SortMode::FormatAsc,
+                                "Format A-Z",
+                            );
+                            ui.selectable_value(&mut self.sort_mode, SortMode::IdAsc, "ID Asc");
+                            ui.selectable_value(&mut self.sort_mode, SortMode::IdDesc, "ID Desc");
+                        });
+                    if ui.button("Apply").clicked() {
+                        self.apply_filters();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Format");
+                    egui::ComboBox::from_id_salt("format_filter")
+                        .selected_text(self.format_filter.as_deref().unwrap_or("All formats"))
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(self.format_filter.is_none(), "All formats")
+                                .clicked()
+                            {
+                                self.format_filter = None;
+                            }
+                            for format in &self.available_formats {
+                                if ui
+                                    .selectable_label(
+                                        self.format_filter.as_deref() == Some(format.as_str()),
+                                        format,
+                                    )
+                                    .clicked()
+                                {
+                                    self.format_filter = Some(format.clone());
+                                }
+                            }
+                        });
+                    if ui.button("Apply").clicked() {
+                        self.apply_filters();
                     }
                 });
                 ui.horizontal(|ui| {
@@ -249,13 +311,13 @@ impl LibraryView {
     }
 
     fn refresh_books(&mut self) -> CoreResult<()> {
-        let query = self.search_query.trim();
+        let query = self.search_query.trim().to_string();
         let list = if query.is_empty() {
             self.db.list_books()?
         } else {
-            self.db.search_books(query)?
+            self.db.search_books(&query)?
         };
-        self.books = list
+        self.all_books = list
             .into_iter()
             .map(|book| BookRow {
                 id: book.id,
@@ -263,6 +325,14 @@ impl LibraryView {
                 format: book.format,
             })
             .collect();
+        self.available_formats = self
+            .all_books
+            .iter()
+            .map(|book| book.format.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        self.apply_filters();
         self.status = format!("Loaded {} books", self.books.len());
         self.needs_refresh = false;
         info!(
@@ -306,6 +376,23 @@ impl LibraryView {
 
     fn clear_error(&mut self) {
         self.last_error = None;
+    }
+
+    fn apply_filters(&mut self) {
+        let mut list: Vec<BookRow> = self
+            .all_books
+            .iter()
+            .filter(|book| {
+                if let Some(format) = &self.format_filter {
+                    book.format.eq_ignore_ascii_case(format)
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+        self.sort_mode.sort(&mut list);
+        self.books = list;
     }
 
     fn begin_edit(&mut self) {
@@ -419,6 +506,43 @@ enum DetailAction {
     BeginEdit,
     SaveEdit,
     CancelEdit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortMode {
+    TitleAsc,
+    TitleDesc,
+    FormatAsc,
+    IdAsc,
+    IdDesc,
+}
+
+impl SortMode {
+    fn label(self) -> &'static str {
+        match self {
+            SortMode::TitleAsc => "Title A-Z",
+            SortMode::TitleDesc => "Title Z-A",
+            SortMode::FormatAsc => "Format A-Z",
+            SortMode::IdAsc => "ID Asc",
+            SortMode::IdDesc => "ID Desc",
+        }
+    }
+
+    fn sort(self, books: &mut [BookRow]) {
+        match self {
+            SortMode::TitleAsc => {
+                books.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+            }
+            SortMode::TitleDesc => {
+                books.sort_by(|a, b| b.title.to_lowercase().cmp(&a.title.to_lowercase()))
+            }
+            SortMode::FormatAsc => {
+                books.sort_by(|a, b| a.format.to_lowercase().cmp(&b.format.to_lowercase()))
+            }
+            SortMode::IdAsc => books.sort_by_key(|book| book.id),
+            SortMode::IdDesc => books.sort_by_key(|book| std::cmp::Reverse(book.id)),
+        }
+    }
 }
 
 fn parse_list(input: &str) -> Vec<String> {

@@ -1,24 +1,87 @@
 //! Preferences system integration.
 
-use caliberate_core::config::ControlPlane;
+use caliberate_core::config::{ControlPlane, DuplicateCompare, DuplicatePolicy, IngestMode};
+use caliberate_core::error::{CoreError, CoreResult};
 use eframe::egui;
+use tracing::info;
 
 pub struct PreferencesView {
     read_only_notice: String,
+    edit_mode: bool,
+    state: PreferencesState,
+    status: String,
+    last_error: Option<String>,
 }
 
 impl PreferencesView {
-    pub fn new() -> Self {
+    pub fn new(config: &ControlPlane) -> Self {
         Self {
             read_only_notice: "Preferences are read-only in this build.".to_string(),
+            edit_mode: false,
+            state: PreferencesState::from_config(config),
+            status: "Ready".to_string(),
+            last_error: None,
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut ControlPlane,
+        config_path: &std::path::Path,
+    ) -> CoreResult<()> {
         ui.heading("Preferences");
         ui.separator();
-        ui.label(&self.read_only_notice);
+        let mut action = PrefAction::None;
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!self.edit_mode, egui::Button::new("Edit"))
+                .clicked()
+            {
+                action = PrefAction::BeginEdit;
+            }
+            if ui
+                .add_enabled(self.edit_mode, egui::Button::new("Save"))
+                .clicked()
+            {
+                action = PrefAction::Save;
+            }
+            if ui
+                .add_enabled(self.edit_mode, egui::Button::new("Cancel"))
+                .clicked()
+            {
+                action = PrefAction::Cancel;
+            }
+        });
+        match action {
+            PrefAction::BeginEdit => {
+                self.state = PreferencesState::from_config(config);
+                self.edit_mode = true;
+                self.status = "Editing preferences".to_string();
+            }
+            PrefAction::Save => {
+                self.apply_state(config)?;
+                config.save_to_path(config_path)?;
+                self.edit_mode = false;
+                self.status = "Preferences saved".to_string();
+                info!(
+                    component = "gui",
+                    path = %config_path.display(),
+                    "preferences saved"
+                );
+            }
+            PrefAction::Cancel => {
+                self.state = PreferencesState::from_config(config);
+                self.edit_mode = false;
+                self.status = "Edit cancelled".to_string();
+            }
+            PrefAction::None => {}
+        }
         ui.separator();
+        if !self.edit_mode {
+            ui.label(&self.read_only_notice);
+            ui.separator();
+        }
 
         egui::CollapsingHeader::new("App")
             .default_open(true)
@@ -40,10 +103,17 @@ impl PreferencesView {
             });
 
         egui::CollapsingHeader::new("Logging").show(ui, |ui| {
-            ui.label(format!("Level: {}", config.logging.level));
-            ui.label(format!("JSON: {}", config.logging.json));
-            ui.label(format!("Stdout: {}", config.logging.stdout));
-            ui.label(format!("File enabled: {}", config.logging.file_enabled));
+            if self.edit_mode {
+                ui.text_edit_singleline(&mut self.state.logging_level);
+                ui.checkbox(&mut self.state.logging_json, "JSON logging");
+                ui.checkbox(&mut self.state.logging_stdout, "Stdout");
+                ui.checkbox(&mut self.state.logging_file_enabled, "File enabled");
+            } else {
+                ui.label(format!("Level: {}", config.logging.level));
+                ui.label(format!("JSON: {}", config.logging.json));
+                ui.label(format!("Stdout: {}", config.logging.stdout));
+                ui.label(format!("File enabled: {}", config.logging.file_enabled));
+            }
             ui.label(format!(
                 "File max size MB: {}",
                 config.logging.file_max_size_mb
@@ -61,36 +131,69 @@ impl PreferencesView {
         });
 
         egui::CollapsingHeader::new("Server").show(ui, |ui| {
-            ui.label(format!(
-                "Host: {}:{} ({})",
-                config.server.host, config.server.port, config.server.scheme
-            ));
-            ui.label(format!("URL prefix: {}", config.server.url_prefix));
-            ui.label(format!("Auth enabled: {}", config.server.enable_auth));
-            ui.label(format!(
-                "Download enabled: {}",
-                config.server.download_enabled
-            ));
-            ui.label(format!(
-                "Download max bytes: {}",
-                config.server.download_max_bytes
-            ));
-            ui.label(format!(
-                "Allow external download: {}",
-                config.server.download_allow_external
-            ));
+            if self.edit_mode {
+                ui.text_edit_singleline(&mut self.state.server_host);
+                ui.horizontal(|ui| {
+                    ui.label("Port");
+                    ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Scheme");
+                    ui.text_edit_singleline(&mut self.state.server_scheme);
+                });
+                ui.text_edit_singleline(&mut self.state.server_url_prefix);
+                ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
+                ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
+                ui.horizontal(|ui| {
+                    ui.label("Download max bytes");
+                    ui.add(egui::DragValue::new(
+                        &mut self.state.server_download_max_bytes,
+                    ));
+                });
+                ui.checkbox(
+                    &mut self.state.server_download_allow_external,
+                    "Allow external download",
+                );
+            } else {
+                ui.label(format!(
+                    "Host: {}:{} ({})",
+                    config.server.host, config.server.port, config.server.scheme
+                ));
+                ui.label(format!("URL prefix: {}", config.server.url_prefix));
+                ui.label(format!("Auth enabled: {}", config.server.enable_auth));
+                ui.label(format!(
+                    "Download enabled: {}",
+                    config.server.download_enabled
+                ));
+                ui.label(format!(
+                    "Download max bytes: {}",
+                    config.server.download_max_bytes
+                ));
+                ui.label(format!(
+                    "Allow external download: {}",
+                    config.server.download_allow_external
+                ));
+            }
             ui.label(format!("API keys: {}", config.server.api_keys.len()));
         });
 
         egui::CollapsingHeader::new("Assets").show(ui, |ui| {
-            ui.label(format!(
-                "Compress raw assets: {}",
-                config.assets.compress_raw_assets
-            ));
-            ui.label(format!(
-                "Compress metadata DB: {}",
-                config.assets.compress_metadata_db
-            ));
+            if self.edit_mode {
+                ui.checkbox(&mut self.state.assets_compress_raw, "Compress raw assets");
+                ui.checkbox(
+                    &mut self.state.assets_compress_metadata,
+                    "Compress metadata DB",
+                );
+            } else {
+                ui.label(format!(
+                    "Compress raw assets: {}",
+                    config.assets.compress_raw_assets
+                ));
+                ui.label(format!(
+                    "Compress metadata DB: {}",
+                    config.assets.compress_metadata_db
+                ));
+            }
             ui.label(format!("Hash algorithm: {}", config.assets.hash_algorithm));
             ui.label(format!("Hash on ingest: {}", config.assets.hash_on_ingest));
             ui.label(format!(
@@ -104,23 +207,86 @@ impl PreferencesView {
         });
 
         egui::CollapsingHeader::new("Ingest").show(ui, |ui| {
-            ui.label(format!("Default mode: {:?}", config.ingest.default_mode));
-            ui.label(format!(
-                "Archive reference enabled: {}",
-                config.ingest.archive_reference_enabled
-            ));
-            ui.label(format!(
-                "Duplicate policy: {:?}",
-                config.ingest.duplicate_policy
-            ));
-            ui.label(format!(
-                "Duplicate identical policy: {:?}",
-                config.ingest.duplicate_identical_policy
-            ));
-            ui.label(format!(
-                "Duplicate compare mode: {:?}",
-                config.ingest.duplicate_compare
-            ));
+            if self.edit_mode {
+                ui.horizontal(|ui| {
+                    ui.label("Default mode");
+                    egui::ComboBox::from_id_salt("ingest_default_mode")
+                        .selected_text(format!("{:?}", self.state.ingest_default_mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.state.ingest_default_mode,
+                                IngestMode::Copy,
+                                "Copy",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.ingest_default_mode,
+                                IngestMode::Reference,
+                                "Reference",
+                            );
+                        });
+                });
+                ui.checkbox(
+                    &mut self.state.ingest_archive_reference_enabled,
+                    "Archive reference enabled",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Duplicate policy");
+                    egui::ComboBox::from_id_salt("dup_policy")
+                        .selected_text(format!("{:?}", self.state.ingest_duplicate_policy))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.state.ingest_duplicate_policy,
+                                DuplicatePolicy::Error,
+                                "Error",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.ingest_duplicate_policy,
+                                DuplicatePolicy::Skip,
+                                "Skip",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.ingest_duplicate_policy,
+                                DuplicatePolicy::Overwrite,
+                                "Overwrite",
+                            );
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Duplicate compare mode");
+                    egui::ComboBox::from_id_salt("dup_compare")
+                        .selected_text(format!("{:?}", self.state.ingest_duplicate_compare))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.state.ingest_duplicate_compare,
+                                DuplicateCompare::Checksum,
+                                "Checksum",
+                            );
+                            ui.selectable_value(
+                                &mut self.state.ingest_duplicate_compare,
+                                DuplicateCompare::Size,
+                                "Size",
+                            );
+                        });
+                });
+            } else {
+                ui.label(format!("Default mode: {:?}", config.ingest.default_mode));
+                ui.label(format!(
+                    "Archive reference enabled: {}",
+                    config.ingest.archive_reference_enabled
+                ));
+                ui.label(format!(
+                    "Duplicate policy: {:?}",
+                    config.ingest.duplicate_policy
+                ));
+                ui.label(format!(
+                    "Duplicate identical policy: {:?}",
+                    config.ingest.duplicate_identical_policy
+                ));
+                ui.label(format!(
+                    "Duplicate compare mode: {:?}",
+                    config.ingest.duplicate_compare
+                ));
+            }
             ui.label(format!(
                 "Background ingest enabled: {}",
                 config.ingest.background_enabled
@@ -136,19 +302,34 @@ impl PreferencesView {
         });
 
         egui::CollapsingHeader::new("Conversion").show(ui, |ui| {
-            ui.label(format!("Enabled: {}", config.conversion.enabled));
-            ui.label(format!(
-                "Allow passthrough: {}",
-                config.conversion.allow_passthrough
-            ));
-            ui.label(format!(
-                "Max input bytes: {}",
-                config.conversion.max_input_bytes
-            ));
-            ui.label(format!(
-                "Default output format: {}",
-                config.conversion.default_output_format
-            ));
+            if self.edit_mode {
+                ui.checkbox(&mut self.state.conversion_enabled, "Enabled");
+                ui.checkbox(
+                    &mut self.state.conversion_allow_passthrough,
+                    "Allow passthrough",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Max input bytes");
+                    ui.add(egui::DragValue::new(
+                        &mut self.state.conversion_max_input_bytes,
+                    ));
+                });
+                ui.text_edit_singleline(&mut self.state.conversion_default_output_format);
+            } else {
+                ui.label(format!("Enabled: {}", config.conversion.enabled));
+                ui.label(format!(
+                    "Allow passthrough: {}",
+                    config.conversion.allow_passthrough
+                ));
+                ui.label(format!(
+                    "Max input bytes: {}",
+                    config.conversion.max_input_bytes
+                ));
+                ui.label(format!(
+                    "Default output format: {}",
+                    config.conversion.default_output_format
+                ));
+            }
             ui.label(format!(
                 "Temp dir: {}",
                 config.conversion.temp_dir.display()
@@ -160,14 +341,206 @@ impl PreferencesView {
         });
 
         egui::CollapsingHeader::new("FTS").show(ui, |ui| {
-            ui.label(format!("Enabled: {}", config.fts.enabled));
-            ui.label(format!("Tokenizer: {}", config.fts.tokenizer));
-            ui.label(format!(
-                "Rebuild on migrate: {}",
-                config.fts.rebuild_on_migrate
-            ));
-            ui.label(format!("Min query len: {}", config.fts.min_query_len));
-            ui.label(format!("Result limit: {}", config.fts.result_limit));
+            if self.edit_mode {
+                ui.checkbox(&mut self.state.fts_enabled, "Enabled");
+                ui.text_edit_singleline(&mut self.state.fts_tokenizer);
+                ui.checkbox(&mut self.state.fts_rebuild_on_migrate, "Rebuild on migrate");
+                ui.horizontal(|ui| {
+                    ui.label("Min query len");
+                    ui.add(egui::DragValue::new(&mut self.state.fts_min_query_len).range(1..=20));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Result limit");
+                    ui.add(egui::DragValue::new(&mut self.state.fts_result_limit).range(1..=500));
+                });
+            } else {
+                ui.label(format!("Enabled: {}", config.fts.enabled));
+                ui.label(format!("Tokenizer: {}", config.fts.tokenizer));
+                ui.label(format!(
+                    "Rebuild on migrate: {}",
+                    config.fts.rebuild_on_migrate
+                ));
+                ui.label(format!("Min query len: {}", config.fts.min_query_len));
+                ui.label(format!("Result limit: {}", config.fts.result_limit));
+            }
         });
+
+        Ok(())
+    }
+
+    pub fn status_line(&self) -> (&str, Option<&str>) {
+        (self.status.as_str(), self.last_error.as_deref())
+    }
+
+    pub fn set_error(&mut self, message: String) {
+        self.last_error = Some(message);
+        self.status = "Error".to_string();
+    }
+
+    fn apply_state(&mut self, config: &mut ControlPlane) -> CoreResult<()> {
+        if self.state.logging_level.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "logging level cannot be empty".to_string(),
+            ));
+        }
+        if self.state.server_scheme != "http" && self.state.server_scheme != "https" {
+            return Err(CoreError::ConfigValidate(
+                "server scheme must be http or https".to_string(),
+            ));
+        }
+        if !self.state.server_url_prefix.is_empty()
+            && !self.state.server_url_prefix.starts_with('/')
+        {
+            return Err(CoreError::ConfigValidate(
+                "server url_prefix must start with '/'".to_string(),
+            ));
+        }
+        if self
+            .state
+            .conversion_default_output_format
+            .trim()
+            .is_empty()
+        {
+            return Err(CoreError::ConfigValidate(
+                "default output format cannot be empty".to_string(),
+            ));
+        }
+        if self.state.fts_tokenizer.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "fts tokenizer cannot be empty".to_string(),
+            ));
+        }
+
+        config.logging.level = self.state.logging_level.trim().to_string();
+        config.logging.json = self.state.logging_json;
+        config.logging.stdout = self.state.logging_stdout;
+        config.logging.file_enabled = self.state.logging_file_enabled;
+        config.server.host = self.state.server_host.trim().to_string();
+        config.server.port = self.state.server_port;
+        config.server.scheme = self.state.server_scheme.trim().to_string();
+        config.server.url_prefix = self.state.server_url_prefix.trim().to_string();
+        config.server.enable_auth = self.state.server_enable_auth;
+        config.server.download_enabled = self.state.server_download_enabled;
+        config.server.download_max_bytes = self.state.server_download_max_bytes;
+        config.server.download_allow_external = self.state.server_download_allow_external;
+        config.assets.compress_raw_assets = self.state.assets_compress_raw;
+        config.assets.compress_metadata_db = self.state.assets_compress_metadata;
+        config.ingest.default_mode = self.state.ingest_default_mode;
+        config.ingest.archive_reference_enabled = self.state.ingest_archive_reference_enabled;
+        config.ingest.duplicate_policy = self.state.ingest_duplicate_policy;
+        config.ingest.duplicate_compare = self.state.ingest_duplicate_compare;
+        config.conversion.enabled = self.state.conversion_enabled;
+        config.conversion.allow_passthrough = self.state.conversion_allow_passthrough;
+        config.conversion.max_input_bytes = self.state.conversion_max_input_bytes;
+        config.conversion.default_output_format = self
+            .state
+            .conversion_default_output_format
+            .trim()
+            .to_string();
+        config.fts.enabled = self.state.fts_enabled;
+        config.fts.tokenizer = self.state.fts_tokenizer.trim().to_string();
+        config.fts.rebuild_on_migrate = self.state.fts_rebuild_on_migrate;
+        config.fts.min_query_len = self.state.fts_min_query_len;
+        config.fts.result_limit = self.state.fts_result_limit;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PreferencesState {
+    logging_level: String,
+    logging_json: bool,
+    logging_stdout: bool,
+    logging_file_enabled: bool,
+    server_host: String,
+    server_port: u16,
+    server_scheme: String,
+    server_url_prefix: String,
+    server_enable_auth: bool,
+    server_download_enabled: bool,
+    server_download_max_bytes: u64,
+    server_download_allow_external: bool,
+    assets_compress_raw: bool,
+    assets_compress_metadata: bool,
+    ingest_default_mode: IngestMode,
+    ingest_archive_reference_enabled: bool,
+    ingest_duplicate_policy: DuplicatePolicy,
+    ingest_duplicate_compare: DuplicateCompare,
+    conversion_enabled: bool,
+    conversion_allow_passthrough: bool,
+    conversion_max_input_bytes: u64,
+    conversion_default_output_format: String,
+    fts_enabled: bool,
+    fts_tokenizer: String,
+    fts_rebuild_on_migrate: bool,
+    fts_min_query_len: usize,
+    fts_result_limit: usize,
+}
+
+impl PreferencesState {
+    fn from_config(config: &ControlPlane) -> Self {
+        Self {
+            logging_level: config.logging.level.clone(),
+            logging_json: config.logging.json,
+            logging_stdout: config.logging.stdout,
+            logging_file_enabled: config.logging.file_enabled,
+            server_host: config.server.host.clone(),
+            server_port: config.server.port,
+            server_scheme: config.server.scheme.clone(),
+            server_url_prefix: config.server.url_prefix.clone(),
+            server_enable_auth: config.server.enable_auth,
+            server_download_enabled: config.server.download_enabled,
+            server_download_max_bytes: config.server.download_max_bytes,
+            server_download_allow_external: config.server.download_allow_external,
+            assets_compress_raw: config.assets.compress_raw_assets,
+            assets_compress_metadata: config.assets.compress_metadata_db,
+            ingest_default_mode: config.ingest.default_mode,
+            ingest_archive_reference_enabled: config.ingest.archive_reference_enabled,
+            ingest_duplicate_policy: config.ingest.duplicate_policy,
+            ingest_duplicate_compare: config.ingest.duplicate_compare,
+            conversion_enabled: config.conversion.enabled,
+            conversion_allow_passthrough: config.conversion.allow_passthrough,
+            conversion_max_input_bytes: config.conversion.max_input_bytes,
+            conversion_default_output_format: config.conversion.default_output_format.clone(),
+            fts_enabled: config.fts.enabled,
+            fts_tokenizer: config.fts.tokenizer.clone(),
+            fts_rebuild_on_migrate: config.fts.rebuild_on_migrate,
+            fts_min_query_len: config.fts.min_query_len,
+            fts_result_limit: config.fts.result_limit,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PrefAction {
+    None,
+    BeginEdit,
+    Save,
+    Cancel,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PreferencesState;
+    use caliberate_core::config::ControlPlane;
+    use std::path::PathBuf;
+
+    fn load_config() -> ControlPlane {
+        let config_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config/control-plane.toml");
+        ControlPlane::load_from_path(&config_path).expect("load config")
+    }
+
+    #[test]
+    fn preferences_state_roundtrip() {
+        let config = load_config();
+        let state = PreferencesState::from_config(&config);
+        assert_eq!(state.logging_level, config.logging.level);
+        assert_eq!(state.server_host, config.server.host);
+        assert_eq!(
+            state.conversion_default_output_format,
+            config.conversion.default_output_format
+        );
     }
 }

@@ -9,9 +9,9 @@
 - [x] Implement library data model backed by DB
 - [x] Implement library list refresh and search
 - [x] Implement library status/error banner
-- [ ] Implement library view sorting/filtering parity
+- [x] Implement library view sorting/filtering parity
 - [x] Implement book details panel with metadata and assets
 - [x] Implement metadata editing and persistence in GUI
 - [x] Add read-only preferences view from control-plane
-- [ ] Implement editable preferences and persistence
+- [x] Implement editable preferences and persistence
 - [ ] Implement reader/viewer integration

@@ -12,6 +12,7 @@
 - [x] Add metadata filename parsing tests
 - [x] Add DB metadata update tests (title + relation replacement)
 - [x] Add GUI metadata parsing tests
+- [x] Add GUI preferences state tests
 - [x] Add CLI regression tests for parity commands
 - [x] Add DB migration smoke test
 - [x] Add archive metadata preview test

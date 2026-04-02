@@ -1,0 +1,32 @@
+# Tranche 016
+
+- [x] Add ControlPlane save-to-path helper
+- [x] Derive Serialize for control-plane config structs
+- [x] Derive Serialize for control-plane config enums
+- [x] Pass config path into GUI runtime
+- [x] Update GUI app to track config path
+- [x] Add preferences edit mode controls
+- [x] Add preferences state model
+- [x] Add preferences validation before save
+- [x] Persist preferences back to control-plane file
+- [x] Update preferences status messaging
+- [x] Show preferences status in global status bar
+- [x] Add preferences edit fields for logging
+- [x] Add preferences edit fields for server settings
+- [x] Add preferences edit fields for assets settings
+- [x] Add preferences edit fields for ingest settings
+- [x] Add preferences edit fields for conversion settings
+- [x] Add preferences edit fields for FTS settings
+- [x] Add preferences state tests
+- [x] Add library sort mode state
+- [x] Add library format filter state
+- [x] Add GUI controls for sorting
+- [x] Add GUI controls for format filtering
+- [x] Apply sort and filter to book list
+- [x] Track full book list for filtering
+- [x] Add format filter options list
+- [x] Update GUI roadmap for sorting/filtering
+- [x] Update GUI roadmap for editable preferences
+- [x] Update testing roadmap with preferences tests
+- [x] Replace deprecated drag range API
+- [x] Create tranche 016 record

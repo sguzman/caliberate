@@ -1,11 +1,11 @@
 //! Control-plane configuration loader.
 
 use crate::error::{CoreError, CoreResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ControlPlane {
     pub app: AppConfig,
     pub paths: PathsConfig,
@@ -31,6 +31,15 @@ impl ControlPlane {
             toml::from_str(&content).map_err(|err| CoreError::ConfigParse(err.to_string()))?;
         config.validate()?;
         Ok(config)
+    }
+
+    pub fn save_to_path<P: AsRef<Path>>(&self, path: P) -> CoreResult<()> {
+        self.validate()?;
+        let content =
+            toml::to_string_pretty(self).map_err(|err| CoreError::ConfigParse(err.to_string()))?;
+        fs::write(path.as_ref(), content)
+            .map_err(|err| CoreError::ConfigLoad(path.as_ref().to_path_buf(), err))?;
+        Ok(())
     }
 
     fn validate(&self) -> CoreResult<()> {
@@ -120,7 +129,7 @@ impl ControlPlane {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
     pub name: String,
     pub environment: String,
@@ -129,7 +138,7 @@ pub struct AppConfig {
     pub instance_id: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AppMode {
     Dev,
@@ -142,7 +151,7 @@ impl Default for AppMode {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PathsConfig {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
@@ -156,7 +165,7 @@ pub struct PathsConfig {
     pub library_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -172,21 +181,21 @@ pub struct LoggingConfig {
     pub file_max_backups: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DbConfig {
     pub sqlite_path: PathBuf,
     pub pool_size: u32,
     pub busy_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuntimeConfig {
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
     pub shutdown_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
     #[serde(default = "default_server_host")]
     pub host: String,
@@ -210,7 +219,7 @@ pub struct ServerConfig {
     pub download_allow_external: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MetricsConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -220,7 +229,7 @@ pub struct MetricsConfig {
     pub namespace: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerAuthMode {
     Bearer,
@@ -232,7 +241,7 @@ impl Default for ServerAuthMode {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FormatsConfig {
     #[serde(default = "default_supported_formats")]
     pub supported: Vec<String>,
@@ -240,7 +249,7 @@ pub struct FormatsConfig {
     pub archive_formats: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LibraryConfig {
     #[serde(default = "default_library_delete_files")]
     pub delete_files_on_remove: bool,
@@ -248,7 +257,7 @@ pub struct LibraryConfig {
     pub delete_reference_files: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversionConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -264,7 +273,7 @@ pub struct ConversionConfig {
     pub output_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IngestConfig {
     #[serde(default = "default_ingest_mode")]
     pub default_mode: IngestMode,
@@ -284,7 +293,7 @@ pub struct IngestConfig {
     pub background_queue_capacity: usize,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum IngestMode {
     Copy,
@@ -297,7 +306,7 @@ impl Default for IngestMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DuplicatePolicy {
     Error,
@@ -311,7 +320,7 @@ impl Default for DuplicatePolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DuplicateCompare {
     Checksum,
@@ -324,7 +333,7 @@ impl Default for DuplicateCompare {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AssetsConfig {
     #[serde(default = "default_compress_raw_assets")]
     pub compress_raw_assets: bool,
@@ -340,7 +349,7 @@ pub struct AssetsConfig {
     pub compression_level: i32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FtsConfig {
     #[serde(default)]
     pub enabled: bool,

@@ -8,17 +8,22 @@ use crate::views::LibraryView;
 
 pub struct CaliberateApp {
     config: caliberate_core::config::ControlPlane,
+    config_path: std::path::PathBuf,
     library: LibraryView,
     preferences: PreferencesView,
     active_view: AppView,
 }
 
 impl CaliberateApp {
-    pub fn try_new(config: caliberate_core::config::ControlPlane) -> CoreResult<Self> {
+    pub fn try_new(
+        config: caliberate_core::config::ControlPlane,
+        config_path: std::path::PathBuf,
+    ) -> CoreResult<Self> {
         let library = LibraryView::new(&config)?;
-        let preferences = PreferencesView::new();
+        let preferences = PreferencesView::new(&config);
         Ok(Self {
             config,
+            config_path,
             library,
             preferences,
             active_view: AppView::Library,
@@ -51,13 +56,18 @@ impl eframe::App for CaliberateApp {
             }
             AppView::Preferences => {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
-                    self.preferences.ui(ui, &self.config);
+                    if let Err(err) = self.preferences.ui(ui, &mut self.config, &self.config_path) {
+                        self.preferences.set_error(err.to_string());
+                    }
                 });
             }
         }
 
         egui::Panel::bottom("status_bar").show_inside(ui, |ui| {
-            let (status, error) = self.library.status_line();
+            let (status, error) = match self.active_view {
+                AppView::Library => self.library.status_line(),
+                AppView::Preferences => self.preferences.status_line(),
+            };
             if let Some(err) = error {
                 ui.colored_label(egui::Color32::from_rgb(190, 0, 0), err);
             } else {
