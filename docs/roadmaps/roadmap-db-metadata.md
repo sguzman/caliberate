@@ -62,6 +62,23 @@
 - [x] Add rebuild helper for AUTOINCREMENT removal
 - [x] Add rebuild migrations for AUTOINCREMENT parity tables
 - [x] Bump schema version for primary key parity
+- [x] Align annotations format collation with Calibre schema
+- [x] Add annotations table rebuild for format collation
+- [x] Align annotations FTS tokenizers with Calibre remove_diacritics
+- [x] Add annotations FTS rebuild hook for tokenizer parity
+- [x] Add annotations FTS schema re-create flow
+- [x] Align books FTS tokenizers with remove_diacritics
+- [x] Add books_fts_stemmed virtual table
+- [x] Add books_fts_stemmed triggers
+- [x] Add FTS schema rebuild when tokenizer mismatches
+- [x] Allow unicode61 remove_diacritics tokenizer in DB config validation
+- [x] Update FTS default tokenizer to include remove_diacritics
+- [x] Update control-plane config tokenizer default
+- [x] Update control-plane fixture tokenizer default
+- [x] Add annotations format collation check in collation migration hook
+- [x] Add annotations FTS schema enforcement hook
+- [x] Add books FTS schema enforcement hook
+- [x] Bump schema version for FTS tokenizer parity
 - [x] Add books series_index column to match Calibre schema
 - [x] Add author sort/link columns
 - [x] Add publisher sort/link columns

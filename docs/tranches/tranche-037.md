@@ -1,0 +1,32 @@
+# Tranche 037
+
+- [x] Align annotations format collation with Calibre schema
+- [x] Add annotations table rebuild for format collation
+- [x] Align annotations FTS tokenizers with Calibre remove_diacritics
+- [x] Add annotations FTS rebuild hook for tokenizer parity
+- [x] Add annotations FTS schema re-create flow
+- [x] Align books FTS tokenizers with remove_diacritics
+- [x] Add books_fts_stemmed virtual table
+- [x] Add books_fts_stemmed triggers
+- [x] Add FTS schema rebuild when tokenizer mismatches
+- [x] Allow unicode61 remove_diacritics tokenizer in DB config validation
+- [x] Update FTS default tokenizer to include remove_diacritics
+- [x] Update control-plane config tokenizer default
+- [x] Update control-plane fixture tokenizer default
+- [x] Add annotations format collation check in collation migration hook
+- [x] Add annotations FTS schema enforcement hook
+- [x] Add books FTS schema enforcement hook
+- [x] Bump schema version for FTS tokenizer parity
+- [x] Update annotations FTS tokenizer definitions in schema
+- [x] Add books FTS stemmed tokenizer definition
+- [x] Add books FTS stemmed trigger insert hook
+- [x] Add books FTS stemmed trigger delete hook
+- [x] Add books FTS stemmed trigger update hook
+- [x] Add schema parity test for annotations format collation
+- [x] Add schema parity test for annotations FTS tokenizers
+- [x] Add schema parity test for books FTS tokenizers
+- [x] Add annotations format collation rebuild helper usage
+- [x] Add annotations FTS tokenizer rebuild guard
+- [x] Add FTS tokenizer mismatch drop/recreate flow
+- [x] Add books FTS tokenizer mismatch detection
+- [x] Add books FTS stemmed tokenizer mismatch detection

@@ -308,6 +308,38 @@ fn schema_books_pages_link_format_collation_matches_calibre() {
 }
 
 #[test]
+fn schema_annotations_format_collation_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(&db, "annotations", "format TEXT NOT NULL COLLATE NOCASE");
+}
+
+#[test]
+fn schema_annotations_fts_tokenizer_matches_calibre() {
+    let (db, _tmp) = open_db();
+    assert_table_sql_contains(
+        &db,
+        "annotations_fts",
+        "tokenize = 'unicode61 remove_diacritics 2'",
+    );
+    assert_table_sql_contains(
+        &db,
+        "annotations_fts_stemmed",
+        "tokenize = 'porter unicode61 remove_diacritics 2'",
+    );
+}
+
+#[test]
+fn schema_books_fts_tokenizer_matches_config_default() {
+    let (db, _tmp) = open_db_with_fts();
+    assert_table_sql_contains(&db, "books_fts", "tokenize='unicode61 remove_diacritics 2'");
+    assert_table_sql_contains(
+        &db,
+        "books_fts_stemmed",
+        "tokenize='porter unicode61 remove_diacritics 2'",
+    );
+}
+
+#[test]
 fn schema_conversion_options_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(&db, "conversion_options", &["id", "format", "book", "data"]);
@@ -800,6 +832,18 @@ fn open_db() -> (Database, TempDir) {
         .expect("tempdir");
     let path = temp_dir.path().join("schema.db");
     let db = Database::open_path(&path, 100).expect("open db");
+    (db, temp_dir)
+}
+
+fn open_db_with_fts() -> (Database, TempDir) {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("caliberate-test-schema-fts-")
+        .tempdir()
+        .expect("tempdir");
+    let path = temp_dir.path().join("schema.db");
+    let mut fts = caliberate_core::config::FtsConfig::default();
+    fts.enabled = true;
+    let db = Database::open_path_with_fts(&path, 100, &fts).expect("open db with fts");
     (db, temp_dir)
 }
 

@@ -102,9 +102,12 @@ impl ControlPlane {
                 "fts.tokenizer must not be empty".to_string(),
             ));
         }
-        if self.fts.tokenizer != "unicode61" {
+        if !matches!(
+            self.fts.tokenizer.as_str(),
+            "unicode61" | "unicode61 remove_diacritics 2"
+        ) {
             return Err(CoreError::ConfigValidate(
-                "fts.tokenizer must be 'unicode61'".to_string(),
+                "fts.tokenizer must be 'unicode61' or 'unicode61 remove_diacritics 2'".to_string(),
             ));
         }
         if self.fts.min_query_len == 0 {
@@ -509,7 +512,7 @@ fn default_asset_compression_level() -> i32 {
 }
 
 fn default_fts_tokenizer() -> String {
-    "unicode61".to_string()
+    "unicode61 remove_diacritics 2".to_string()
 }
 
 fn default_fts_rebuild_on_migrate() -> bool {

@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 #[derive(Debug)]
 pub struct Database {
@@ -450,7 +450,7 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS annotations (
                     id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
-                    format TEXT NOT NULL,
+                    format TEXT NOT NULL COLLATE NOCASE,
                     user_type TEXT NOT NULL,
                     user TEXT NOT NULL,
                     timestamp REAL NOT NULL,
@@ -461,9 +461,9 @@ impl Database {
                     UNIQUE(book, user_type, user, format, annot_type, annot_id)
                 );
                 CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts
-                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'unicode61');
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2');
                 CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts_stemmed
-                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'porter unicode61');
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'porter unicode61 remove_diacritics 2');
                 CREATE TRIGGER IF NOT EXISTS annotations_fts_insert_trg AFTER INSERT ON annotations
                 BEGIN
                     INSERT INTO annotations_fts(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
@@ -498,6 +498,7 @@ impl Database {
         self.ensure_calibre_link_schema()?;
         self.ensure_calibre_collations()?;
         self.ensure_calibre_primary_keys()?;
+        self.ensure_annotations_fts_schema()?;
         self.ensure_calibre_views()?;
         self.ensure_calibre_indices()?;
         self.ensure_calibre_triggers()?;
@@ -824,6 +825,9 @@ impl Database {
         if !self.table_sql_contains("last_read_positions", "format TEXT NOT NULL COLLATE NOCASE")? {
             self.rebuild_last_read_positions_table()?;
         }
+        if !self.table_sql_contains("annotations", "format TEXT NOT NULL COLLATE NOCASE")? {
+            self.rebuild_annotations_table()?;
+        }
         if !self.table_sql_contains(
             "ratings",
             "rating INTEGER CHECK(rating > -1 AND rating < 11)",
@@ -938,6 +942,64 @@ impl Database {
             Self::rebuild_annotations_table,
         )?;
         self.ensure_no_autoincrement("notes", "notes table", Self::rebuild_notes_table)?;
+        Ok(())
+    }
+
+    fn ensure_annotations_fts_schema(&self) -> CoreResult<()> {
+        let fts = "annotations_fts";
+        let stemmed = "annotations_fts_stemmed";
+        let expected = "unicode61 remove_diacritics 2";
+        let expected_stemmed = "porter unicode61 remove_diacritics 2";
+        let needs_rebuild = !self.table_sql_contains(fts, expected)?
+            || !self.table_sql_contains(stemmed, expected_stemmed)?;
+        if needs_rebuild {
+            self.conn
+                .execute_batch(
+                    "DROP TRIGGER IF EXISTS annotations_fts_insert_trg;
+                 DROP TRIGGER IF EXISTS annotations_fts_delete_trg;
+                 DROP TRIGGER IF EXISTS annotations_fts_update_trg;
+                 DROP TABLE IF EXISTS annotations_fts;
+                 DROP TABLE IF EXISTS annotations_fts_stemmed;",
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "drop annotations fts schema".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
+            self.conn.execute_batch(
+                "CREATE VIRTUAL TABLE annotations_fts
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'unicode61 remove_diacritics 2');
+                 CREATE VIRTUAL TABLE annotations_fts_stemmed
+                    USING fts5(searchable_text, content = 'annotations', content_rowid = 'id', tokenize = 'porter unicode61 remove_diacritics 2');
+                 CREATE TRIGGER annotations_fts_insert_trg AFTER INSERT ON annotations
+                 BEGIN
+                    INSERT INTO annotations_fts(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                 END;
+                 CREATE TRIGGER annotations_fts_delete_trg AFTER DELETE ON annotations
+                 BEGIN
+                    INSERT INTO annotations_fts(annotations_fts, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(annotations_fts_stemmed, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                 END;
+                 CREATE TRIGGER annotations_fts_update_trg AFTER UPDATE ON annotations
+                 BEGIN
+                    INSERT INTO annotations_fts(annotations_fts, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(annotations_fts_stemmed, rowid, searchable_text) VALUES('delete', OLD.id, OLD.searchable_text);
+                    INSERT INTO annotations_fts_stemmed(rowid, searchable_text) VALUES (NEW.id, NEW.searchable_text);
+                 END;"
+            ).map_err(|err| {
+                CoreError::Io(
+                    "create annotations fts schema".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+            info!(
+                component = "db",
+                "recreated annotations fts schema with remove_diacritics"
+            );
+        }
         Ok(())
     }
 
@@ -1756,7 +1818,7 @@ impl Database {
             "CREATE TABLE {table} (
                 id INTEGER PRIMARY KEY,
                 book INTEGER NOT NULL,
-                format TEXT NOT NULL,
+                format TEXT NOT NULL COLLATE NOCASE,
                 user_type TEXT NOT NULL,
                 user TEXT NOT NULL,
                 timestamp REAL NOT NULL,
@@ -3551,10 +3613,32 @@ impl Database {
     }
 
     pub fn ensure_fts_schema(&self) -> CoreResult<()> {
-        if self.fts.tokenizer != "unicode61" {
+        if !matches!(
+            self.fts.tokenizer.as_str(),
+            "unicode61" | "unicode61 remove_diacritics 2"
+        ) {
             return Err(CoreError::ConfigValidate(
-                "fts.tokenizer must be 'unicode61'".to_string(),
+                "fts.tokenizer must be 'unicode61' or 'unicode61 remove_diacritics 2'".to_string(),
             ));
+        }
+        let stemmed_tokenizer = format!("porter {}", self.fts.tokenizer);
+        let needs_rebuild = !self.table_sql_contains("books_fts", &self.fts.tokenizer)?
+            || !self.table_sql_contains("books_fts_stemmed", &stemmed_tokenizer)?;
+        if needs_rebuild {
+            self.conn
+                .execute_batch(
+                    "DROP TRIGGER IF EXISTS books_ai;
+                 DROP TRIGGER IF EXISTS books_ad;
+                 DROP TRIGGER IF EXISTS books_au;
+                 DROP TABLE IF EXISTS books_fts;
+                 DROP TABLE IF EXISTS books_fts_stemmed;",
+                )
+                .map_err(|err| {
+                    CoreError::Io(
+                        "drop fts schema".to_string(),
+                        std::io::Error::new(std::io::ErrorKind::Other, err),
+                    )
+                })?;
         }
         let ddl = format!(
             "CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
@@ -3565,21 +3649,37 @@ impl Database {
                 content_rowid='id',
                 tokenize='{}'
             );
+            CREATE VIRTUAL TABLE IF NOT EXISTS books_fts_stemmed USING fts5(
+                title,
+                format,
+                path,
+                content='books',
+                content_rowid='id',
+                tokenize='{}'
+            );
             CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
                 INSERT INTO books_fts(rowid, title, format, path)
+                VALUES (new.id, new.title, new.format, new.path);
+                INSERT INTO books_fts_stemmed(rowid, title, format, path)
                 VALUES (new.id, new.title, new.format, new.path);
             END;
             CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
                 INSERT INTO books_fts(books_fts, rowid, title, format, path)
                 VALUES('delete', old.id, old.title, old.format, old.path);
+                INSERT INTO books_fts_stemmed(books_fts_stemmed, rowid, title, format, path)
+                VALUES('delete', old.id, old.title, old.format, old.path);
             END;
             CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
                 INSERT INTO books_fts(books_fts, rowid, title, format, path)
                 VALUES('delete', old.id, old.title, old.format, old.path);
+                INSERT INTO books_fts_stemmed(books_fts_stemmed, rowid, title, format, path)
+                VALUES('delete', old.id, old.title, old.format, old.path);
                 INSERT INTO books_fts(rowid, title, format, path)
                 VALUES (new.id, new.title, new.format, new.path);
+                INSERT INTO books_fts_stemmed(rowid, title, format, path)
+                VALUES (new.id, new.title, new.format, new.path);
             END;",
-            self.fts.tokenizer
+            self.fts.tokenizer, stemmed_tokenizer
         );
         self.conn.execute_batch(&ddl).map_err(|err| {
             CoreError::Io(
