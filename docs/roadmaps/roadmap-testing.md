@@ -127,3 +127,4 @@
 - [x] Add OPDS download tests
 - [x] Add conversion pipeline tests
 - [x] Add calibre-server CLI URL builder tests
+- [x] Add bootstrap test for runtime directory creation

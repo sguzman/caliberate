@@ -1,5 +1,5 @@
 use caliberate_core::config::ControlPlane;
-use caliberate_core::{logging, metrics};
+use caliberate_core::{logging, metrics, paths};
 use std::path::Path;
 
 pub struct BootstrapState {
@@ -11,6 +11,7 @@ pub struct BootstrapState {
 pub fn init<P: AsRef<Path>>(path: P) -> Result<BootstrapState, Box<dyn std::error::Error>> {
     let config = ControlPlane::load_from_path(path)?;
     let logging_guard = logging::init(&config)?;
+    paths::ensure_runtime_paths(&config)?;
     let metrics = metrics::init(&config);
 
     Ok(BootstrapState {
