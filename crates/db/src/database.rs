@@ -10,7 +10,7 @@ use serde_json::Value as JsonValue;
 use std::path::Path;
 use tracing::info;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 #[derive(Debug)]
 pub struct Database {
@@ -219,14 +219,14 @@ impl Database {
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS authors (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     name TEXT NOT NULL COLLATE NOCASE,
                     sort TEXT COLLATE NOCASE,
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_authors_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     author INTEGER NOT NULL,
                     UNIQUE(book, author),
@@ -236,13 +236,13 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_authors_book_id ON books_authors_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_authors_author_id ON books_authors_link(author);
                 CREATE TABLE IF NOT EXISTS tags (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     name TEXT NOT NULL COLLATE NOCASE,
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_tags_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     tag INTEGER NOT NULL,
                     UNIQUE(book, tag),
@@ -252,14 +252,14 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_tags_book_id ON books_tags_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_tags_tag_id ON books_tags_link(tag);
                 CREATE TABLE IF NOT EXISTS series (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     name TEXT NOT NULL COLLATE NOCASE,
                     sort TEXT COLLATE NOCASE,
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_series_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     series INTEGER NOT NULL,
                     UNIQUE(book),
@@ -269,7 +269,7 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_series_book_id ON books_series_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_series_series_id ON books_series_link(series);
                 CREATE TABLE IF NOT EXISTS identifiers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     type TEXT NOT NULL DEFAULT 'isbn' COLLATE NOCASE,
                     val TEXT NOT NULL COLLATE NOCASE,
@@ -279,14 +279,14 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_identifiers_book_id ON identifiers(book);
                 CREATE INDEX IF NOT EXISTS idx_identifiers_type ON identifiers(type);
                 CREATE TABLE IF NOT EXISTS comments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     text TEXT NOT NULL COLLATE NOCASE,
                     UNIQUE(book),
                     FOREIGN KEY(book) REFERENCES books(id)
                 );
                 CREATE TABLE IF NOT EXISTS notes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book_id INTEGER NOT NULL,
                     text TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -309,14 +309,14 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_assets_book_id ON assets(book_id);
                 CREATE INDEX IF NOT EXISTS idx_assets_stored_path ON assets(stored_path);
                 CREATE TABLE IF NOT EXISTS publishers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     name TEXT NOT NULL COLLATE NOCASE,
                     sort TEXT COLLATE NOCASE,
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE(name)
                 );
                 CREATE TABLE IF NOT EXISTS books_publishers_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     publisher INTEGER NOT NULL,
                     UNIQUE(book),
@@ -326,13 +326,13 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_publishers_book_id ON books_publishers_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_publishers_publisher_id ON books_publishers_link(publisher);
                 CREATE TABLE IF NOT EXISTS ratings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     rating INTEGER CHECK(rating > -1 AND rating < 11),
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE (rating)
                 );
                 CREATE TABLE IF NOT EXISTS books_ratings_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     rating INTEGER NOT NULL,
                     UNIQUE(book, rating),
@@ -342,13 +342,13 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_ratings_book_id ON books_ratings_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_ratings_rating_id ON books_ratings_link(rating);
                 CREATE TABLE IF NOT EXISTS languages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     lang_code TEXT NOT NULL COLLATE NOCASE,
                     link TEXT NOT NULL DEFAULT '',
                     UNIQUE(lang_code)
                 );
                 CREATE TABLE IF NOT EXISTS books_languages_link (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     lang_code INTEGER NOT NULL,
                     item_order INTEGER NOT NULL DEFAULT 0,
@@ -359,7 +359,7 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_books_languages_book_id ON books_languages_link(book);
                 CREATE INDEX IF NOT EXISTS idx_books_languages_language_id ON books_languages_link(lang_code);
                 CREATE TABLE IF NOT EXISTS books_plugin_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     val TEXT NOT NULL,
@@ -383,14 +383,14 @@ impl Database {
                 END;
                 CREATE INDEX IF NOT EXISTS idx_books_pages_link_needs_scan ON books_pages_link(needs_scan);
                 CREATE TABLE IF NOT EXISTS conversion_options (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     format TEXT NOT NULL,
                     book INTEGER,
                     data BLOB NOT NULL,
                     UNIQUE(format, book)
                 );
                 CREATE TABLE IF NOT EXISTS custom_columns (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     label TEXT NOT NULL,
                     name TEXT NOT NULL,
                     datatype TEXT NOT NULL,
@@ -402,7 +402,7 @@ impl Database {
                     UNIQUE(label)
                 );
                 CREATE TABLE IF NOT EXISTS data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     format TEXT NOT NULL COLLATE NOCASE,
                     uncompressed_size INTEGER NOT NULL,
@@ -410,34 +410,34 @@ impl Database {
                     UNIQUE(book, format)
                 );
                 CREATE TABLE IF NOT EXISTS feeds (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     title TEXT NOT NULL,
                     script TEXT NOT NULL,
                     UNIQUE(title)
                 );
                 CREATE TABLE IF NOT EXISTS library_id (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     uuid TEXT NOT NULL,
                     UNIQUE(uuid)
                 );
                 CREATE TABLE IF NOT EXISTS metadata_dirtied (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     UNIQUE(book)
                 );
                 CREATE TABLE IF NOT EXISTS annotations_dirtied (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     UNIQUE(book)
                 );
                 CREATE TABLE IF NOT EXISTS preferences (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     key TEXT NOT NULL,
                     val TEXT NOT NULL,
                     UNIQUE(key)
                 );
                 CREATE TABLE IF NOT EXISTS last_read_positions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     format TEXT NOT NULL COLLATE NOCASE,
                     user TEXT NOT NULL,
@@ -448,7 +448,7 @@ impl Database {
                     UNIQUE(user, device, book, format)
                 );
                 CREATE TABLE IF NOT EXISTS annotations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     book INTEGER NOT NULL,
                     format TEXT NOT NULL,
                     user_type TEXT NOT NULL,
@@ -497,6 +497,7 @@ impl Database {
         self.ensure_rating_columns()?;
         self.ensure_calibre_link_schema()?;
         self.ensure_calibre_collations()?;
+        self.ensure_calibre_primary_keys()?;
         self.ensure_calibre_views()?;
         self.ensure_calibre_indices()?;
         self.ensure_calibre_triggers()?;
@@ -693,6 +694,49 @@ impl Database {
             .unwrap_or(false))
     }
 
+    fn ensure_no_autoincrement(
+        &self,
+        table: &str,
+        label: &str,
+        rebuild: fn(&Database) -> CoreResult<()>,
+    ) -> CoreResult<()> {
+        if self.table_sql_contains(table, "AUTOINCREMENT")? {
+            rebuild(self)?;
+            info!(
+                component = "db",
+                table, "rebuilt table without AUTOINCREMENT"
+            );
+        }
+        if self.table_sql_contains(table, "AUTOINCREMENT")? {
+            return Err(CoreError::ConfigValidate(format!(
+                "{label} still contains AUTOINCREMENT"
+            )));
+        }
+        Ok(())
+    }
+
+    fn rebuild_table(
+        &self,
+        table: &str,
+        label: &str,
+        create_sql: &str,
+        columns: &[&str],
+    ) -> CoreResult<()> {
+        let table_new = format!("{table}_new");
+        let create_sql = create_sql.replace("{table}", &table_new);
+        let column_list = columns.join(", ");
+        let sql = format!(
+            "BEGIN;
+             {create_sql};
+             INSERT INTO {table_new} ({column_list})
+                SELECT {column_list} FROM {table};
+             DROP TABLE {table};
+             ALTER TABLE {table_new} RENAME TO {table};
+             COMMIT;"
+        );
+        self.rebuild_with_foreign_keys_off(&sql, label)
+    }
+
     fn ensure_calibre_link_schema(&self) -> CoreResult<()> {
         if self.column_exists("comments", "book_id")? {
             self.migrate_comments_table()?;
@@ -792,6 +836,108 @@ impl Database {
         )? {
             self.rebuild_books_pages_link_table()?;
         }
+        Ok(())
+    }
+
+    fn ensure_calibre_primary_keys(&self) -> CoreResult<()> {
+        self.ensure_no_autoincrement("authors", "authors table", Self::rebuild_authors_table)?;
+        self.ensure_no_autoincrement("tags", "tags table", Self::rebuild_tags_table)?;
+        self.ensure_no_autoincrement("series", "series table", Self::rebuild_series_table)?;
+        self.ensure_no_autoincrement(
+            "publishers",
+            "publishers table",
+            Self::rebuild_publishers_table,
+        )?;
+        self.ensure_no_autoincrement("ratings", "ratings table", Self::rebuild_ratings_table)?;
+        self.ensure_no_autoincrement(
+            "languages",
+            "languages table",
+            Self::rebuild_languages_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "identifiers",
+            "identifiers table",
+            Self::rebuild_identifiers_table,
+        )?;
+        self.ensure_no_autoincrement("comments", "comments table", Self::rebuild_comments_table)?;
+        self.ensure_no_autoincrement(
+            "books_authors_link",
+            "books_authors_link table",
+            Self::rebuild_books_authors_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_tags_link",
+            "books_tags_link table",
+            Self::rebuild_books_tags_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_series_link",
+            "books_series_link table",
+            Self::rebuild_books_series_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_publishers_link",
+            "books_publishers_link table",
+            Self::rebuild_books_publishers_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_ratings_link",
+            "books_ratings_link table",
+            Self::rebuild_books_ratings_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_languages_link",
+            "books_languages_link table",
+            Self::rebuild_books_languages_link_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "books_plugin_data",
+            "books_plugin_data table",
+            Self::rebuild_books_plugin_data_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "conversion_options",
+            "conversion_options table",
+            Self::rebuild_conversion_options_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "custom_columns",
+            "custom_columns table",
+            Self::rebuild_custom_columns_table,
+        )?;
+        self.ensure_no_autoincrement("data", "data table", Self::rebuild_data_table)?;
+        self.ensure_no_autoincrement("feeds", "feeds table", Self::rebuild_feeds_table)?;
+        self.ensure_no_autoincrement(
+            "library_id",
+            "library_id table",
+            Self::rebuild_library_id_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "metadata_dirtied",
+            "metadata_dirtied table",
+            Self::rebuild_metadata_dirtied_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "annotations_dirtied",
+            "annotations_dirtied table",
+            Self::rebuild_annotations_dirtied_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "preferences",
+            "preferences table",
+            Self::rebuild_preferences_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "last_read_positions",
+            "last_read_positions table",
+            Self::rebuild_last_read_positions_table,
+        )?;
+        self.ensure_no_autoincrement(
+            "annotations",
+            "annotations table",
+            Self::rebuild_annotations_table,
+        )?;
+        self.ensure_no_autoincrement("notes", "notes table", Self::rebuild_notes_table)?;
         Ok(())
     }
 
@@ -1376,6 +1522,277 @@ impl Database {
              ALTER TABLE books_pages_link_new RENAME TO books_pages_link;
              COMMIT;",
             "books_pages_link table",
+        )
+    }
+
+    fn rebuild_books_authors_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_authors_link",
+            "books_authors_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                author INTEGER NOT NULL,
+                UNIQUE(book, author),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(author) REFERENCES authors(id)
+            )",
+            &["id", "book", "author"],
+        )
+    }
+
+    fn rebuild_books_tags_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_tags_link",
+            "books_tags_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                tag INTEGER NOT NULL,
+                UNIQUE(book, tag),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(tag) REFERENCES tags(id)
+            )",
+            &["id", "book", "tag"],
+        )
+    }
+
+    fn rebuild_books_series_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_series_link",
+            "books_series_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                series INTEGER NOT NULL,
+                UNIQUE(book),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(series) REFERENCES series(id)
+            )",
+            &["id", "book", "series"],
+        )
+    }
+
+    fn rebuild_books_publishers_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_publishers_link",
+            "books_publishers_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                publisher INTEGER NOT NULL,
+                UNIQUE(book),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(publisher) REFERENCES publishers(id)
+            )",
+            &["id", "book", "publisher"],
+        )
+    }
+
+    fn rebuild_books_ratings_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_ratings_link",
+            "books_ratings_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                rating INTEGER NOT NULL,
+                UNIQUE(book, rating),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(rating) REFERENCES ratings(id)
+            )",
+            &["id", "book", "rating"],
+        )
+    }
+
+    fn rebuild_books_languages_link_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_languages_link",
+            "books_languages_link table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                lang_code INTEGER NOT NULL,
+                item_order INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(book, lang_code),
+                FOREIGN KEY(book) REFERENCES books(id),
+                FOREIGN KEY(lang_code) REFERENCES languages(id)
+            )",
+            &["id", "book", "lang_code", "item_order"],
+        )
+    }
+
+    fn rebuild_books_plugin_data_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "books_plugin_data",
+            "books_plugin_data table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                val TEXT NOT NULL,
+                UNIQUE(book, name)
+            )",
+            &["id", "book", "name", "val"],
+        )
+    }
+
+    fn rebuild_conversion_options_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "conversion_options",
+            "conversion_options table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                format TEXT NOT NULL,
+                book INTEGER,
+                data BLOB NOT NULL,
+                UNIQUE(format, book)
+            )",
+            &["id", "format", "book", "data"],
+        )
+    }
+
+    fn rebuild_custom_columns_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "custom_columns",
+            "custom_columns table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                label TEXT NOT NULL,
+                name TEXT NOT NULL,
+                datatype TEXT NOT NULL,
+                mark_for_delete INTEGER NOT NULL DEFAULT 0,
+                editable INTEGER NOT NULL DEFAULT 1,
+                display TEXT NOT NULL DEFAULT '{}',
+                is_multiple INTEGER NOT NULL DEFAULT 0,
+                normalized INTEGER NOT NULL,
+                UNIQUE(label)
+            )",
+            &[
+                "id",
+                "label",
+                "name",
+                "datatype",
+                "mark_for_delete",
+                "editable",
+                "display",
+                "is_multiple",
+                "normalized",
+            ],
+        )
+    }
+
+    fn rebuild_feeds_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "feeds",
+            "feeds table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                script TEXT NOT NULL,
+                UNIQUE(title)
+            )",
+            &["id", "title", "script"],
+        )
+    }
+
+    fn rebuild_library_id_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "library_id",
+            "library_id table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                uuid TEXT NOT NULL,
+                UNIQUE(uuid)
+            )",
+            &["id", "uuid"],
+        )
+    }
+
+    fn rebuild_metadata_dirtied_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "metadata_dirtied",
+            "metadata_dirtied table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                UNIQUE(book)
+            )",
+            &["id", "book"],
+        )
+    }
+
+    fn rebuild_annotations_dirtied_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "annotations_dirtied",
+            "annotations_dirtied table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                UNIQUE(book)
+            )",
+            &["id", "book"],
+        )
+    }
+
+    fn rebuild_preferences_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "preferences",
+            "preferences table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                key TEXT NOT NULL,
+                val TEXT NOT NULL,
+                UNIQUE(key)
+            )",
+            &["id", "key", "val"],
+        )
+    }
+
+    fn rebuild_annotations_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "annotations",
+            "annotations table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book INTEGER NOT NULL,
+                format TEXT NOT NULL,
+                user_type TEXT NOT NULL,
+                user TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                annot_id TEXT NOT NULL,
+                annot_type TEXT NOT NULL,
+                annot_data TEXT NOT NULL,
+                searchable_text TEXT NOT NULL DEFAULT '',
+                UNIQUE(book, user_type, user, format, annot_type, annot_id)
+            )",
+            &[
+                "id",
+                "book",
+                "format",
+                "user_type",
+                "user",
+                "timestamp",
+                "annot_id",
+                "annot_type",
+                "annot_data",
+                "searchable_text",
+            ],
+        )
+    }
+
+    fn rebuild_notes_table(&self) -> CoreResult<()> {
+        self.rebuild_table(
+            "notes",
+            "notes table",
+            "CREATE TABLE {table} (
+                id INTEGER PRIMARY KEY,
+                book_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(book_id) REFERENCES books(id)
+            )",
+            &["id", "book_id", "text", "created_at"],
         )
     }
 

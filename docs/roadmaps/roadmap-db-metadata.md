@@ -32,6 +32,36 @@
 - [x] Add schema SQL inspection helpers for parity checks
 - [x] Add migration hook to enforce collations/defaults parity
 - [x] Bump schema version for collation/default parity
+- [x] Remove AUTOINCREMENT from authors schema
+- [x] Remove AUTOINCREMENT from tags schema
+- [x] Remove AUTOINCREMENT from series schema
+- [x] Remove AUTOINCREMENT from publishers schema
+- [x] Remove AUTOINCREMENT from ratings schema
+- [x] Remove AUTOINCREMENT from languages schema
+- [x] Remove AUTOINCREMENT from identifiers schema
+- [x] Remove AUTOINCREMENT from comments schema
+- [x] Remove AUTOINCREMENT from books_authors_link schema
+- [x] Remove AUTOINCREMENT from books_tags_link schema
+- [x] Remove AUTOINCREMENT from books_series_link schema
+- [x] Remove AUTOINCREMENT from books_publishers_link schema
+- [x] Remove AUTOINCREMENT from books_ratings_link schema
+- [x] Remove AUTOINCREMENT from books_languages_link schema
+- [x] Remove AUTOINCREMENT from books_plugin_data schema
+- [x] Remove AUTOINCREMENT from conversion_options schema
+- [x] Remove AUTOINCREMENT from custom_columns schema
+- [x] Remove AUTOINCREMENT from data schema
+- [x] Remove AUTOINCREMENT from feeds schema
+- [x] Remove AUTOINCREMENT from library_id schema
+- [x] Remove AUTOINCREMENT from metadata_dirtied schema
+- [x] Remove AUTOINCREMENT from annotations_dirtied schema
+- [x] Remove AUTOINCREMENT from preferences schema
+- [x] Remove AUTOINCREMENT from last_read_positions schema
+- [x] Remove AUTOINCREMENT from annotations schema
+- [x] Remove AUTOINCREMENT from notes schema
+- [x] Add primary key parity enforcement hook
+- [x] Add rebuild helper for AUTOINCREMENT removal
+- [x] Add rebuild migrations for AUTOINCREMENT parity tables
+- [x] Bump schema version for primary key parity
 - [x] Add books series_index column to match Calibre schema
 - [x] Add author sort/link columns
 - [x] Add publisher sort/link columns

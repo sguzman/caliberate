@@ -402,6 +402,42 @@ fn schema_last_read_positions_format_collation_matches_calibre() {
 }
 
 #[test]
+fn schema_tables_avoid_autoincrement_for_calibre_parity() {
+    let (db, _tmp) = open_db();
+    let tables = [
+        "authors",
+        "books_authors_link",
+        "books_languages_link",
+        "books_plugin_data",
+        "books_publishers_link",
+        "books_ratings_link",
+        "books_series_link",
+        "books_tags_link",
+        "comments",
+        "conversion_options",
+        "custom_columns",
+        "data",
+        "feeds",
+        "identifiers",
+        "languages",
+        "library_id",
+        "metadata_dirtied",
+        "annotations_dirtied",
+        "preferences",
+        "publishers",
+        "ratings",
+        "series",
+        "tags",
+        "last_read_positions",
+        "annotations",
+        "notes",
+    ];
+    for table in tables {
+        assert_table_sql_not_contains(&db, table, "AUTOINCREMENT");
+    }
+}
+
+#[test]
 fn schema_annotations_columns_match_calibre_fields() {
     let (db, _tmp) = open_db();
     assert_columns(
@@ -797,5 +833,13 @@ fn assert_table_sql_contains(db: &Database, table: &str, needle: &str) {
     assert!(
         sql.contains(needle),
         "expected {table} sql to contain {needle}"
+    );
+}
+
+fn assert_table_sql_not_contains(db: &Database, table: &str, needle: &str) {
+    let sql = table_sql(db, table);
+    assert!(
+        !sql.contains(needle),
+        "expected {table} sql to omit {needle}"
     );
 }

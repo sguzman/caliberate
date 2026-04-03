@@ -5,6 +5,7 @@
 - [x] Add schema parity test for books defaults/collations
 - [x] Add schema parity tests for core metadata table collations
 - [x] Add schema parity tests for format collations and ratings check
+- [x] Add schema parity test to assert AUTOINCREMENT removal
 - [x] Add CLI test for calibredb library override info output
 - [x] Add CLI test for calibredb library override db path
 - [x] Add CLI test for calibredb override init creates directory
