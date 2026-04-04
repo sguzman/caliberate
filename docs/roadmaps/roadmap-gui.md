@@ -21,7 +21,9 @@
 - [x] Implement column-based table view (Title, Authors, Series, Tags, Formats, Rating, etc.)
 - [x] Implement column visibility management
 - [x] Implement column sorting parity (single-column)
-- [ ] Implement column sorting parity (multi-column / stable sort)
+- [x] Implement column sorting parity (multi-column / stable sort)
+- [x] Add secondary sort selector UI
+- [x] Add stable tie-breaker sorting for multi-column
 - [x] Implement column resizing and persistence
 - [x] Persist column visibility to control-plane config
 - [x] Persist column widths to control-plane config
@@ -29,7 +31,9 @@
 - [x] Implement row selection with multi-select and range select
 - [x] Implement inline quick-search with highlights
 - [x] Implement virtualized list rendering for large libraries
-- [ ] Implement per-book cover thumbnails in list view
+- [x] Implement per-book cover thumbnails in list view
+- [x] Render cover placeholders in grid view
+- [x] Use gui.table_row_height for list rows
 - [x] Implement list view mode toggles (cover grid vs table)
 - [x] Implement library statistics footer (count, virtual libraries)
 
@@ -39,6 +43,12 @@
 - [x] Implement Calibre-style metadata editor dialog layout
 - [ ] Implement cover preview/editing (set/remove/generate cover)
 - [ ] Implement comments rich text editor (HTML/Markdown parity)
+- [x] Add cover thumbnail column and placeholders
+- [x] Add cover preview placeholder in details pane
+- [x] Add cover action buttons (set/remove/generate)
+- [x] Wire cover actions to has_cover flag updates
+- [x] Add comment preview pane in metadata editor
+- [x] Add comment preview formatting for headings/bullets
 - [x] Implement identifiers editor with validation
 - [x] Implement tags editor with autocomplete
 - [x] Implement series editor with index controls parity
@@ -67,6 +77,7 @@
 - [x] Add GUI layout section in Preferences
 - [x] Add inline validation messages for server/conversion/FTS fields
 - [x] Implement preferences restart-required messaging
+- [x] Show GUI cover/toast settings in Preferences
 
 ## Reader / Viewer
 - [ ] Implement reader/viewer integration
@@ -74,10 +85,20 @@
 - [ ] Implement in-app reader controls (font, theme, navigation)
 
 ## Jobs + Progress
-- [ ] Implement unified job queue UI (conversions, metadata, imports)
-- [ ] Implement per-job progress with cancel/pause
-- [ ] Implement background task notifications/toasts
+- [x] Implement unified job queue UI (conversions, metadata, imports)
+- [x] Add in-memory job queue model
+- [x] Add job enqueue hooks for toolbar actions
+- [x] Add job progress simulation
+- [x] Add job pause/resume controls
+- [x] Add job cancel controls
+- [x] Implement per-job progress with cancel/pause
+- [x] Implement background task notifications/toasts
+- [x] Add toast model and queue
+- [x] Render toast overlay notifications
+- [x] Auto-dismiss toasts by duration
 
 ## Error + Telemetry UX
-- [ ] Implement user-facing error dialogs with copyable details
+- [x] Implement user-facing error dialogs with copyable details
+- [x] Add error dialog copy-to-clipboard action
+- [x] Add error dialog dismiss clears active errors
 - [x] Implement log viewer / open logs action in UI

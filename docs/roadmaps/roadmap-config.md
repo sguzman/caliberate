@@ -25,3 +25,5 @@
 - [x] Define `[gui]` keys: `list_view_mode`, `table_row_height`, `table_column_min_width`, `table_column_max_width`
 - [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
 - [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`
+- [x] Define `[gui]` keys: `show_cover`, `width_cover`, `cover_thumb_size`, `cover_preview_size`
+- [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`

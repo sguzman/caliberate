@@ -1,0 +1,32 @@
+# Tranche 040
+
+- [x] Implement column sorting parity (multi-column / stable sort)
+- [x] Add secondary sort selector UI
+- [x] Add stable tie-breaker sorting for multi-column
+- [x] Implement per-book cover thumbnails in list view
+- [x] Render cover placeholders in grid view
+- [x] Use gui.table_row_height for list rows
+- [x] Add cover thumbnail column and placeholders
+- [x] Add cover preview placeholder in details pane
+- [x] Add cover action buttons (set/remove/generate)
+- [x] Wire cover actions to has_cover flag updates
+- [x] Add comment preview pane in metadata editor
+- [x] Add comment preview formatting for headings/bullets
+- [x] Implement unified job queue UI (conversions, metadata, imports)
+- [x] Add in-memory job queue model
+- [x] Add job enqueue hooks for toolbar actions
+- [x] Add job progress simulation
+- [x] Add job pause/resume controls
+- [x] Add job cancel controls
+- [x] Implement per-job progress with cancel/pause
+- [x] Implement background task notifications/toasts
+- [x] Add toast model and queue
+- [x] Render toast overlay notifications
+- [x] Auto-dismiss toasts by duration
+- [x] Implement user-facing error dialogs with copyable details
+- [x] Add error dialog copy-to-clipboard action
+- [x] Add error dialog dismiss clears active errors
+- [x] Define `[gui]` keys: `show_cover`, `width_cover`, `cover_thumb_size`, `cover_preview_size`
+- [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
+- [x] Show GUI cover/toast settings in Preferences
+- [x] Add cover column visibility/width persistence via config

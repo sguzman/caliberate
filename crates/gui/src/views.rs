@@ -23,6 +23,7 @@ pub struct BookRow {
     pub rating: String,
     pub publisher: String,
     pub languages: String,
+    pub has_cover: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +89,7 @@ struct ColumnVisibility {
     rating: bool,
     publisher: bool,
     languages: bool,
+    cover: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +102,7 @@ struct ColumnWidths {
     rating: f32,
     publisher: f32,
     languages: f32,
+    cover: f32,
 }
 
 impl ColumnVisibility {
@@ -113,6 +116,7 @@ impl ColumnVisibility {
             rating: gui.show_rating,
             publisher: gui.show_publisher,
             languages: gui.show_languages,
+            cover: gui.show_cover,
         }
     }
 
@@ -125,6 +129,7 @@ impl ColumnVisibility {
         gui.show_rating = self.rating;
         gui.show_publisher = self.publisher;
         gui.show_languages = self.languages;
+        gui.show_cover = self.cover;
     }
 }
 
@@ -139,6 +144,7 @@ impl ColumnWidths {
             rating: gui.width_rating,
             publisher: gui.width_publisher,
             languages: gui.width_languages,
+            cover: gui.width_cover,
         }
     }
 
@@ -151,6 +157,7 @@ impl ColumnWidths {
         gui.width_rating = self.rating;
         gui.width_publisher = self.publisher;
         gui.width_languages = self.languages;
+        gui.width_cover = self.cover;
     }
 }
 
@@ -172,6 +179,7 @@ pub struct LibraryView {
     format_filter: Option<String>,
     sort_mode: SortMode,
     sort_dir: SortDirection,
+    secondary_sort: Option<SortMode>,
     search_query: String,
     status: String,
     last_error: Option<String>,
@@ -184,6 +192,16 @@ pub struct LibraryView {
     pending_save: bool,
     open_logs_requested: bool,
     log_dir: PathBuf,
+    cover_thumb_size: f32,
+    cover_preview_size: f32,
+    table_row_height: f32,
+    toast_duration_secs: f64,
+    toast_max: usize,
+    toasts: Vec<Toast>,
+    jobs: Vec<JobEntry>,
+    next_job_id: u64,
+    last_tick: f64,
+    comment_preview: bool,
 }
 
 impl LibraryView {
@@ -209,6 +227,7 @@ impl LibraryView {
             format_filter: None,
             sort_mode: SortMode::Title,
             sort_dir: SortDirection::Asc,
+            secondary_sort: None,
             search_query: String::new(),
             status: "Ready".to_string(),
             last_error: None,
@@ -221,6 +240,16 @@ impl LibraryView {
             pending_save: false,
             open_logs_requested: false,
             log_dir: config.paths.log_dir.clone(),
+            cover_thumb_size: config.gui.cover_thumb_size,
+            cover_preview_size: config.gui.cover_preview_size,
+            table_row_height: config.gui.table_row_height,
+            toast_duration_secs: config.gui.toast_duration_secs,
+            toast_max: config.gui.toast_max,
+            toasts: Vec::new(),
+            jobs: Vec::new(),
+            next_job_id: 1,
+            last_tick: 0.0,
+            comment_preview: false,
         };
         view.refresh_books()?;
         Ok(view)
@@ -228,6 +257,14 @@ impl LibraryView {
 
     pub fn status_line(&self) -> (&str, Option<&str>) {
         (self.status.as_str(), self.last_error.as_deref())
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    pub fn clear_error_message(&mut self) {
+        self.last_error = None;
     }
 
     pub fn request_search_focus(&mut self) {
@@ -248,6 +285,12 @@ impl LibraryView {
 
     pub fn notify_unimplemented(&mut self, message: &str) {
         self.status = message.to_string();
+        self.push_toast(message, ToastLevel::Warn);
+    }
+
+    pub fn enqueue_job_action(&mut self, name: &str) {
+        let now = if self.last_tick == 0.0 { 0.0 } else { self.last_tick };
+        self.enqueue_job(name, now);
     }
 
     pub fn begin_edit(&mut self) {
@@ -264,6 +307,9 @@ impl LibraryView {
         config: &mut ControlPlane,
         config_path: &Path,
     ) {
+        let now = ui.ctx().input(|i| i.time);
+        self.tick_jobs(now);
+        self.prune_toasts(now);
         let available = ui.available_rect_before_wrap();
         let left_width = (available.width() * 0.45).max(320.0);
 
@@ -328,6 +374,9 @@ impl LibraryView {
                 self.status = "Opened logs directory".to_string();
             }
         }
+
+        self.render_jobs(ui);
+        self.render_toasts(ui);
     }
 
     fn toolbar_controls(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane, config_path: &Path) {
@@ -380,6 +429,63 @@ impl LibraryView {
                     ui.selectable_value(&mut self.sort_mode, SortMode::Publisher, "Publisher");
                     ui.selectable_value(&mut self.sort_mode, SortMode::Languages, "Languages");
                     ui.selectable_value(&mut self.sort_mode, SortMode::Id, "ID");
+                });
+            egui::ComboBox::from_id_salt("secondary_sort_mode")
+                .selected_text(
+                    self.secondary_sort
+                        .map(|mode| mode.label())
+                        .unwrap_or("Secondary: none"),
+                )
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(self.secondary_sort.is_none(), "Secondary: none").clicked()
+                    {
+                        self.secondary_sort = None;
+                    }
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Title),
+                        "Secondary: Title",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Authors),
+                        "Secondary: Authors",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Series),
+                        "Secondary: Series",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Tags),
+                        "Secondary: Tags",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Formats),
+                        "Secondary: Formats",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Rating),
+                        "Secondary: Rating",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Publisher),
+                        "Secondary: Publisher",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Languages),
+                        "Secondary: Languages",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::Id),
+                        "Secondary: ID",
+                    );
                 });
             egui::ComboBox::from_id_salt("sort_dir")
                 .selected_text(match self.sort_dir {
@@ -457,14 +563,33 @@ impl LibraryView {
             .default_open(false)
             .show(ui, |ui| {
                 ui.label("Visible columns");
-                ui.checkbox(&mut self.columns.title, "Title");
-                ui.checkbox(&mut self.columns.authors, "Authors");
-                ui.checkbox(&mut self.columns.series, "Series");
-                ui.checkbox(&mut self.columns.tags, "Tags");
-                ui.checkbox(&mut self.columns.formats, "Formats");
-                ui.checkbox(&mut self.columns.rating, "Rating");
-                ui.checkbox(&mut self.columns.publisher, "Publisher");
-                ui.checkbox(&mut self.columns.languages, "Languages");
+                if ui.checkbox(&mut self.columns.title, "Title").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.authors, "Authors").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.series, "Series").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.tags, "Tags").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.formats, "Formats").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.rating, "Rating").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.publisher, "Publisher").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.languages, "Languages").changed() {
+                    self.layout_dirty = true;
+                }
+                if ui.checkbox(&mut self.columns.cover, "Cover").changed() {
+                    self.layout_dirty = true;
+                }
                 ui.separator();
                 ui.label("Column widths");
                 column_width_control(
@@ -515,6 +640,12 @@ impl LibraryView {
                     &mut self.column_widths.languages,
                     &mut self.layout_dirty,
                 );
+                column_width_control(
+                    ui,
+                    "Cover",
+                    &mut self.column_widths.cover,
+                    &mut self.layout_dirty,
+                );
                 if ui.button("Save Layout").clicked() {
                     self.persist_layout(config, config_path);
                 }
@@ -523,8 +654,7 @@ impl LibraryView {
 
 
     fn table_view(&mut self, ui: &mut egui::Ui) {
-        let row_height = ui.text_style_height(&egui::TextStyle::Body).max(18.0) + 8.0;
-        let row_height = row_height.max(32.0);
+        let row_height = self.table_row_height.max(32.0);
         let mut table = TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
@@ -533,6 +663,9 @@ impl LibraryView {
 
         if self.columns.title {
             table = table.column(column_with_width(self.column_widths.title));
+        }
+        if self.columns.cover {
+            table = table.column(column_with_width(self.column_widths.cover));
         }
         if self.columns.authors {
             table = table.column(column_with_width(self.column_widths.authors));
@@ -560,6 +693,11 @@ impl LibraryView {
             .header(row_height, |mut header| {
                 if self.columns.title {
                     header.col(|ui| self.sort_header(ui, "Title", SortMode::Title));
+                }
+                if self.columns.cover {
+                    header.col(|ui| {
+                        ui.label("Cover");
+                    });
                 }
                 if self.columns.authors {
                     header.col(|ui| self.sort_header(ui, "Authors", SortMode::Authors));
@@ -597,6 +735,11 @@ impl LibraryView {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
                             }
+                        });
+                    }
+                    if self.columns.cover {
+                        row.col(|ui: &mut egui::Ui| {
+                            cover_thumbnail(ui, book.has_cover, self.cover_thumb_size);
                         });
                     }
                     if self.columns.authors {
@@ -706,7 +849,7 @@ impl LibraryView {
         });
         frame.show(ui, |ui| {
             ui.set_min_width(140.0);
-            ui.label(egui::RichText::new("Cover").color(egui::Color32::from_gray(160)));
+            cover_thumbnail(ui, book.has_cover, self.cover_thumb_size);
             ui.label(&book.title);
             if !book.authors.is_empty() {
                 ui.label(&book.authors);
@@ -787,6 +930,21 @@ impl LibraryView {
                 ));
 
                 ui.separator();
+                ui.heading("Cover");
+                cover_preview(ui, details.extras.has_cover, self.cover_preview_size);
+                ui.horizontal(|ui| {
+                    if ui.button("Set cover").clicked() {
+                        action = DetailAction::SetCover;
+                    }
+                    if ui.button("Remove cover").clicked() {
+                        action = DetailAction::RemoveCover;
+                    }
+                    if ui.button("Generate cover").clicked() {
+                        action = DetailAction::GenerateCover;
+                    }
+                });
+
+                ui.separator();
                 ui.heading("Formats");
                 if details.assets.is_empty() {
                     ui.label("No assets recorded.");
@@ -845,6 +1003,36 @@ impl LibraryView {
             DetailAction::Cancel => self.cancel_edit(),
             DetailAction::Convert => self.notify_unimplemented("Convert asset not wired yet."),
             DetailAction::RemoveAsset => self.notify_unimplemented("Remove asset not wired yet."),
+            DetailAction::SetCover => {
+                if let Some(details) = &details_snapshot {
+                    if let Err(err) = self.db.update_book_has_cover(details.book.id, true) {
+                        self.set_error(err);
+                    } else {
+                        self.push_toast("Cover marked as set", ToastLevel::Info);
+                        let _ = self.load_details(details.book.id);
+                    }
+                }
+            }
+            DetailAction::RemoveCover => {
+                if let Some(details) = &details_snapshot {
+                    if let Err(err) = self.db.update_book_has_cover(details.book.id, false) {
+                        self.set_error(err);
+                    } else {
+                        self.push_toast("Cover removed", ToastLevel::Info);
+                        let _ = self.load_details(details.book.id);
+                    }
+                }
+            }
+            DetailAction::GenerateCover => {
+                if let Some(details) = &details_snapshot {
+                    if let Err(err) = self.db.update_book_has_cover(details.book.id, true) {
+                        self.set_error(err);
+                    } else {
+                        self.push_toast("Generated cover placeholder", ToastLevel::Info);
+                        let _ = self.load_details(details.book.id);
+                    }
+                }
+            }
             DetailAction::None => {}
         }
     }
@@ -890,6 +1078,12 @@ impl LibraryView {
                 rating_stars(ui, &mut self.edit.rating);
                 ui.label("Comment");
                 ui.text_edit_multiline(&mut self.edit.comment);
+                ui.checkbox(&mut self.comment_preview, "Preview comment");
+                if self.comment_preview {
+                    ui.separator();
+                    ui.label("Preview");
+                    render_comment_preview(ui, &self.edit.comment);
+                }
                 ui.label(format!("UUID: {}", self.edit.uuid));
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -991,7 +1185,7 @@ impl LibraryView {
             .cache
             .get_book_details(&self.db, book.id)?
             .cloned();
-        let (authors, tags, series, rating, publisher, languages) = if let Some(details) = details
+        let (authors, tags, series, rating, publisher, languages, has_cover) = if let Some(details) = details
         {
             (
                 details.authors.join(", "),
@@ -1007,9 +1201,18 @@ impl LibraryView {
                     .unwrap_or_default(),
                 details.extras.publisher.unwrap_or_default(),
                 details.extras.languages.join(", "),
+                details.extras.has_cover,
             )
         } else {
-            (String::new(), String::new(), String::new(), String::new(), String::new(), String::new())
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                false,
+            )
         };
         Ok(BookRow {
             id: book.id,
@@ -1022,6 +1225,7 @@ impl LibraryView {
             rating,
             publisher,
             languages,
+            has_cover,
         })
     }
 
@@ -1123,20 +1327,25 @@ impl LibraryView {
     }
 
     fn sort_rows(&mut self, list: &mut Vec<BookRow>) {
-        match self.sort_mode {
-            SortMode::Title => list.sort_by(|a, b| a.title.cmp(&b.title)),
-            SortMode::Authors => list.sort_by(|a, b| a.authors.cmp(&b.authors)),
-            SortMode::Series => list.sort_by(|a, b| a.series.cmp(&b.series)),
-            SortMode::Tags => list.sort_by(|a, b| a.tags.cmp(&b.tags)),
-            SortMode::Formats => list.sort_by(|a, b| a.format.cmp(&b.format)),
-            SortMode::Rating => list.sort_by(|a, b| a.rating.cmp(&b.rating)),
-            SortMode::Publisher => list.sort_by(|a, b| a.publisher.cmp(&b.publisher)),
-            SortMode::Languages => list.sort_by(|a, b| a.languages.cmp(&b.languages)),
-            SortMode::Id => list.sort_by(|a, b| a.id.cmp(&b.id)),
-        }
+        let primary = self.sort_mode;
+        let secondary = self.secondary_sort;
+        let mut indexed: Vec<(usize, BookRow)> = list.drain(..).enumerate().collect();
+        indexed.sort_by(|(a_idx, a), (b_idx, b)| {
+            let mut cmp = compare_row(primary, a, b);
+            if cmp == std::cmp::Ordering::Equal {
+                if let Some(sec) = secondary {
+                    cmp = compare_row(sec, a, b);
+                }
+            }
+            if cmp == std::cmp::Ordering::Equal {
+                cmp = a_idx.cmp(b_idx);
+            }
+            cmp
+        });
         if self.sort_dir == SortDirection::Desc {
-            list.reverse();
+            indexed.reverse();
         }
+        list.extend(indexed.into_iter().map(|(_, row)| row));
     }
 
     fn sort_header(&mut self, ui: &mut egui::Ui, label: &str, mode: SortMode) {
@@ -1249,6 +1458,136 @@ impl LibraryView {
             self.status = "Layout saved".to_string();
         }
     }
+
+    fn push_toast(&mut self, message: &str, level: ToastLevel) {
+        let now = self.last_tick;
+        self.toasts.push(Toast {
+            message: message.to_string(),
+            level,
+            created_at: now,
+        });
+        if self.toasts.len() > self.toast_max {
+            let excess = self.toasts.len() - self.toast_max;
+            self.toasts.drain(0..excess);
+        }
+    }
+
+    fn prune_toasts(&mut self, now: f64) {
+        let duration = self.toast_duration_secs;
+        self.toasts.retain(|toast| now - toast.created_at <= duration);
+    }
+
+    fn render_toasts(&self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let mut offset = 0.0;
+        for toast in self.toasts.iter().rev() {
+            let color = match toast.level {
+                ToastLevel::Info => egui::Color32::from_rgb(40, 130, 200),
+                ToastLevel::Warn => egui::Color32::from_rgb(200, 140, 40),
+                ToastLevel::Error => egui::Color32::from_rgb(200, 60, 60),
+            };
+            egui::Area::new(egui::Id::new(format!("toast-{}", toast.created_at)))
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0 - offset))
+                .show(&ctx, |ui| {
+                    ui.visuals_mut().window_fill = color;
+                    ui.label(egui::RichText::new(&toast.message).color(egui::Color32::WHITE));
+                });
+            offset += 28.0;
+        }
+    }
+
+    fn enqueue_job(&mut self, name: &str, now: f64) {
+        let job = JobEntry {
+            id: self.next_job_id,
+            name: name.to_string(),
+            status: JobStatus::Queued,
+            progress: 0.0,
+            created_at: now,
+            updated_at: now,
+        };
+        self.next_job_id += 1;
+        self.jobs.push(job);
+        self.push_toast(&format!("Queued job: {name}"), ToastLevel::Info);
+    }
+
+    fn tick_jobs(&mut self, now: f64) {
+        if self.last_tick == 0.0 {
+            self.last_tick = now;
+            return;
+        }
+        let delta = now - self.last_tick;
+        self.last_tick = now;
+        let mut completed: Vec<String> = Vec::new();
+        for job in &mut self.jobs {
+            match job.status {
+                JobStatus::Queued => {
+                    job.status = JobStatus::Running;
+                    job.updated_at = now;
+                }
+                JobStatus::Running => {
+                    job.progress = (job.progress + (delta as f32 * 0.08)).min(1.0);
+                    job.updated_at = now;
+                    if job.progress >= 1.0 {
+                        job.status = JobStatus::Completed;
+                        completed.push(job.name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        for name in completed {
+            self.push_toast(&format!("Job completed: {name}"), ToastLevel::Info);
+        }
+    }
+
+    fn render_jobs(&mut self, ui: &mut egui::Ui) {
+        if self.jobs.is_empty() {
+            return;
+        }
+        egui::Area::new(egui::Id::new("jobs_panel"))
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.heading("Jobs");
+                    ui.separator();
+                    let mut toasts: Vec<(String, ToastLevel)> = Vec::new();
+                    for job in &mut self.jobs {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("#{} {}", job.id, job.name));
+                            ui.label(job.status.label());
+                        });
+                        ui.add(
+                            egui::ProgressBar::new(job.progress)
+                                .show_percentage()
+                                .animate(true),
+                        );
+                        ui.horizontal(|ui| {
+                            if matches!(job.status, JobStatus::Running) {
+                                if ui.button("Pause").clicked() {
+                                    job.status = JobStatus::Paused;
+                                    toasts.push((format!("Paused job {}", job.id), ToastLevel::Warn));
+                                }
+                            } else if matches!(job.status, JobStatus::Paused) {
+                                if ui.button("Resume").clicked() {
+                                    job.status = JobStatus::Running;
+                                    toasts.push((format!("Resumed job {}", job.id), ToastLevel::Info));
+                                }
+                            }
+                            if !matches!(job.status, JobStatus::Completed | JobStatus::Cancelled) {
+                                if ui.button("Cancel").clicked() {
+                                    job.status = JobStatus::Cancelled;
+                                    toasts.push((format!("Cancelled job {}", job.id), ToastLevel::Warn));
+                                }
+                            }
+                        });
+                        ui.separator();
+                    }
+                    for (message, level) in toasts {
+                        self.push_toast(&message, level);
+                    }
+                });
+            });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1275,6 +1614,56 @@ enum DetailAction {
     Cancel,
     Convert,
     RemoveAsset,
+    SetCover,
+    RemoveCover,
+    GenerateCover,
+}
+
+#[derive(Debug, Clone)]
+struct Toast {
+    message: String,
+    level: ToastLevel,
+    created_at: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToastLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+struct JobEntry {
+    id: u64,
+    name: String,
+    status: JobStatus,
+    progress: f32,
+    created_at: f64,
+    updated_at: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JobStatus {
+    Queued,
+    Running,
+    Paused,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+impl JobStatus {
+    fn label(&self) -> &'static str {
+        match self {
+            JobStatus::Queued => "Queued",
+            JobStatus::Running => "Running",
+            JobStatus::Paused => "Paused",
+            JobStatus::Completed => "Completed",
+            JobStatus::Cancelled => "Cancelled",
+            JobStatus::Failed => "Failed",
+        }
+    }
 }
 
 impl Default for EditState {
@@ -1422,6 +1811,72 @@ fn column_width_control(
 
 fn column_with_width(width: f32) -> Column {
     Column::initial(width).resizable(true)
+}
+
+fn compare_row(mode: SortMode, a: &BookRow, b: &BookRow) -> std::cmp::Ordering {
+    match mode {
+        SortMode::Title => a.title.cmp(&b.title),
+        SortMode::Authors => a.authors.cmp(&b.authors),
+        SortMode::Series => a.series.cmp(&b.series),
+        SortMode::Tags => a.tags.cmp(&b.tags),
+        SortMode::Formats => a.format.cmp(&b.format),
+        SortMode::Rating => a.rating.cmp(&b.rating),
+        SortMode::Publisher => a.publisher.cmp(&b.publisher),
+        SortMode::Languages => a.languages.cmp(&b.languages),
+        SortMode::Id => a.id.cmp(&b.id),
+    }
+}
+
+fn cover_thumbnail(ui: &mut egui::Ui, has_cover: bool, size: f32) {
+    let size = egui::vec2(size, size * 1.3);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let color = if has_cover {
+        egui::Color32::from_rgb(80, 140, 80)
+    } else {
+        egui::Color32::from_rgb(80, 80, 80)
+    };
+    ui.painter().rect_filled(rect, 2.0, color);
+    let label = if has_cover { "Cover" } else { "No Cover" };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::TextStyle::Small.resolve(ui.style()),
+        egui::Color32::WHITE,
+    );
+}
+
+fn cover_preview(ui: &mut egui::Ui, has_cover: bool, size: f32) {
+    let size = egui::vec2(size, size * 1.4);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let color = if has_cover {
+        egui::Color32::from_rgb(90, 150, 90)
+    } else {
+        egui::Color32::from_rgb(90, 90, 90)
+    };
+    ui.painter().rect_filled(rect, 4.0, color);
+    let label = if has_cover { "Cover Preview" } else { "No Cover" };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::TextStyle::Heading.resolve(ui.style()),
+        egui::Color32::WHITE,
+    );
+}
+
+fn render_comment_preview(ui: &mut egui::Ui, text: &str) {
+    for line in text.lines() {
+        if line.starts_with("## ") {
+            ui.label(egui::RichText::new(line.trim_start_matches("## ")).heading());
+        } else if line.starts_with("# ") {
+            ui.label(egui::RichText::new(line.trim_start_matches("# ")).heading());
+        } else if line.starts_with("- ") {
+            ui.label(format!("• {}", line.trim_start_matches("- ")));
+        } else {
+            ui.label(line);
+        }
+    }
 }
 
 fn open_path(path: &Path) -> CoreResult<()> {

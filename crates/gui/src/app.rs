@@ -85,6 +85,8 @@ impl eframe::App for CaliberateApp {
         if let Some(action) = self.pending_action.take() {
             self.apply_action(action);
         }
+
+        self.error_dialog(ui);
     }
 }
 
@@ -110,6 +112,41 @@ enum AppAction {
 }
 
 impl CaliberateApp {
+    fn error_dialog(&mut self, ui: &mut egui::Ui) {
+        let error = self
+            .library
+            .error_message()
+            .or_else(|| self.preferences.error_message());
+        let Some(error) = error.map(|value| value.to_string()) else {
+            return;
+        };
+        let mut error_text = error.clone();
+        let mut open = true;
+        let mut close_requested = false;
+        egui::Window::new("Error")
+            .collapsible(false)
+            .resizable(true)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.label("An error occurred:");
+                ui.separator();
+                ui.text_edit_multiline(&mut error_text);
+                ui.separator();
+                if ui.button("Copy details").clicked() {
+                    ui.ctx().copy_text(error.clone());
+                }
+                if ui.button("Dismiss").clicked() {
+                    close_requested = true;
+                }
+            });
+        if close_requested {
+            open = false;
+        }
+        if !open {
+            self.library.clear_error_message();
+            self.preferences.clear_error_message();
+        }
+    }
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -240,16 +277,16 @@ impl CaliberateApp {
                 self.library.request_save();
             }
             AppAction::AddBooks => {
-                self.library.notify_unimplemented("Add books not wired yet.");
+                self.library.enqueue_job_action("Add books");
             }
             AppAction::RemoveBooks => {
-                self.library.notify_unimplemented("Remove books not wired yet.");
+                self.library.enqueue_job_action("Remove books");
             }
             AppAction::ConvertBooks => {
-                self.library.notify_unimplemented("Convert books not wired yet.");
+                self.library.enqueue_job_action("Convert books");
             }
             AppAction::SaveToDisk => {
-                self.library.notify_unimplemented("Save to disk not wired yet.");
+                self.library.enqueue_job_action("Save to disk");
             }
             AppAction::OpenLogs => {
                 self.library.request_open_logs();

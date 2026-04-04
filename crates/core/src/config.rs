@@ -163,6 +163,26 @@ impl ControlPlane {
                     .to_string(),
             ));
         }
+        if self.gui.cover_thumb_size <= 0.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.cover_thumb_size must be greater than 0".to_string(),
+            ));
+        }
+        if self.gui.cover_preview_size <= 0.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.cover_preview_size must be greater than 0".to_string(),
+            ));
+        }
+        if self.gui.toast_duration_secs <= 0.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.toast_duration_secs must be greater than 0".to_string(),
+            ));
+        }
+        if self.gui.toast_max == 0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.toast_max must be greater than 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -443,6 +463,8 @@ pub struct GuiConfig {
     pub show_publisher: bool,
     #[serde(default = "default_gui_show_languages")]
     pub show_languages: bool,
+    #[serde(default = "default_gui_show_cover")]
+    pub show_cover: bool,
     #[serde(default = "default_gui_col_width_title")]
     pub width_title: f32,
     #[serde(default = "default_gui_col_width_authors")]
@@ -459,6 +481,16 @@ pub struct GuiConfig {
     pub width_publisher: f32,
     #[serde(default = "default_gui_col_width_languages")]
     pub width_languages: f32,
+    #[serde(default = "default_gui_col_width_cover")]
+    pub width_cover: f32,
+    #[serde(default = "default_gui_cover_thumb_size")]
+    pub cover_thumb_size: f32,
+    #[serde(default = "default_gui_cover_preview_size")]
+    pub cover_preview_size: f32,
+    #[serde(default = "default_gui_toast_duration_secs")]
+    pub toast_duration_secs: f64,
+    #[serde(default = "default_gui_toast_max")]
+    pub toast_max: usize,
 }
 
 impl Default for GuiConfig {
@@ -476,6 +508,7 @@ impl Default for GuiConfig {
             show_rating: default_gui_show_rating(),
             show_publisher: default_gui_show_publisher(),
             show_languages: default_gui_show_languages(),
+            show_cover: default_gui_show_cover(),
             width_title: default_gui_col_width_title(),
             width_authors: default_gui_col_width_authors(),
             width_series: default_gui_col_width_series(),
@@ -484,6 +517,11 @@ impl Default for GuiConfig {
             width_rating: default_gui_col_width_rating(),
             width_publisher: default_gui_col_width_publisher(),
             width_languages: default_gui_col_width_languages(),
+            width_cover: default_gui_col_width_cover(),
+            cover_thumb_size: default_gui_cover_thumb_size(),
+            cover_preview_size: default_gui_cover_preview_size(),
+            toast_duration_secs: default_gui_toast_duration_secs(),
+            toast_max: default_gui_toast_max(),
         }
     }
 }
@@ -592,9 +630,13 @@ fn default_gui_show_publisher() -> bool {
     true
 }
 
-fn default_gui_show_languages() -> bool {
-    true
-}
+    fn default_gui_show_languages() -> bool {
+        true
+    }
+
+    fn default_gui_show_cover() -> bool {
+        true
+    }
 
 fn default_gui_col_width_title() -> f32 {
     240.0
@@ -626,6 +668,26 @@ fn default_gui_col_width_publisher() -> f32 {
 
 fn default_gui_col_width_languages() -> f32 {
     120.0
+}
+
+fn default_gui_col_width_cover() -> f32 {
+    72.0
+}
+
+fn default_gui_cover_thumb_size() -> f32 {
+    64.0
+}
+
+fn default_gui_cover_preview_size() -> f32 {
+    200.0
+}
+
+fn default_gui_toast_duration_secs() -> f64 {
+    6.0
+}
+
+fn default_gui_toast_max() -> usize {
+    4
 }
 
 fn default_server_download_enabled() -> bool {

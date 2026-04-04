@@ -134,6 +134,17 @@ impl PreferencesView {
             ui.label(format!("Rating: {}", config.gui.show_rating));
             ui.label(format!("Publisher: {}", config.gui.show_publisher));
             ui.label(format!("Languages: {}", config.gui.show_languages));
+            ui.label(format!("Cover: {}", config.gui.show_cover));
+            ui.label(format!("Cover thumb size: {}", config.gui.cover_thumb_size));
+            ui.label(format!(
+                "Cover preview size: {}",
+                config.gui.cover_preview_size
+            ));
+            ui.label(format!(
+                "Toast duration: {}s",
+                config.gui.toast_duration_secs
+            ));
+            ui.label(format!("Toast max: {}", config.gui.toast_max));
         });
 
         egui::CollapsingHeader::new("Logging").show(ui, |ui| {
@@ -433,6 +444,14 @@ impl PreferencesView {
 
     pub fn status_line(&self) -> (&str, Option<&str>) {
         (self.status.as_str(), self.last_error.as_deref())
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    pub fn clear_error_message(&mut self) {
+        self.last_error = None;
     }
 
     pub fn set_error(&mut self, message: String) {
