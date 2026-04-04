@@ -173,6 +173,31 @@ impl ControlPlane {
                 "gui.cover_preview_size must be greater than 0".to_string(),
             ));
         }
+        if self.gui.cover_max_bytes == 0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.cover_max_bytes must be greater than 0".to_string(),
+            ));
+        }
+        if self.gui.reader_font_size <= 8.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.reader_font_size must be greater than 8".to_string(),
+            ));
+        }
+        if self.gui.reader_line_spacing <= 1.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.reader_line_spacing must be greater than 1.0".to_string(),
+            ));
+        }
+        if self.gui.reader_page_chars == 0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.reader_page_chars must be greater than 0".to_string(),
+            ));
+        }
+        if !matches!(self.gui.reader_theme.as_str(), "light" | "dark" | "sepia") {
+            return Err(CoreError::ConfigValidate(
+                "gui.reader_theme must be 'light', 'dark', or 'sepia'".to_string(),
+            ));
+        }
         if self.gui.toast_duration_secs <= 0.0 {
             return Err(CoreError::ConfigValidate(
                 "gui.toast_duration_secs must be greater than 0".to_string(),
@@ -487,6 +512,20 @@ pub struct GuiConfig {
     pub cover_thumb_size: f32,
     #[serde(default = "default_gui_cover_preview_size")]
     pub cover_preview_size: f32,
+    #[serde(default = "default_gui_cover_dir")]
+    pub cover_dir: PathBuf,
+    #[serde(default = "default_gui_cover_cache_dir")]
+    pub cover_cache_dir: PathBuf,
+    #[serde(default = "default_gui_cover_max_bytes")]
+    pub cover_max_bytes: u64,
+    #[serde(default = "default_gui_reader_font_size")]
+    pub reader_font_size: f32,
+    #[serde(default = "default_gui_reader_line_spacing")]
+    pub reader_line_spacing: f32,
+    #[serde(default = "default_gui_reader_page_chars")]
+    pub reader_page_chars: usize,
+    #[serde(default = "default_gui_reader_theme")]
+    pub reader_theme: String,
     #[serde(default = "default_gui_toast_duration_secs")]
     pub toast_duration_secs: f64,
     #[serde(default = "default_gui_toast_max")]
@@ -520,6 +559,13 @@ impl Default for GuiConfig {
             width_cover: default_gui_col_width_cover(),
             cover_thumb_size: default_gui_cover_thumb_size(),
             cover_preview_size: default_gui_cover_preview_size(),
+            cover_dir: default_gui_cover_dir(),
+            cover_cache_dir: default_gui_cover_cache_dir(),
+            cover_max_bytes: default_gui_cover_max_bytes(),
+            reader_font_size: default_gui_reader_font_size(),
+            reader_line_spacing: default_gui_reader_line_spacing(),
+            reader_page_chars: default_gui_reader_page_chars(),
+            reader_theme: default_gui_reader_theme(),
             toast_duration_secs: default_gui_toast_duration_secs(),
             toast_max: default_gui_toast_max(),
         }
@@ -680,6 +726,34 @@ fn default_gui_cover_thumb_size() -> f32 {
 
 fn default_gui_cover_preview_size() -> f32 {
     200.0
+}
+
+fn default_gui_cover_dir() -> PathBuf {
+    PathBuf::from("./data/covers")
+}
+
+fn default_gui_cover_cache_dir() -> PathBuf {
+    PathBuf::from("./cache/covers")
+}
+
+fn default_gui_cover_max_bytes() -> u64 {
+    10 * 1024 * 1024
+}
+
+fn default_gui_reader_font_size() -> f32 {
+    16.0
+}
+
+fn default_gui_reader_line_spacing() -> f32 {
+    1.4
+}
+
+fn default_gui_reader_page_chars() -> usize {
+    1800
+}
+
+fn default_gui_reader_theme() -> String {
+    "light".to_string()
 }
 
 fn default_gui_toast_duration_secs() -> f64 {

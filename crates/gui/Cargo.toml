@@ -12,6 +12,8 @@ caliberate-device = { path = "../device" }
 caliberate-library = { path = "../library" }
 eframe = "0.34.1"
 egui_extras = "0.34.1"
+image = "0.25.5"
+pulldown-cmark = "0.12.2"
 time = "0.3.41"
 tracing = "0.1.44"
 walkdir = "2.5.0"

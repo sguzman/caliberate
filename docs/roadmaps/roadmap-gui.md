@@ -41,8 +41,17 @@
 - [x] Implement basic book details view (metadata + assets list)
 - [x] Implement basic metadata edit flow (title/authors/tags/series/identifiers/comment)
 - [x] Implement Calibre-style metadata editor dialog layout
-- [ ] Implement cover preview/editing (set/remove/generate cover)
-- [ ] Implement comments rich text editor (HTML/Markdown parity)
+- [x] Implement cover preview/editing (set/remove/generate cover)
+- [x] Cover storage paths in GUI config
+- [x] Cover file import + validation
+- [x] Cover thumbnail generation + cache
+- [x] Render cover thumbnails from files
+- [x] Render cover preview from files
+- [x] Cover removal clears cache + file
+- [x] Generate placeholder cover assets
+- [x] Implement comments rich text editor (HTML/Markdown parity)
+- [x] Comment markdown preview in editor
+- [x] Comment markdown rendering in details pane
 - [x] Add cover thumbnail column and placeholders
 - [x] Add cover preview placeholder in details pane
 - [x] Add cover action buttons (set/remove/generate)
@@ -110,9 +119,15 @@
 - [x] Show GUI cover/toast settings in Preferences
 
 ## Reader / Viewer
-- [ ] Implement reader/viewer integration
+- [x] Implement reader/viewer integration
+- [x] Reader dialog shell with navigation
+- [x] Reader text preview for supported formats
+- [x] Reader theme controls (light/dark/sepia)
+- [x] Reader font size + line spacing controls
+- [x] Reader page sizing control
+- [x] Reader open action in details pane
 - [x] Implement open-with-external-viewer option
-- [ ] Implement in-app reader controls (font, theme, navigation)
+- [x] Implement in-app reader controls (font, theme, navigation)
 
 ## Jobs + Progress
 - [x] Implement unified job queue UI (conversions, metadata, imports)

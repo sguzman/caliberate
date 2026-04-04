@@ -359,6 +359,36 @@ impl PreferencesView {
             ));
             ui.label(format!("Toast max: {}", config.gui.toast_max));
         });
+        egui::CollapsingHeader::new("Reader").show(ui, |ui| {
+            if self.edit_mode {
+                ui.horizontal(|ui| {
+                    ui.label("Font size");
+                    ui.add(
+                        egui::DragValue::new(&mut self.state.reader_font_size).range(10.0..=28.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Line spacing");
+                    ui.add(
+                        egui::DragValue::new(&mut self.state.reader_line_spacing)
+                            .speed(0.05)
+                            .range(1.1..=2.2),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Page chars");
+                    ui.add(
+                        egui::DragValue::new(&mut self.state.reader_page_chars).range(600..=6000),
+                    );
+                });
+                ui.text_edit_singleline(&mut self.state.reader_theme);
+            } else {
+                ui.label(format!("Font size: {}", config.gui.reader_font_size));
+                ui.label(format!("Line spacing: {}", config.gui.reader_line_spacing));
+                ui.label(format!("Page chars: {}", config.gui.reader_page_chars));
+                ui.label(format!("Theme: {}", config.gui.reader_theme));
+            }
+        });
     }
 
     fn render_import_export_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
@@ -584,6 +614,10 @@ impl PreferencesView {
         config.fts.rebuild_on_migrate = self.state.fts_rebuild_on_migrate;
         config.fts.min_query_len = self.state.fts_min_query_len;
         config.fts.result_limit = self.state.fts_result_limit;
+        config.gui.reader_font_size = self.state.reader_font_size;
+        config.gui.reader_line_spacing = self.state.reader_line_spacing;
+        config.gui.reader_page_chars = self.state.reader_page_chars;
+        config.gui.reader_theme = self.state.reader_theme.trim().to_string();
 
         Ok(())
     }
@@ -616,6 +650,9 @@ impl PreferencesView {
         }
         if self.state.fts_tokenizer.trim().is_empty() {
             errors.push("fts tokenizer must not be empty".to_string());
+        }
+        if !matches!(self.state.reader_theme.as_str(), "light" | "dark" | "sepia") {
+            errors.push("reader theme must be light, dark, or sepia".to_string());
         }
         errors
     }
@@ -650,6 +687,10 @@ struct PreferencesState {
     fts_rebuild_on_migrate: bool,
     fts_min_query_len: usize,
     fts_result_limit: usize,
+    reader_font_size: f32,
+    reader_line_spacing: f32,
+    reader_page_chars: usize,
+    reader_theme: String,
 }
 
 impl PreferencesState {
@@ -682,6 +723,10 @@ impl PreferencesState {
             fts_rebuild_on_migrate: config.fts.rebuild_on_migrate,
             fts_min_query_len: config.fts.min_query_len,
             fts_result_limit: config.fts.result_limit,
+            reader_font_size: config.gui.reader_font_size,
+            reader_line_spacing: config.gui.reader_line_spacing,
+            reader_page_chars: config.gui.reader_page_chars,
+            reader_theme: config.gui.reader_theme.clone(),
         }
     }
 }

@@ -15,7 +15,9 @@ use caliberate_device::sync::send_to_device;
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
-use std::collections::BTreeSet;
+use image::{DynamicImage, ImageFormat};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -204,8 +206,12 @@ pub struct LibraryView {
     pending_save: bool,
     open_logs_requested: bool,
     log_dir: PathBuf,
+    tmp_dir: PathBuf,
     cover_thumb_size: f32,
     cover_preview_size: f32,
+    cover_dir: PathBuf,
+    cover_cache_dir: PathBuf,
+    cover_max_bytes: u64,
     table_row_height: f32,
     toast_duration_secs: f64,
     toast_max: usize,
@@ -214,6 +220,11 @@ pub struct LibraryView {
     next_job_id: u64,
     last_tick: f64,
     comment_preview: bool,
+    comment_render_markdown: bool,
+    cover_cache: HashMap<i64, egui::TextureHandle>,
+    cover_preview_cache: HashMap<i64, egui::TextureHandle>,
+    cover_state: CoverDialogState,
+    reader: ReaderState,
     add_books: AddBooksDialogState,
     remove_books: RemoveBooksDialogState,
     bulk_edit: BulkEditDialogState,
@@ -262,8 +273,12 @@ impl LibraryView {
             pending_save: false,
             open_logs_requested: false,
             log_dir: config.paths.log_dir.clone(),
+            tmp_dir: config.paths.tmp_dir.clone(),
             cover_thumb_size: config.gui.cover_thumb_size,
             cover_preview_size: config.gui.cover_preview_size,
+            cover_dir: config.gui.cover_dir.clone(),
+            cover_cache_dir: config.gui.cover_cache_dir.clone(),
+            cover_max_bytes: config.gui.cover_max_bytes,
             table_row_height: config.gui.table_row_height,
             toast_duration_secs: config.gui.toast_duration_secs,
             toast_max: config.gui.toast_max,
@@ -272,6 +287,11 @@ impl LibraryView {
             next_job_id: 1,
             last_tick: 0.0,
             comment_preview: false,
+            comment_render_markdown: true,
+            cover_cache: HashMap::new(),
+            cover_preview_cache: HashMap::new(),
+            cover_state: CoverDialogState::default(),
+            reader: ReaderState::from_config(config),
             add_books: AddBooksDialogState::default(),
             remove_books: RemoveBooksDialogState::default(),
             bulk_edit: BulkEditDialogState::default(),
@@ -469,6 +489,7 @@ impl LibraryView {
         self.manage_series_dialog(ui);
         self.manage_custom_columns_dialog(ui);
         self.manage_virtual_libraries_dialog(ui);
+        self.reader_dialog(ui);
 
         self.render_jobs(ui);
         self.render_toasts(ui);
@@ -907,7 +928,7 @@ impl LibraryView {
             .body(|body| {
                 body.rows(row_height, self.books.len(), |mut row| {
                     let row_index = row.index();
-                    let book = &self.books[row_index];
+                    let book = self.books[row_index].clone();
                     let selected = self.selected_ids.contains(&book.id);
                     let mut row_clicked = false;
                     let mut modifiers = egui::Modifiers::default();
@@ -925,7 +946,14 @@ impl LibraryView {
                     }
                     if self.columns.cover {
                         row.col(|ui: &mut egui::Ui| {
-                            cover_thumbnail(ui, book.has_cover, self.cover_thumb_size);
+                            let texture =
+                                self.cover_thumb_texture(ui.ctx(), book.id, book.has_cover);
+                            render_cover_thumbnail(
+                                ui,
+                                texture.as_ref(),
+                                book.has_cover,
+                                self.cover_thumb_size,
+                            );
                         });
                     }
                     if self.columns.authors {
@@ -1044,7 +1072,8 @@ impl LibraryView {
         });
         frame.show(ui, |ui| {
             ui.set_min_width(140.0);
-            cover_thumbnail(ui, book.has_cover, self.cover_thumb_size);
+            let texture = self.cover_thumb_texture(ui.ctx(), book.id, book.has_cover);
+            render_cover_thumbnail(ui, texture.as_ref(), book.has_cover, self.cover_thumb_size);
             ui.label(&book.title);
             if !book.authors.is_empty() {
                 ui.label(&book.authors);
@@ -1133,7 +1162,14 @@ impl LibraryView {
 
                 ui.separator();
                 ui.heading("Cover");
-                cover_preview(ui, details.extras.has_cover, self.cover_preview_size);
+                let cover_texture =
+                    self.cover_preview_texture(ui.ctx(), details.book.id, details.extras.has_cover);
+                render_cover_preview(
+                    ui,
+                    cover_texture.as_ref(),
+                    details.extras.has_cover,
+                    self.cover_preview_size,
+                );
                 ui.horizontal(|ui| {
                     if ui.button("Set cover").clicked() {
                         action = DetailAction::SetCover;
@@ -1145,6 +1181,28 @@ impl LibraryView {
                         action = DetailAction::GenerateCover;
                     }
                 });
+                ui.horizontal(|ui| {
+                    ui.label("Cover file");
+                    ui.text_edit_singleline(&mut self.cover_state.cover_path_input);
+                    if ui.button("Apply").clicked() {
+                        action = DetailAction::SetCover;
+                    }
+                });
+
+                ui.separator();
+                ui.heading("Comment");
+                if let Some(comment) = &details.comment {
+                    if comment.is_empty() {
+                        ui.label("No comment set.");
+                    } else if self.comment_render_markdown {
+                        render_markdown(ui, comment);
+                    } else {
+                        ui.label(comment);
+                    }
+                } else {
+                    ui.label("No comment set.");
+                }
+                ui.checkbox(&mut self.comment_render_markdown, "Render markdown");
 
                 ui.separator();
                 ui.heading("Formats");
@@ -1175,6 +1233,9 @@ impl LibraryView {
                 ui.separator();
                 ui.heading("Actions");
                 ui.horizontal(|ui| {
+                    if ui.button("Open in reader").clicked() {
+                        action = DetailAction::OpenReader;
+                    }
                     if ui.button("Open file").clicked() {
                         open_paths.push(PathBuf::from(&details.book.path));
                     }
@@ -1207,31 +1268,38 @@ impl LibraryView {
             DetailAction::RemoveAsset => self.notify_unimplemented("Remove asset not wired yet."),
             DetailAction::SetCover => {
                 if let Some(details) = &details_snapshot {
-                    if let Err(err) = self.db.update_book_has_cover(details.book.id, true) {
+                    if let Err(err) = self.set_cover_from_input(details.book.id) {
                         self.set_error(err);
                     } else {
-                        self.push_toast("Cover marked as set", ToastLevel::Info);
                         let _ = self.load_details(details.book.id);
+                        self.push_toast("Cover updated", ToastLevel::Info);
                     }
                 }
             }
             DetailAction::RemoveCover => {
                 if let Some(details) = &details_snapshot {
-                    if let Err(err) = self.db.update_book_has_cover(details.book.id, false) {
+                    if let Err(err) = self.remove_cover(details.book.id) {
                         self.set_error(err);
                     } else {
-                        self.push_toast("Cover removed", ToastLevel::Info);
                         let _ = self.load_details(details.book.id);
+                        self.push_toast("Cover removed", ToastLevel::Info);
                     }
                 }
             }
             DetailAction::GenerateCover => {
                 if let Some(details) = &details_snapshot {
-                    if let Err(err) = self.db.update_book_has_cover(details.book.id, true) {
+                    if let Err(err) = self.generate_cover(details.book.id, &details.book.title) {
                         self.set_error(err);
                     } else {
-                        self.push_toast("Generated cover placeholder", ToastLevel::Info);
                         let _ = self.load_details(details.book.id);
+                        self.push_toast("Generated cover", ToastLevel::Info);
+                    }
+                }
+            }
+            DetailAction::OpenReader => {
+                if let Some(details) = &details_snapshot {
+                    if let Err(err) = self.open_reader(details.book.id) {
+                        self.set_error(err);
                     }
                 }
             }
@@ -1284,7 +1352,7 @@ impl LibraryView {
                 if self.comment_preview {
                     ui.separator();
                     ui.label("Preview");
-                    render_comment_preview(ui, &self.edit.comment);
+                    render_markdown(ui, &self.edit.comment);
                 }
                 ui.label(format!("UUID: {}", self.edit.uuid));
                 ui.separator();
@@ -1926,6 +1994,92 @@ impl LibraryView {
         self.manage_virtual_libraries.open = open;
     }
 
+    fn reader_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.reader.open {
+            return;
+        }
+        let mut open = self.reader.open;
+        let mut close_requested = false;
+        egui::Window::new("Reader")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.heading(self.reader.title.as_str());
+                ui.label(format!("Format: {}", self.reader.format));
+                if let Some(error) = &self.reader.error {
+                    ui.colored_label(egui::Color32::from_rgb(190, 0, 0), error);
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Previous").clicked() {
+                        self.reader.prev_page();
+                    }
+                    if ui.button("Next").clicked() {
+                        self.reader.next_page();
+                    }
+                    ui.label(format!(
+                        "Page {} / {}",
+                        self.reader.page + 1,
+                        self.reader.page_count().max(1)
+                    ));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Font size");
+                    ui.add(egui::DragValue::new(&mut self.reader.font_size).range(10.0..=28.0));
+                    ui.label("Line spacing");
+                    ui.add(
+                        egui::DragValue::new(&mut self.reader.line_spacing)
+                            .speed(0.05)
+                            .range(1.1..=2.2),
+                    );
+                });
+                let mut page_chars = self.reader.page_chars;
+                ui.horizontal(|ui| {
+                    ui.label("Page chars");
+                    ui.add(egui::DragValue::new(&mut page_chars).range(600..=6000));
+                });
+                self.reader.update_page_chars(page_chars);
+                ui.horizontal(|ui| {
+                    ui.label("Theme");
+                    egui::ComboBox::from_id_salt("reader_theme")
+                        .selected_text(self.reader.theme.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.theme,
+                                ReaderTheme::Light,
+                                "Light",
+                            );
+                            ui.selectable_value(&mut self.reader.theme, ReaderTheme::Dark, "Dark");
+                            ui.selectable_value(
+                                &mut self.reader.theme,
+                                ReaderTheme::Sepia,
+                                "Sepia",
+                            );
+                        });
+                });
+                ui.separator();
+                let background = self.reader.theme.background();
+                let text_color = self.reader.theme.text_color();
+                egui::Frame::none().fill(background).show(ui, |ui| {
+                    ui.visuals_mut().override_text_color = Some(text_color);
+                    ui.set_width(ui.available_width());
+                    ui.add_space(4.0);
+                    self.reader.render(ui);
+                    ui.add_space(4.0);
+                });
+                if ui.button("Close").clicked() {
+                    close_requested = true;
+                }
+            });
+        if close_requested {
+            open = false;
+        }
+        if !open {
+            self.reader.close();
+        }
+        self.reader.open = open;
+    }
+
     fn tag_autocomplete(&mut self, ui: &mut egui::Ui) {
         let query = self
             .edit
@@ -1974,6 +2128,217 @@ impl LibraryView {
                 apply_autocomplete(&mut self.edit.languages, lang);
             }
         }
+    }
+
+    fn cover_thumb_texture(
+        &mut self,
+        ctx: &egui::Context,
+        book_id: i64,
+        has_cover: bool,
+    ) -> Option<egui::TextureHandle> {
+        if !has_cover {
+            return None;
+        }
+        if let Some(texture) = self.cover_cache.get(&book_id) {
+            return Some(texture.clone());
+        }
+        let thumb_path = self.cover_thumb_path(book_id);
+        if !thumb_path.exists() {
+            let _ = self.ensure_cover_thumb(book_id);
+        }
+        match load_texture_from_path(ctx, &thumb_path) {
+            Ok(texture) => {
+                self.cover_cache.insert(book_id, texture.clone());
+                Some(texture)
+            }
+            Err(err) => {
+                warn!(
+                    component = "gui",
+                    book_id,
+                    error = %err,
+                    "failed to load cover thumbnail"
+                );
+                None
+            }
+        }
+    }
+
+    fn cover_preview_texture(
+        &mut self,
+        ctx: &egui::Context,
+        book_id: i64,
+        has_cover: bool,
+    ) -> Option<egui::TextureHandle> {
+        if !has_cover {
+            return None;
+        }
+        if let Some(texture) = self.cover_preview_cache.get(&book_id) {
+            return Some(texture.clone());
+        }
+        let cover_path = self.cover_path(book_id);
+        if !cover_path.exists() {
+            return None;
+        }
+        match load_texture_from_path(ctx, &cover_path) {
+            Ok(texture) => {
+                self.cover_preview_cache.insert(book_id, texture.clone());
+                Some(texture)
+            }
+            Err(err) => {
+                warn!(
+                    component = "gui",
+                    book_id,
+                    error = %err,
+                    "failed to load cover preview"
+                );
+                None
+            }
+        }
+    }
+
+    fn set_cover_from_input(&mut self, book_id: i64) -> CoreResult<()> {
+        let path = self.cover_state.cover_path_input.trim().to_string();
+        if path.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "cover path is required".to_string(),
+            ));
+        }
+        self.apply_cover_from_path(book_id, Path::new(&path))
+    }
+
+    fn apply_cover_from_path(&mut self, book_id: i64, source: &Path) -> CoreResult<()> {
+        if !source.is_file() {
+            return Err(CoreError::ConfigValidate(
+                "cover source must be a file".to_string(),
+            ));
+        }
+        let metadata = fs::metadata(source)
+            .map_err(|err| CoreError::Io("read cover metadata".to_string(), err))?;
+        if metadata.len() > self.cover_max_bytes {
+            return Err(CoreError::ConfigValidate(format!(
+                "cover exceeds max size ({} bytes)",
+                self.cover_max_bytes
+            )));
+        }
+        let image =
+            image::open(source).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.ensure_cover_dirs()?;
+        let cover_path = self.cover_path(book_id);
+        image
+            .save_with_format(&cover_path, ImageFormat::Png)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.generate_cover_thumb_from_image(book_id, &image)?;
+        self.db.update_book_has_cover(book_id, true)?;
+        self.clear_cover_cache(book_id);
+        Ok(())
+    }
+
+    fn generate_cover(&mut self, book_id: i64, title: &str) -> CoreResult<()> {
+        self.ensure_cover_dirs()?;
+        let cover_path = self.cover_path(book_id);
+        let base = image::Rgb([45, 60, 90]);
+        let mut img = image::RgbImage::from_pixel(400, 600, base);
+        let banner = image::Rgb([80, 110, 160]);
+        for y in 0..80 {
+            for x in 0..400 {
+                img.put_pixel(x, y, banner);
+            }
+        }
+        let mut dynamic = DynamicImage::ImageRgb8(img);
+        dynamic = dynamic.resize(400, 600, image::imageops::FilterType::Triangle);
+        dynamic
+            .save_with_format(&cover_path, ImageFormat::Png)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.generate_cover_thumb_from_image(book_id, &dynamic)?;
+        self.db.update_book_has_cover(book_id, true)?;
+        self.clear_cover_cache(book_id);
+        info!(
+            component = "gui",
+            book_id,
+            title = %title,
+            "generated cover placeholder"
+        );
+        Ok(())
+    }
+
+    fn remove_cover(&mut self, book_id: i64) -> CoreResult<()> {
+        let cover_path = self.cover_path(book_id);
+        let thumb_path = self.cover_thumb_path(book_id);
+        if cover_path.exists() {
+            fs::remove_file(&cover_path)
+                .map_err(|err| CoreError::Io("remove cover".to_string(), err))?;
+        }
+        if thumb_path.exists() {
+            fs::remove_file(&thumb_path)
+                .map_err(|err| CoreError::Io("remove cover thumb".to_string(), err))?;
+        }
+        self.db.update_book_has_cover(book_id, false)?;
+        self.clear_cover_cache(book_id);
+        Ok(())
+    }
+
+    fn ensure_cover_dirs(&self) -> CoreResult<()> {
+        fs::create_dir_all(&self.cover_dir)
+            .map_err(|err| CoreError::Io("create cover dir".to_string(), err))?;
+        fs::create_dir_all(&self.cover_cache_dir)
+            .map_err(|err| CoreError::Io("create cover cache dir".to_string(), err))?;
+        Ok(())
+    }
+
+    fn ensure_cover_thumb(&mut self, book_id: i64) -> CoreResult<()> {
+        let cover_path = self.cover_path(book_id);
+        if !cover_path.exists() {
+            return Ok(());
+        }
+        let image =
+            image::open(&cover_path).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.generate_cover_thumb_from_image(book_id, &image)?;
+        Ok(())
+    }
+
+    fn generate_cover_thumb_from_image(
+        &self,
+        book_id: i64,
+        image: &DynamicImage,
+    ) -> CoreResult<()> {
+        self.ensure_cover_dirs()?;
+        let width = self.cover_thumb_size.max(32.0) as u32;
+        let height = (self.cover_thumb_size * 1.3).max(42.0) as u32;
+        let resized = image.resize(width, height, image::imageops::FilterType::Triangle);
+        let thumb_path = self.cover_thumb_path(book_id);
+        resized
+            .save_with_format(&thumb_path, ImageFormat::Png)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        Ok(())
+    }
+
+    fn clear_cover_cache(&mut self, book_id: i64) {
+        self.cover_cache.remove(&book_id);
+        self.cover_preview_cache.remove(&book_id);
+    }
+
+    fn cover_path(&self, book_id: i64) -> PathBuf {
+        self.cover_dir.join(format!("cover-{book_id}.png"))
+    }
+
+    fn cover_thumb_path(&self, book_id: i64) -> PathBuf {
+        self.cover_cache_dir
+            .join(format!("cover-{book_id}-thumb.png"))
+    }
+
+    fn open_reader(&mut self, book_id: i64) -> CoreResult<()> {
+        let Some(book) = self.db.get_book(book_id)? else {
+            return Err(CoreError::ConfigValidate("book not found".to_string()));
+        };
+        let assets = self.db.list_assets_for_book(book_id)?;
+        let Some(asset) = choose_asset(&assets) else {
+            return Err(CoreError::ConfigValidate("no assets available".to_string()));
+        };
+        let (input_path, temp_path) = resolve_asset_input_path(asset, &self.tmp_dir)?;
+        let format = asset_format(asset, &book.format).unwrap_or_else(|| book.format.clone());
+        self.reader
+            .open_book(book_id, &book.title, &format, &input_path, temp_path);
+        Ok(())
     }
 
     fn run_add_books(&mut self, config: &ControlPlane) -> CoreResult<()> {
@@ -2849,6 +3214,215 @@ struct EditState {
 }
 
 #[derive(Debug, Clone)]
+struct CoverDialogState {
+    cover_path_input: String,
+}
+
+impl Default for CoverDialogState {
+    fn default() -> Self {
+        Self {
+            cover_path_input: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ReaderState {
+    open: bool,
+    book_id: Option<i64>,
+    title: String,
+    format: String,
+    content: ReaderContent,
+    page: usize,
+    font_size: f32,
+    line_spacing: f32,
+    page_chars: usize,
+    theme: ReaderTheme,
+    temp_path: Option<PathBuf>,
+    error: Option<String>,
+}
+
+impl ReaderState {
+    fn from_config(config: &ControlPlane) -> Self {
+        Self {
+            open: false,
+            book_id: None,
+            title: String::new(),
+            format: String::new(),
+            content: ReaderContent::Empty,
+            page: 0,
+            font_size: config.gui.reader_font_size,
+            line_spacing: config.gui.reader_line_spacing,
+            page_chars: config.gui.reader_page_chars,
+            theme: ReaderTheme::from_config(&config.gui.reader_theme),
+            temp_path: None,
+            error: None,
+        }
+    }
+
+    fn open_book(
+        &mut self,
+        book_id: i64,
+        title: &str,
+        format: &str,
+        path: &Path,
+        temp_path: Option<PathBuf>,
+    ) {
+        if let Some(path) = self.temp_path.take() {
+            let _ = fs::remove_file(path);
+        }
+        self.book_id = Some(book_id);
+        self.title = title.to_string();
+        self.format = format.to_string();
+        self.page = 0;
+        self.error = None;
+        self.temp_path = temp_path;
+        self.content =
+            ReaderContent::from_path(path, format, self.page_chars).unwrap_or_else(|err| {
+                self.error = Some(err);
+                ReaderContent::Unsupported
+            });
+        self.open = true;
+    }
+
+    fn close(&mut self) {
+        self.book_id = None;
+        self.title.clear();
+        self.format.clear();
+        self.page = 0;
+        self.error = None;
+        self.content = ReaderContent::Empty;
+        if let Some(path) = self.temp_path.take() {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    fn page_count(&self) -> usize {
+        match &self.content {
+            ReaderContent::Text { pages, .. } => pages.len(),
+            ReaderContent::Unsupported | ReaderContent::Empty => 0,
+        }
+    }
+
+    fn next_page(&mut self) {
+        let count = self.page_count();
+        if count == 0 {
+            return;
+        }
+        self.page = (self.page + 1).min(count - 1);
+    }
+
+    fn prev_page(&mut self) {
+        if self.page > 0 {
+            self.page -= 1;
+        }
+    }
+
+    fn update_page_chars(&mut self, page_chars: usize) {
+        if page_chars == 0 || page_chars == self.page_chars {
+            return;
+        }
+        self.page_chars = page_chars;
+        if let ReaderContent::Text { raw, pages } = &mut self.content {
+            *pages = paginate_text(raw, page_chars);
+            if self.page >= pages.len() {
+                self.page = pages.len().saturating_sub(1);
+            }
+        }
+    }
+
+    fn render(&self, ui: &mut egui::Ui) {
+        match &self.content {
+            ReaderContent::Text { pages, .. } => {
+                let raw_text = pages.get(self.page).map(|s| s.as_str()).unwrap_or("");
+                let page_text = if self.line_spacing > 1.3 {
+                    raw_text.replace('\n', "\n\n")
+                } else {
+                    raw_text.to_string()
+                };
+                let format = egui::TextFormat {
+                    font_id: egui::FontId::proportional(self.font_size),
+                    ..Default::default()
+                };
+                let mut job = egui::text::LayoutJob::default();
+                job.append(&page_text, 0.0, format);
+                ui.label(job);
+            }
+            ReaderContent::Unsupported => {
+                ui.label("Preview not available for this format.");
+            }
+            ReaderContent::Empty => {
+                ui.label("No content loaded.");
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ReaderContent {
+    Text { raw: String, pages: Vec<String> },
+    Unsupported,
+    Empty,
+}
+
+impl ReaderContent {
+    fn from_path(path: &Path, format: &str, page_chars: usize) -> Result<Self, String> {
+        match format {
+            "txt" | "md" | "markdown" => {
+                let raw = fs::read_to_string(path)
+                    .map_err(|err| format!("read reader content: {err}"))?;
+                Ok(ReaderContent::Text {
+                    pages: paginate_text(&raw, page_chars),
+                    raw,
+                })
+            }
+            _ => Ok(ReaderContent::Unsupported),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderTheme {
+    Light,
+    Dark,
+    Sepia,
+}
+
+impl ReaderTheme {
+    fn from_config(value: &str) -> Self {
+        match value {
+            "dark" => ReaderTheme::Dark,
+            "sepia" => ReaderTheme::Sepia,
+            _ => ReaderTheme::Light,
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            ReaderTheme::Light => "Light",
+            ReaderTheme::Dark => "Dark",
+            ReaderTheme::Sepia => "Sepia",
+        }
+    }
+
+    fn background(&self) -> egui::Color32 {
+        match self {
+            ReaderTheme::Light => egui::Color32::from_rgb(245, 245, 245),
+            ReaderTheme::Dark => egui::Color32::from_rgb(25, 25, 25),
+            ReaderTheme::Sepia => egui::Color32::from_rgb(240, 230, 210),
+        }
+    }
+
+    fn text_color(&self) -> egui::Color32 {
+        match self {
+            ReaderTheme::Light => egui::Color32::from_rgb(30, 30, 30),
+            ReaderTheme::Dark => egui::Color32::from_rgb(230, 230, 230),
+            ReaderTheme::Sepia => egui::Color32::from_rgb(50, 40, 30),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct AddBooksDialogState {
     open: bool,
     files_input: String,
@@ -3159,6 +3733,7 @@ enum DetailAction {
     SetCover,
     RemoveCover,
     GenerateCover,
+    OpenReader,
 }
 
 #[derive(Debug, Clone)]
@@ -3483,9 +4058,23 @@ fn compare_row(mode: SortMode, a: &BookRow, b: &BookRow) -> std::cmp::Ordering {
     }
 }
 
-fn cover_thumbnail(ui: &mut egui::Ui, has_cover: bool, size: f32) {
+fn render_cover_thumbnail(
+    ui: &mut egui::Ui,
+    texture: Option<&egui::TextureHandle>,
+    has_cover: bool,
+    size: f32,
+) {
     let size = egui::vec2(size, size * 1.3);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    if let Some(texture) = texture {
+        ui.painter().image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        return;
+    }
     let color = if has_cover {
         egui::Color32::from_rgb(80, 140, 80)
     } else {
@@ -3502,9 +4091,23 @@ fn cover_thumbnail(ui: &mut egui::Ui, has_cover: bool, size: f32) {
     );
 }
 
-fn cover_preview(ui: &mut egui::Ui, has_cover: bool, size: f32) {
+fn render_cover_preview(
+    ui: &mut egui::Ui,
+    texture: Option<&egui::TextureHandle>,
+    has_cover: bool,
+    size: f32,
+) {
     let size = egui::vec2(size, size * 1.4);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    if let Some(texture) = texture {
+        ui.painter().image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        return;
+    }
     let color = if has_cover {
         egui::Color32::from_rgb(90, 150, 90)
     } else {
@@ -3525,18 +4128,139 @@ fn cover_preview(ui: &mut egui::Ui, has_cover: bool, size: f32) {
     );
 }
 
-fn render_comment_preview(ui: &mut egui::Ui, text: &str) {
-    for line in text.lines() {
-        if line.starts_with("## ") {
-            ui.label(egui::RichText::new(line.trim_start_matches("## ")).heading());
-        } else if line.starts_with("# ") {
-            ui.label(egui::RichText::new(line.trim_start_matches("# ")).heading());
-        } else if line.starts_with("- ") {
-            ui.label(format!("• {}", line.trim_start_matches("- ")));
-        } else {
-            ui.label(line);
+fn render_markdown(ui: &mut egui::Ui, text: &str) {
+    let mut job = egui::text::LayoutJob::default();
+    let mut bold = false;
+    let mut italic = false;
+    let mut code = false;
+    let mut heading_level: Option<u32> = None;
+    let parser = Parser::new(text);
+    for event in parser {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                heading_level = Some(level as u32);
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                heading_level = None;
+                job.append(
+                    "\n",
+                    0.0,
+                    base_text_format(ui, bold, italic, code, heading_level),
+                );
+            }
+            Event::Start(Tag::Emphasis) => italic = true,
+            Event::End(TagEnd::Emphasis) => italic = false,
+            Event::Start(Tag::Strong) => bold = true,
+            Event::End(TagEnd::Strong) => bold = false,
+            Event::Start(Tag::CodeBlock(_)) => code = true,
+            Event::End(TagEnd::CodeBlock) => {
+                code = false;
+                job.append(
+                    "\n",
+                    0.0,
+                    base_text_format(ui, bold, italic, code, heading_level),
+                );
+            }
+            Event::Start(Tag::Item) => {
+                job.append(
+                    "• ",
+                    0.0,
+                    base_text_format(ui, bold, italic, code, heading_level),
+                );
+            }
+            Event::Text(value) => {
+                job.append(
+                    value.as_ref(),
+                    0.0,
+                    base_text_format(ui, bold, italic, code, heading_level),
+                );
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                job.append(
+                    "\n",
+                    0.0,
+                    base_text_format(ui, bold, italic, code, heading_level),
+                );
+            }
+            _ => {}
         }
     }
+    ui.label(job);
+}
+
+fn base_text_format(
+    ui: &egui::Ui,
+    bold: bool,
+    italic: bool,
+    code: bool,
+    heading_level: Option<u32>,
+) -> egui::text::TextFormat {
+    let mut size = ui.text_style_height(&egui::TextStyle::Body);
+    if let Some(level) = heading_level {
+        size += (4.0_f32).max(2.0 * (3.0 - level.min(3) as f32));
+    }
+    if code {
+        size *= 0.95;
+    }
+    let mut format = egui::text::TextFormat {
+        font_id: egui::FontId::proportional(size),
+        color: ui.visuals().text_color(),
+        ..Default::default()
+    };
+    if bold {
+        format.font_id = egui::FontId::proportional(size + 1.0);
+    }
+    if italic {
+        format.italics = true;
+    }
+    if code {
+        format.font_id = egui::FontId::monospace(size);
+    }
+    format
+}
+
+fn load_texture_from_path(ctx: &egui::Context, path: &Path) -> CoreResult<egui::TextureHandle> {
+    if !path.exists() {
+        return Err(CoreError::ConfigValidate(format!(
+            "cover file missing: {}",
+            path.display()
+        )));
+    }
+    let image = image::open(path).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let color_image = image_to_color_image(&image);
+    Ok(ctx.load_texture(
+        format!("cover-{}", path.display()),
+        color_image,
+        egui::TextureOptions::LINEAR,
+    ))
+}
+
+fn image_to_color_image(image: &DynamicImage) -> egui::ColorImage {
+    let rgba = image.to_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
+}
+
+fn paginate_text(text: &str, page_chars: usize) -> Vec<String> {
+    if page_chars == 0 {
+        return vec![text.to_string()];
+    }
+    let mut pages = Vec::new();
+    let mut buffer = String::new();
+    for ch in text.chars() {
+        buffer.push(ch);
+        if buffer.chars().count() >= page_chars {
+            pages.push(buffer);
+            buffer = String::new();
+        }
+    }
+    if !buffer.is_empty() {
+        pages.push(buffer);
+    }
+    if pages.is_empty() {
+        pages.push(String::new());
+    }
+    pages
 }
 
 fn open_path(path: &Path) -> CoreResult<()> {
