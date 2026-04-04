@@ -8,7 +8,8 @@ use caliberate_core::config::{ControlPlane, GuiConfig, IngestMode};
 use caliberate_core::error::{CoreError, CoreResult};
 use caliberate_db::cache::MetadataCache;
 use caliberate_db::database::{
-    AssetRow, BookRecord, CategoryCount, CustomColumn, Database, IdentifierEntry, SeriesEntry,
+    AssetRow, BookRecord, CategoryCount, CustomColumn, Database, IdentifierEntry, NoteRecord,
+    SeriesEntry,
 };
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::send_to_device;
@@ -49,6 +50,7 @@ pub struct BookDetails {
     pub series: Option<SeriesEntry>,
     pub identifiers: Vec<IdentifierEntry>,
     pub comment: Option<String>,
+    pub notes: Vec<NoteRecord>,
     pub extras: caliberate_db::database::BookExtras,
 }
 
@@ -75,6 +77,41 @@ enum SortMode {
     Publisher,
     Languages,
     Id,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserCategory {
+    Authors,
+    Tags,
+    Series,
+    Publishers,
+    Ratings,
+    Languages,
+}
+
+impl BrowserCategory {
+    fn label(self) -> &'static str {
+        match self {
+            BrowserCategory::Authors => "Authors",
+            BrowserCategory::Tags => "Tags",
+            BrowserCategory::Series => "Series",
+            BrowserCategory::Publishers => "Publishers",
+            BrowserCategory::Ratings => "Ratings",
+            BrowserCategory::Languages => "Languages",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BrowserFilter {
+    category: BrowserCategory,
+    value: String,
+}
+
+impl BrowserFilter {
+    fn label(&self) -> String {
+        format!("{}: {}", self.category.label(), self.value)
+    }
 }
 
 impl SortMode {
@@ -184,6 +221,15 @@ pub struct LibraryView {
     available_tags: Vec<String>,
     available_languages: Vec<String>,
     available_publishers: Vec<String>,
+    browser_query: String,
+    browser_filter: Option<BrowserFilter>,
+    browser_authors: Vec<CategoryCount>,
+    browser_tags: Vec<CategoryCount>,
+    browser_series: Vec<CategoryCount>,
+    browser_publishers: Vec<CategoryCount>,
+    browser_ratings: Vec<CategoryCount>,
+    browser_languages: Vec<CategoryCount>,
+    browser_saved_searches: Vec<(String, String)>,
     selected_ids: Vec<i64>,
     last_selected: Option<i64>,
     details: Option<BookDetails>,
@@ -229,6 +275,11 @@ pub struct LibraryView {
     cover_state: CoverDialogState,
     reader: ReaderState,
     reader_progress: HashMap<i64, usize>,
+    note_input: String,
+    note_delete_id: Option<i64>,
+    note_delete_open: bool,
+    remove_asset_dialog: RemoveAssetDialogState,
+    pending_convert_book: Option<i64>,
     add_books: AddBooksDialogState,
     remove_books: RemoveBooksDialogState,
     bulk_edit: BulkEditDialogState,
@@ -255,6 +306,15 @@ impl LibraryView {
             available_tags: Vec::new(),
             available_languages: Vec::new(),
             available_publishers: Vec::new(),
+            browser_query: String::new(),
+            browser_filter: None,
+            browser_authors: Vec::new(),
+            browser_tags: Vec::new(),
+            browser_series: Vec::new(),
+            browser_publishers: Vec::new(),
+            browser_ratings: Vec::new(),
+            browser_languages: Vec::new(),
+            browser_saved_searches: Vec::new(),
             selected_ids: Vec::new(),
             last_selected: None,
             details: None,
@@ -300,6 +360,11 @@ impl LibraryView {
             cover_state: CoverDialogState::default(),
             reader: ReaderState::from_config(config),
             reader_progress: HashMap::new(),
+            note_input: String::new(),
+            note_delete_id: None,
+            note_delete_open: false,
+            remove_asset_dialog: RemoveAssetDialogState::default(),
+            pending_convert_book: None,
             add_books: AddBooksDialogState::default(),
             remove_books: RemoveBooksDialogState::default(),
             bulk_edit: BulkEditDialogState::default(),
@@ -434,12 +499,15 @@ impl LibraryView {
                 ui.separator();
                 self.sort_controls(ui);
                 self.format_controls(ui);
+                self.filter_summary_controls(ui);
                 ui.separator();
                 self.layout_controls(ui, config, config_path);
                 ui.separator();
                 self.operations_controls(ui, config);
                 ui.separator();
                 self.management_controls(ui);
+                ui.separator();
+                self.browser_controls(ui);
                 ui.separator();
                 if self.needs_refresh {
                     if let Err(err) = self.refresh_books() {
@@ -463,8 +531,13 @@ impl LibraryView {
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.details_view(ui);
+            self.details_view(ui, config);
         });
+
+        if let Some(book_id) = self.pending_convert_book.take() {
+            self.selected_ids = vec![book_id];
+            self.open_convert_books(config);
+        }
 
         if self.show_edit_dialog {
             self.edit_dialog(ui);
@@ -499,6 +572,8 @@ impl LibraryView {
         self.manage_custom_columns_dialog(ui);
         self.manage_virtual_libraries_dialog(ui);
         self.reader_dialog(ui);
+        self.remove_asset_dialog(ui, config);
+        self.note_delete_dialog(ui);
 
         self.render_jobs(ui);
         self.render_toasts(ui);
@@ -539,6 +614,10 @@ impl LibraryView {
                 self.needs_refresh = true;
             }
             if ui.button("Go").clicked() {
+                self.needs_refresh = true;
+            }
+            if ui.button("Clear").clicked() {
+                self.search_query.clear();
                 self.needs_refresh = true;
             }
         });
@@ -662,6 +741,134 @@ impl LibraryView {
                 self.apply_filters();
             }
         });
+    }
+
+    fn filter_summary_controls(&mut self, ui: &mut egui::Ui) {
+        let has_filters = !self.search_query.trim().is_empty()
+            || self.format_filter.is_some()
+            || self.browser_filter.is_some();
+        if !has_filters {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Filters");
+            if !self.search_query.trim().is_empty() {
+                let label = format!("Search: {}", self.search_query.trim());
+                if ui.button(label).clicked() {
+                    self.search_query.clear();
+                    self.needs_refresh = true;
+                }
+            }
+            if let Some(format) = &self.format_filter {
+                let label = format!("Format: {format}");
+                if ui.button(label).clicked() {
+                    self.format_filter = None;
+                    self.apply_filters();
+                }
+            }
+            if let Some(filter) = &self.browser_filter {
+                if ui.button(filter.label()).clicked() {
+                    self.browser_filter = None;
+                    self.apply_filters();
+                }
+            }
+            if ui.button("Clear all").clicked() {
+                self.clear_all_filters();
+            }
+        });
+    }
+
+    fn browser_controls(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Browser");
+        ui.horizontal(|ui| {
+            ui.label("Find");
+            ui.text_edit_singleline(&mut self.browser_query);
+            if ui.button("Clear").clicked() {
+                self.browser_query.clear();
+            }
+            if ui.button("Clear filter").clicked() {
+                self.browser_filter = None;
+                self.apply_filters();
+            }
+        });
+        let authors = self.browser_authors.clone();
+        let tags = self.browser_tags.clone();
+        let series = self.browser_series.clone();
+        let publishers = self.browser_publishers.clone();
+        let ratings = self.browser_ratings.clone();
+        let languages = self.browser_languages.clone();
+        self.browser_category_section(ui, BrowserCategory::Authors, &authors);
+        self.browser_category_section(ui, BrowserCategory::Tags, &tags);
+        self.browser_category_section(ui, BrowserCategory::Series, &series);
+        self.browser_category_section(ui, BrowserCategory::Publishers, &publishers);
+        self.browser_category_section(ui, BrowserCategory::Ratings, &ratings);
+        self.browser_category_section(ui, BrowserCategory::Languages, &languages);
+        ui.separator();
+        ui.label("Saved searches");
+        if self.browser_saved_searches.is_empty() {
+            ui.label("No saved searches.");
+        } else {
+            egui::ScrollArea::vertical()
+                .max_height(120.0)
+                .show(ui, |ui| {
+                    for (name, query) in &self.browser_saved_searches {
+                        if ui.button(format!("{name}")).clicked() {
+                            self.search_query = query.clone();
+                            self.search_focus = true;
+                            self.needs_refresh = true;
+                        }
+                    }
+                });
+        }
+    }
+
+    fn browser_category_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        category: BrowserCategory,
+        items: &[CategoryCount],
+    ) {
+        let query = self.browser_query.trim().to_lowercase();
+        egui::CollapsingHeader::new(category.label())
+            .default_open(false)
+            .show(ui, |ui| {
+                if items.is_empty() {
+                    ui.label("No entries.");
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        for entry in items {
+                            if !query.is_empty() && !entry.name.to_lowercase().contains(&query) {
+                                continue;
+                            }
+                            let selected = self
+                                .browser_filter
+                                .as_ref()
+                                .map(|filter| {
+                                    filter.category == category && filter.value == entry.name
+                                })
+                                .unwrap_or(false);
+                            let label = format!("{} ({})", entry.name, entry.count);
+                            if ui.selectable_label(selected, label).clicked() {
+                                self.browser_filter = Some(BrowserFilter {
+                                    category,
+                                    value: entry.name.clone(),
+                                });
+                                self.apply_filters();
+                            }
+                        }
+                    });
+            });
+    }
+
+    fn clear_all_filters(&mut self) {
+        self.search_query.clear();
+        self.format_filter = None;
+        self.browser_filter = None;
+        self.needs_refresh = true;
+        self.apply_filters();
     }
 
     fn layout_controls(
@@ -1093,7 +1300,7 @@ impl LibraryView {
         });
     }
 
-    fn details_view(&mut self, ui: &mut egui::Ui) {
+    fn details_view(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         ui.heading("Details");
         ui.separator();
         let mut action = DetailAction::None;
@@ -1248,25 +1455,82 @@ impl LibraryView {
                 }
 
                 ui.separator();
+                ui.heading("Notes");
+                ui.label(format!("{} notes", details.notes.len()));
+                if details.notes.is_empty() {
+                    ui.label("No notes yet.");
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(160.0)
+                        .show(ui, |ui| {
+                            for note in &details.notes {
+                                ui.group(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(&note.created_at);
+                                        if ui.button("Delete").clicked() {
+                                            self.note_delete_id = Some(note.id);
+                                            self.note_delete_open = true;
+                                        }
+                                    });
+                                    let mut text = note.text.clone();
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut text)
+                                            .desired_rows(2)
+                                            .interactive(false),
+                                    );
+                                });
+                                ui.add_space(6.0);
+                            }
+                        });
+                }
+                ui.label("Add note");
+                ui.text_edit_multiline(&mut self.note_input);
+                if ui.button("Save note").clicked() {
+                    if let Err(err) = self.add_note_for_book(details.book.id) {
+                        self.set_error(err);
+                    } else {
+                        let _ = self.load_details(details.book.id);
+                        self.push_toast("Note added", ToastLevel::Info);
+                    }
+                }
+
+                ui.separator();
                 ui.heading("Formats");
                 if details.assets.is_empty() {
                     ui.label("No assets recorded.");
                 } else {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         for asset in &details.assets {
+                            let storage_label = asset.storage_mode.as_str();
+                            let compression_label = if asset.is_compressed {
+                                "compressed"
+                            } else {
+                                "raw"
+                            };
+                            let size_label = format!(
+                                "{} bytes (stored {} bytes)",
+                                asset.size_bytes, asset.stored_size_bytes
+                            );
                             ui.horizontal(|ui| {
                                 ui.label(format!(
-                                    "{} | {} bytes",
-                                    asset.stored_path, asset.size_bytes
+                                    "{} | {} | {} | {}",
+                                    asset.stored_path, storage_label, compression_label, size_label
                                 ));
                                 if ui.button("Open").clicked() {
-                                    open_paths.push(PathBuf::from(&asset.stored_path));
+                                    if asset.is_compressed {
+                                        self.push_toast(
+                                            "Compressed asset: use Save to Disk to extract",
+                                            ToastLevel::Warn,
+                                        );
+                                    } else {
+                                        open_paths.push(PathBuf::from(&asset.stored_path));
+                                    }
                                 }
                                 if ui.button("Convert").clicked() {
-                                    action = DetailAction::Convert;
+                                    self.pending_convert_book = Some(details.book.id);
                                 }
                                 if ui.button("Remove").clicked() {
-                                    action = DetailAction::RemoveAsset;
+                                    self.remove_asset_dialog.apply_defaults(config, asset);
                                 }
                             });
                         }
@@ -1324,8 +1588,6 @@ impl LibraryView {
             DetailAction::BeginEdit => self.begin_edit(),
             DetailAction::Save => self.pending_save = true,
             DetailAction::Cancel => self.cancel_edit(),
-            DetailAction::Convert => self.notify_unimplemented("Convert asset not wired yet."),
-            DetailAction::RemoveAsset => self.notify_unimplemented("Remove asset not wired yet."),
             DetailAction::SetCover => {
                 if let Some(details) = &details_snapshot {
                     if let Err(err) = self.set_cover_from_input(details.book.id) {
@@ -1541,6 +1803,99 @@ impl LibraryView {
             open = false;
         }
         self.remove_books.open = open;
+    }
+
+    fn remove_asset_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.remove_asset_dialog.open {
+            return;
+        }
+        let Some(asset) = self.remove_asset_dialog.asset.clone() else {
+            self.remove_asset_dialog.open = false;
+            return;
+        };
+        let mut open = self.remove_asset_dialog.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Remove asset")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!("Remove asset {}", asset.stored_path));
+                ui.checkbox(
+                    &mut self.remove_asset_dialog.delete_files,
+                    "Delete stored file",
+                );
+                ui.checkbox(
+                    &mut self.remove_asset_dialog.delete_reference_files,
+                    "Delete referenced file",
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Remove").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            if let Err(err) =
+                self.run_remove_asset(config, &asset, self.remove_asset_dialog.delete_files)
+            {
+                self.set_error(err);
+            } else {
+                if let Some(details) = &self.details {
+                    let _ = self.load_details(details.book.id);
+                }
+                self.push_toast("Asset removed", ToastLevel::Info);
+                close_requested = true;
+            }
+        }
+        if close_requested {
+            open = false;
+            self.remove_asset_dialog.asset = None;
+        }
+        self.remove_asset_dialog.open = open;
+    }
+
+    fn note_delete_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.note_delete_open {
+            return;
+        }
+        let mut open = self.note_delete_open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Delete note")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.label("Delete this note?");
+                ui.horizontal(|ui| {
+                    if ui.button("Delete").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            if let Some(note_id) = self.note_delete_id {
+                if let Err(err) = self.db.delete_note(note_id) {
+                    self.set_error(err);
+                } else if let Some(details) = &self.details {
+                    let _ = self.load_details(details.book.id);
+                    self.push_toast("Note deleted", ToastLevel::Info);
+                }
+            }
+            close_requested = true;
+        }
+        if close_requested {
+            open = false;
+            self.note_delete_id = None;
+        }
+        self.note_delete_open = open;
     }
 
     fn bulk_edit_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
@@ -2138,7 +2493,13 @@ impl LibraryView {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Recent");
-                    let recent = self.reader.recent.iter().take(5).cloned().collect::<Vec<_>>();
+                    let recent = self
+                        .reader
+                        .recent
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>();
                     for entry in recent {
                         if ui.button(&entry.title).clicked() {
                             self.reader.jump_to(entry.book_id, entry.page);
@@ -2539,6 +2900,42 @@ impl LibraryView {
         Ok(())
     }
 
+    fn run_remove_asset(
+        &mut self,
+        _config: &ControlPlane,
+        asset: &AssetRow,
+        delete_files: bool,
+    ) -> CoreResult<()> {
+        if delete_files
+            && should_delete_asset(asset, self.remove_asset_dialog.delete_reference_files)
+        {
+            let path = Path::new(&asset.stored_path);
+            if path.exists() {
+                fs::remove_file(path)
+                    .map_err(|err| CoreError::Io("remove asset file".to_string(), err))?;
+            }
+        }
+        let deleted = self.db.delete_assets(&[asset.id])?;
+        if deleted == 0 {
+            return Err(CoreError::ConfigValidate("asset not found".to_string()));
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn add_note_for_book(&mut self, book_id: i64) -> CoreResult<()> {
+        let text = self.note_input.trim();
+        if text.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "note text is required".to_string(),
+            ));
+        }
+        let created_at = now_timestamp()?;
+        self.db.add_note(book_id, text, &created_at)?;
+        self.note_input.clear();
+        Ok(())
+    }
+
     fn run_bulk_edit(&mut self, _config: &ControlPlane) -> CoreResult<()> {
         let ids = self.selected_ids.clone();
         if ids.is_empty() {
@@ -2876,6 +3273,7 @@ impl LibraryView {
         self.available_tags = self.db.list_tags().unwrap_or_default();
         self.available_languages = self.db.list_languages().unwrap_or_default();
         self.available_publishers = self.db.list_publishers().unwrap_or_default();
+        self.refresh_browser()?;
         self.apply_filters();
         self.status = format!("Loaded {} books", self.books.len());
         self.needs_refresh = false;
@@ -2885,6 +3283,18 @@ impl LibraryView {
             query = %query,
             "library refreshed"
         );
+        Ok(())
+    }
+
+    fn refresh_browser(&mut self) -> CoreResult<()> {
+        self.browser_authors = self.db.list_author_categories()?;
+        self.browser_tags = self.db.list_tag_categories()?;
+        self.browser_series = self.db.list_series_categories()?;
+        self.browser_publishers = self.db.list_publisher_categories()?;
+        self.browser_ratings = self.db.list_rating_categories()?;
+        self.browser_languages = self.db.list_language_categories()?;
+        let searches = self.db.list_saved_searches()?;
+        self.browser_saved_searches = searches.into_iter().collect();
         Ok(())
     }
 
@@ -2944,6 +3354,7 @@ impl LibraryView {
         let series = self.db.get_book_series(id)?;
         let identifiers = self.db.list_book_identifiers(id)?;
         let comment = self.db.get_book_comment(id)?;
+        let notes = self.db.list_notes_for_book(id)?;
         let extras = self.db.get_book_extras(id)?;
         self.details = Some(BookDetails {
             book,
@@ -2953,10 +3364,12 @@ impl LibraryView {
             series,
             identifiers,
             comment,
+            notes,
             extras,
         });
         self.edit = EditState::from_details(self.details.as_ref().expect("details"));
         self.edit_mode = false;
+        self.note_input.clear();
         info!(component = "gui", book_id = id, "loaded book details");
         Ok(())
     }
@@ -3019,11 +3432,27 @@ impl LibraryView {
             .all_books
             .iter()
             .filter(|book| {
-                if let Some(format) = &self.format_filter {
+                let format_matches = if let Some(format) = &self.format_filter {
                     book.format.eq_ignore_ascii_case(format)
                 } else {
                     true
-                }
+                };
+                let browser_matches = if let Some(filter) = &self.browser_filter {
+                    let needle = filter.value.to_lowercase();
+                    match filter.category {
+                        BrowserCategory::Authors => field_contains(&book.authors, &needle),
+                        BrowserCategory::Tags => field_contains(&book.tags, &needle),
+                        BrowserCategory::Series => field_contains(&book.series, &needle),
+                        BrowserCategory::Publishers => field_contains(&book.publisher, &needle),
+                        BrowserCategory::Ratings => {
+                            book.rating.trim().eq_ignore_ascii_case(&needle)
+                        }
+                        BrowserCategory::Languages => field_contains(&book.languages, &needle),
+                    }
+                } else {
+                    true
+                };
+                format_matches && browser_matches
             })
             .cloned()
             .collect();
@@ -3681,6 +4110,34 @@ impl RemoveBooksDialogState {
 }
 
 #[derive(Debug, Clone)]
+struct RemoveAssetDialogState {
+    open: bool,
+    asset: Option<AssetRow>,
+    delete_files: bool,
+    delete_reference_files: bool,
+}
+
+impl Default for RemoveAssetDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            asset: None,
+            delete_files: false,
+            delete_reference_files: false,
+        }
+    }
+}
+
+impl RemoveAssetDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane, asset: &AssetRow) {
+        self.open = true;
+        self.asset = Some(asset.clone());
+        self.delete_files = config.library.delete_files_on_remove;
+        self.delete_reference_files = config.library.delete_reference_files;
+    }
+}
+
+#[derive(Debug, Clone)]
 struct BulkEditDialogState {
     open: bool,
     apply_tags: bool,
@@ -3924,8 +4381,6 @@ enum DetailAction {
     BeginEdit,
     Save,
     Cancel,
-    Convert,
-    RemoveAsset,
     SetCover,
     RemoveCover,
     GenerateCover,
@@ -4175,6 +4630,13 @@ fn parse_identifiers(text: &str, isbn: &str) -> Vec<(String, String)> {
         identifiers.push(("isbn".to_string(), isbn.trim().to_string()));
     }
     identifiers
+}
+
+fn field_contains(haystack: &str, needle_lower: &str) -> bool {
+    if needle_lower.trim().is_empty() {
+        return true;
+    }
+    haystack.to_lowercase().contains(needle_lower)
 }
 
 fn highlight_text(text: &str, query: &str) -> egui::RichText {
