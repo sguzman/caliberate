@@ -5,11 +5,11 @@ mode = "dev"
 instance_id = "test"
 
 [paths]
-data_dir = "./data"
-cache_dir = "./cache"
-log_dir = "./logs"
-tmp_dir = "./tmp"
-library_dir = "./library"
+data_dir = "./.cache/caliberate/data"
+cache_dir = "./.cache/caliberate/cache"
+log_dir = "./.cache/caliberate/logs"
+tmp_dir = "./.cache/caliberate/tmp"
+library_dir = "./.cache/caliberate/library"
 
 [logging]
 level = "info"
@@ -88,12 +88,12 @@ min_query_len = 2
 result_limit = 100
 
 [device]
-mount_roots = ["./devices"]
+mount_roots = ["./.cache/caliberate/devices"]
 library_subdir = "Caliberate Library"
 
 [plugins]
 enabled = true
-plugins_dir = "./plugins"
+plugins_dir = "./.cache/caliberate/plugins"
 
 [gui]
 list_view_mode = "table"
@@ -120,8 +120,8 @@ width_languages = 120.0
 width_cover = 72.0
 cover_thumb_size = 64.0
 cover_preview_size = 200.0
-cover_dir = "./data/covers"
-cover_cache_dir = "./cache/covers"
+cover_dir = "./.cache/caliberate/covers"
+cover_cache_dir = "./.cache/caliberate/covers-cache"
 cover_max_bytes = 10485760
 reader_font_size = 16.0
 reader_line_spacing = 1.4

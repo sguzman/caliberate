@@ -585,23 +585,23 @@ impl Default for FtsConfig {
 }
 
 fn default_data_dir() -> PathBuf {
-    PathBuf::from("./data")
+    PathBuf::from("./.cache/caliberate/data")
 }
 
 fn default_cache_dir() -> PathBuf {
-    PathBuf::from("./cache")
+    PathBuf::from("./.cache/caliberate/cache")
 }
 
 fn default_log_dir() -> PathBuf {
-    PathBuf::from("./logs")
+    PathBuf::from("./.cache/caliberate/logs")
 }
 
 fn default_tmp_dir() -> PathBuf {
-    PathBuf::from("./tmp")
+    PathBuf::from("./.cache/caliberate/tmp")
 }
 
 fn default_library_dir() -> PathBuf {
-    PathBuf::from("./library")
+    PathBuf::from("./.cache/caliberate/library")
 }
 
 fn default_log_level() -> String {
