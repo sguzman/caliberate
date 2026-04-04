@@ -212,6 +212,8 @@ pub struct LibraryView {
     cover_dir: PathBuf,
     cover_cache_dir: PathBuf,
     cover_max_bytes: u64,
+    last_cover_thumb_size: f32,
+    last_cover_preview_size: f32,
     table_row_height: f32,
     toast_duration_secs: f64,
     toast_max: usize,
@@ -221,10 +223,12 @@ pub struct LibraryView {
     last_tick: f64,
     comment_preview: bool,
     comment_render_markdown: bool,
+    comment_render_overrides: HashMap<i64, bool>,
     cover_cache: HashMap<i64, egui::TextureHandle>,
     cover_preview_cache: HashMap<i64, egui::TextureHandle>,
     cover_state: CoverDialogState,
     reader: ReaderState,
+    reader_progress: HashMap<i64, usize>,
     add_books: AddBooksDialogState,
     remove_books: RemoveBooksDialogState,
     bulk_edit: BulkEditDialogState,
@@ -279,6 +283,8 @@ impl LibraryView {
             cover_dir: config.gui.cover_dir.clone(),
             cover_cache_dir: config.gui.cover_cache_dir.clone(),
             cover_max_bytes: config.gui.cover_max_bytes,
+            last_cover_thumb_size: config.gui.cover_thumb_size,
+            last_cover_preview_size: config.gui.cover_preview_size,
             table_row_height: config.gui.table_row_height,
             toast_duration_secs: config.gui.toast_duration_secs,
             toast_max: config.gui.toast_max,
@@ -288,10 +294,12 @@ impl LibraryView {
             last_tick: 0.0,
             comment_preview: false,
             comment_render_markdown: true,
+            comment_render_overrides: HashMap::new(),
             cover_cache: HashMap::new(),
             cover_preview_cache: HashMap::new(),
             cover_state: CoverDialogState::default(),
             reader: ReaderState::from_config(config),
+            reader_progress: HashMap::new(),
             add_books: AddBooksDialogState::default(),
             remove_books: RemoveBooksDialogState::default(),
             bulk_edit: BulkEditDialogState::default(),
@@ -408,6 +416,7 @@ impl LibraryView {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane, config_path: &Path) {
         let now = ui.ctx().input(|i| i.time);
+        self.sync_cover_config(config);
         self.tick_jobs(now);
         self.prune_toasts(now);
         let available = ui.available_rect_before_wrap();
@@ -1188,21 +1197,55 @@ impl LibraryView {
                         action = DetailAction::SetCover;
                     }
                 });
+                ui.horizontal(|ui| {
+                    if ui.button("Use asset as cover").clicked() {
+                        if let Some(asset) = details.assets.first() {
+                            let candidate = Path::new(&asset.stored_path);
+                            if is_image_path(candidate) {
+                                action = DetailAction::SetCover;
+                                self.cover_state.cover_path_input = asset.stored_path.clone();
+                            } else {
+                                self.push_toast(
+                                    "First asset is not an image; choose a PNG/JPG file",
+                                    ToastLevel::Warn,
+                                );
+                            }
+                        }
+                    }
+                });
 
                 ui.separator();
                 ui.heading("Comment");
                 if let Some(comment) = &details.comment {
                     if comment.is_empty() {
                         ui.label("No comment set.");
-                    } else if self.comment_render_markdown {
-                        render_markdown(ui, comment);
                     } else {
-                        ui.label(comment);
+                        let render_markdown_enabled = self
+                            .comment_render_overrides
+                            .get(&details.book.id)
+                            .copied()
+                            .unwrap_or(self.comment_render_markdown);
+                        if render_markdown_enabled {
+                            render_markdown(ui, comment);
+                        } else {
+                            render_html_fallback(ui, comment);
+                        }
                     }
                 } else {
                     ui.label("No comment set.");
                 }
-                ui.checkbox(&mut self.comment_render_markdown, "Render markdown");
+                let mut render_toggle = self
+                    .comment_render_overrides
+                    .get(&details.book.id)
+                    .copied()
+                    .unwrap_or(self.comment_render_markdown);
+                if ui
+                    .checkbox(&mut render_toggle, "Render markdown for this book")
+                    .changed()
+                {
+                    self.comment_render_overrides
+                        .insert(details.book.id, render_toggle);
+                }
 
                 ui.separator();
                 ui.heading("Formats");
@@ -1257,6 +1300,23 @@ impl LibraryView {
         for path in open_paths {
             if let Err(err) = open_path(&path) {
                 self.set_error(err);
+            }
+        }
+
+        if let Some(details) = &details_snapshot {
+            let dropped = ui.ctx().input(|i| i.raw.dropped_files.clone());
+            for file in dropped {
+                if let Some(path) = file.path {
+                    if is_image_path(&path) {
+                        if let Err(err) = self.apply_cover_from_path(details.book.id, &path) {
+                            self.set_error(err);
+                        } else {
+                            let _ = self.load_details(details.book.id);
+                            self.push_toast("Cover updated from drop", ToastLevel::Info);
+                        }
+                        break;
+                    }
+                }
             }
         }
 
@@ -2006,6 +2066,13 @@ impl LibraryView {
             .show(ui.ctx(), |ui| {
                 ui.heading(self.reader.title.as_str());
                 ui.label(format!("Format: {}", self.reader.format));
+                ui.horizontal(|ui| {
+                    ui.label("Search");
+                    ui.text_edit_singleline(&mut self.reader.search_query);
+                    if ui.button("Find").clicked() {
+                        self.reader.find_next();
+                    }
+                });
                 if let Some(error) = &self.reader.error {
                     ui.colored_label(egui::Color32::from_rgb(190, 0, 0), error);
                 }
@@ -2023,6 +2090,18 @@ impl LibraryView {
                         self.reader.page_count().max(1)
                     ));
                 });
+                if ui.ctx().input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+                    self.reader.next_page();
+                }
+                if ui.ctx().input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+                    self.reader.prev_page();
+                }
+                if ui.ctx().input(|i| i.key_pressed(egui::Key::PageDown)) {
+                    self.reader.next_page();
+                }
+                if ui.ctx().input(|i| i.key_pressed(egui::Key::PageUp)) {
+                    self.reader.prev_page();
+                }
                 ui.horizontal(|ui| {
                     ui.label("Font size");
                     ui.add(egui::DragValue::new(&mut self.reader.font_size).range(10.0..=28.0));
@@ -2057,6 +2136,15 @@ impl LibraryView {
                             );
                         });
                 });
+                ui.horizontal(|ui| {
+                    ui.label("Recent");
+                    let recent = self.reader.recent.iter().take(5).cloned().collect::<Vec<_>>();
+                    for entry in recent {
+                        if ui.button(&entry.title).clicked() {
+                            self.reader.jump_to(entry.book_id, entry.page);
+                        }
+                    }
+                });
                 ui.separator();
                 let background = self.reader.theme.background();
                 let text_color = self.reader.theme.text_color();
@@ -2067,6 +2155,13 @@ impl LibraryView {
                     self.reader.render(ui);
                     ui.add_space(4.0);
                 });
+                if let Some(book_id) = self.reader.book_id {
+                    self.reader_progress.insert(book_id, self.reader.page);
+                }
+                ui.separator();
+                ui.label("Table of contents (stub)");
+                ui.label("• Chapter 1");
+                ui.label("• Chapter 2");
                 if ui.button("Close").clicked() {
                     close_requested = true;
                 }
@@ -2075,6 +2170,9 @@ impl LibraryView {
             open = false;
         }
         if !open {
+            if let Some(book_id) = self.reader.book_id {
+                self.reader_progress.insert(book_id, self.reader.page);
+            }
             self.reader.close();
         }
         self.reader.open = open;
@@ -2146,6 +2244,9 @@ impl LibraryView {
         if !thumb_path.exists() {
             let _ = self.ensure_cover_thumb(book_id);
         }
+        if !thumb_path.exists() {
+            return None;
+        }
         match load_texture_from_path(ctx, &thumb_path) {
             Ok(texture) => {
                 self.cover_cache.insert(book_id, texture.clone());
@@ -2210,6 +2311,11 @@ impl LibraryView {
         if !source.is_file() {
             return Err(CoreError::ConfigValidate(
                 "cover source must be a file".to_string(),
+            ));
+        }
+        if !is_image_path(source) {
+            return Err(CoreError::ConfigValidate(
+                "cover source must be a PNG or JPG image".to_string(),
             ));
         }
         let metadata = fs::metadata(source)
@@ -2338,6 +2444,9 @@ impl LibraryView {
         let format = asset_format(asset, &book.format).unwrap_or_else(|| book.format.clone());
         self.reader
             .open_book(book_id, &book.title, &format, &input_path, temp_path);
+        if let Some(progress) = self.reader_progress.get(&book_id).copied() {
+            self.reader.page = progress.min(self.reader.page_count().saturating_sub(1));
+        }
         Ok(())
     }
 
@@ -3195,6 +3304,35 @@ impl LibraryView {
                 });
             });
     }
+
+    fn sync_cover_config(&mut self, config: &ControlPlane) {
+        let mut dirty = false;
+        if (config.gui.cover_thumb_size - self.last_cover_thumb_size).abs() > f32::EPSILON {
+            self.cover_thumb_size = config.gui.cover_thumb_size;
+            self.last_cover_thumb_size = config.gui.cover_thumb_size;
+            dirty = true;
+        }
+        if (config.gui.cover_preview_size - self.last_cover_preview_size).abs() > f32::EPSILON {
+            self.cover_preview_size = config.gui.cover_preview_size;
+            self.last_cover_preview_size = config.gui.cover_preview_size;
+            dirty = true;
+        }
+        if dirty {
+            self.cover_cache.clear();
+            self.cover_preview_cache.clear();
+        }
+        if self.cover_dir != config.gui.cover_dir {
+            self.cover_dir = config.gui.cover_dir.clone();
+            self.cover_cache.clear();
+            self.cover_preview_cache.clear();
+        }
+        if self.cover_cache_dir != config.gui.cover_cache_dir {
+            self.cover_cache_dir = config.gui.cover_cache_dir.clone();
+            self.cover_cache.clear();
+            self.cover_preview_cache.clear();
+        }
+        self.cover_max_bytes = config.gui.cover_max_bytes;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3238,6 +3376,9 @@ struct ReaderState {
     line_spacing: f32,
     page_chars: usize,
     theme: ReaderTheme,
+    search_query: String,
+    last_match: Option<usize>,
+    recent: Vec<ReaderRecent>,
     temp_path: Option<PathBuf>,
     error: Option<String>,
 }
@@ -3255,6 +3396,9 @@ impl ReaderState {
             line_spacing: config.gui.reader_line_spacing,
             page_chars: config.gui.reader_page_chars,
             theme: ReaderTheme::from_config(&config.gui.reader_theme),
+            search_query: String::new(),
+            last_match: None,
+            recent: Vec::new(),
             temp_path: None,
             error: None,
         }
@@ -3276,6 +3420,8 @@ impl ReaderState {
         self.format = format.to_string();
         self.page = 0;
         self.error = None;
+        self.search_query.clear();
+        self.last_match = None;
         self.temp_path = temp_path;
         self.content =
             ReaderContent::from_path(path, format, self.page_chars).unwrap_or_else(|err| {
@@ -3283,6 +3429,7 @@ impl ReaderState {
                 ReaderContent::Unsupported
             });
         self.open = true;
+        self.push_recent(book_id, title, self.page);
     }
 
     fn close(&mut self) {
@@ -3310,11 +3457,21 @@ impl ReaderState {
             return;
         }
         self.page = (self.page + 1).min(count - 1);
+        if let Some(book_id) = self.book_id {
+            let title = self.title.clone();
+            let page = self.page;
+            self.push_recent(book_id, &title, page);
+        }
     }
 
     fn prev_page(&mut self) {
         if self.page > 0 {
             self.page -= 1;
+            if let Some(book_id) = self.book_id {
+                let title = self.title.clone();
+                let page = self.page;
+                self.push_recent(book_id, &title, page);
+            }
         }
     }
 
@@ -3331,6 +3488,44 @@ impl ReaderState {
         }
     }
 
+    fn find_next(&mut self) {
+        let query = self.search_query.trim().to_lowercase();
+        if query.is_empty() {
+            self.last_match = None;
+            return;
+        }
+        if let ReaderContent::Text { pages, .. } = &self.content {
+            let start = self.last_match.unwrap_or(0);
+            for idx in start..pages.len() {
+                if pages[idx].to_lowercase().contains(&query) {
+                    self.page = idx;
+                    self.last_match = Some(idx + 1);
+                    return;
+                }
+            }
+            self.last_match = Some(0);
+        }
+    }
+
+    fn jump_to(&mut self, book_id: i64, page: usize) {
+        if self.book_id == Some(book_id) {
+            self.page = page.min(self.page_count().saturating_sub(1));
+        }
+    }
+
+    fn push_recent(&mut self, book_id: i64, title: &str, page: usize) {
+        self.recent.retain(|entry| entry.book_id != book_id);
+        self.recent.insert(
+            0,
+            ReaderRecent {
+                book_id,
+                title: title.to_string(),
+                page,
+            },
+        );
+        self.recent.truncate(10);
+    }
+
     fn render(&self, ui: &mut egui::Ui) {
         match &self.content {
             ReaderContent::Text { pages, .. } => {
@@ -3340,13 +3535,7 @@ impl ReaderState {
                 } else {
                     raw_text.to_string()
                 };
-                let format = egui::TextFormat {
-                    font_id: egui::FontId::proportional(self.font_size),
-                    ..Default::default()
-                };
-                let mut job = egui::text::LayoutJob::default();
-                job.append(&page_text, 0.0, format);
-                ui.label(job);
+                render_text_with_highlight(ui, &page_text, &self.search_query, self.font_size);
             }
             ReaderContent::Unsupported => {
                 ui.label("Preview not available for this format.");
@@ -3386,6 +3575,13 @@ enum ReaderTheme {
     Light,
     Dark,
     Sepia,
+}
+
+#[derive(Debug, Clone)]
+struct ReaderRecent {
+    book_id: i64,
+    title: String,
+    page: usize,
 }
 
 impl ReaderTheme {
@@ -4239,6 +4435,94 @@ fn image_to_color_image(image: &DynamicImage) -> egui::ColorImage {
     let rgba = image.to_rgba8();
     let size = [rgba.width() as usize, rgba.height() as usize];
     egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
+}
+
+fn render_text_with_highlight(ui: &mut egui::Ui, text: &str, query: &str, size: f32) {
+    let mut job = egui::text::LayoutJob::default();
+    if query.trim().is_empty() {
+        job.append(
+            text,
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(size),
+                ..Default::default()
+            },
+        );
+        ui.label(job);
+        return;
+    }
+    let query_lower = query.to_lowercase();
+    let mut remaining = text;
+    while let Some(pos) = remaining.to_lowercase().find(&query_lower) {
+        let (prefix, rest) = remaining.split_at(pos);
+        if !prefix.is_empty() {
+            job.append(
+                prefix,
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(size),
+                    ..Default::default()
+                },
+            );
+        }
+        let (match_text, tail) = rest.split_at(query.len().min(rest.len()));
+        if !match_text.is_empty() {
+            job.append(
+                match_text,
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(size),
+                    color: egui::Color32::from_rgb(220, 180, 60),
+                    ..Default::default()
+                },
+            );
+        }
+        remaining = tail;
+    }
+    if !remaining.is_empty() {
+        job.append(
+            remaining,
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(size),
+                ..Default::default()
+            },
+        );
+    }
+    ui.label(job);
+}
+
+fn render_html_fallback(ui: &mut egui::Ui, text: &str) {
+    let stripped = strip_html_tags(text);
+    ui.label(stripped);
+}
+
+fn strip_html_tags(text: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in text.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ => {
+                if !in_tag {
+                    out.push(ch);
+                }
+            }
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+fn is_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_lowercase().as_str(), "png" | "jpg" | "jpeg"))
+        .unwrap_or(false)
 }
 
 fn paginate_text(text: &str, page_chars: usize) -> Vec<String> {

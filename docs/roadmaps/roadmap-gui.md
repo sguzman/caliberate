@@ -52,10 +52,15 @@
 - [x] Implement comments rich text editor (HTML/Markdown parity)
 - [x] Comment markdown preview in editor
 - [x] Comment markdown rendering in details pane
+- [x] Comment HTML fallback rendering
+- [x] Comment render mode override per book
 - [x] Add cover thumbnail column and placeholders
 - [x] Add cover preview placeholder in details pane
 - [x] Add cover action buttons (set/remove/generate)
 - [x] Wire cover actions to has_cover flag updates
+- [x] Cover drag-and-drop import
+- [x] Cover cache invalidation on config changes
+- [x] Cover use-asset-as-cover action
 - [x] Add comment preview pane in metadata editor
 - [x] Add comment preview formatting for headings/bullets
 - [x] Implement identifiers editor with validation
@@ -126,6 +131,13 @@
 - [x] Reader font size + line spacing controls
 - [x] Reader page sizing control
 - [x] Reader open action in details pane
+- [x] Reader search box + find-next
+- [x] Reader search highlight rendering
+- [x] Reader recent books list
+- [x] Reader jump to recent entry
+- [x] Reader progress persistence per book
+- [x] Reader keyboard shortcuts (arrows/page up/down)
+- [x] Reader table-of-contents stub
 - [x] Implement open-with-external-viewer option
 - [x] Implement in-app reader controls (font, theme, navigation)
 
