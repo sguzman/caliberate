@@ -4,11 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+caliberate-assets = { path = "../assets" }
+caliberate-conversion = { path = "../conversion" }
 caliberate-core = { path = "../core" }
 caliberate-db = { path = "../db" }
+caliberate-device = { path = "../device" }
+caliberate-library = { path = "../library" }
 eframe = "0.34.1"
 egui_extras = "0.34.1"
+time = "0.3.41"
 tracing = "0.1.44"
+walkdir = "2.5.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

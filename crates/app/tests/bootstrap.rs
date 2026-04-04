@@ -34,9 +34,7 @@ fn bootstrap_creates_runtime_directories() {
     config.conversion.output_dir = conversion_output.clone();
 
     let temp_config_path = PathBuf::from(root.join("control-plane.toml"));
-    config
-        .save_to_path(&temp_config_path)
-        .expect("save config");
+    config.save_to_path(&temp_config_path).expect("save config");
 
     bootstrap::init(&temp_config_path).expect("bootstrap");
 
@@ -46,7 +44,10 @@ fn bootstrap_creates_runtime_directories() {
     assert!(tmp_dir.exists(), "tmp dir should exist");
     assert!(library_dir.exists(), "library dir should exist");
     assert!(conversion_temp.exists(), "conversion temp dir should exist");
-    assert!(conversion_output.exists(), "conversion output dir should exist");
+    assert!(
+        conversion_output.exists(),
+        "conversion output dir should exist"
+    );
     assert!(
         sqlite_path.parent().unwrap().exists(),
         "sqlite parent should exist"

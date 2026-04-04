@@ -777,12 +777,18 @@ dependencies = [
 name = "caliberate-gui"
 version = "0.1.0"
 dependencies = [
+ "caliberate-assets",
+ "caliberate-conversion",
  "caliberate-core",
  "caliberate-db",
+ "caliberate-device",
+ "caliberate-library",
  "eframe",
  "egui_extras",
  "tempfile",
+ "time",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]

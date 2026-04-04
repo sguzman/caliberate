@@ -630,13 +630,13 @@ fn default_gui_show_publisher() -> bool {
     true
 }
 
-    fn default_gui_show_languages() -> bool {
-        true
-    }
+fn default_gui_show_languages() -> bool {
+    true
+}
 
-    fn default_gui_show_cover() -> bool {
-        true
-    }
+fn default_gui_show_cover() -> bool {
+    true
+}
 
 fn default_gui_col_width_title() -> f32 {
     240.0

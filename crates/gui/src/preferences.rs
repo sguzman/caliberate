@@ -12,6 +12,7 @@ pub struct PreferencesView {
     status: String,
     last_error: Option<String>,
     restart_required: bool,
+    active_section: PrefSection,
 }
 
 impl PreferencesView {
@@ -23,6 +24,7 @@ impl PreferencesView {
             status: "Ready".to_string(),
             last_error: None,
             restart_required: false,
+            active_section: PrefSection::Behavior,
         }
     }
 
@@ -102,7 +104,51 @@ impl PreferencesView {
                 "Some changes require restart to take effect.",
             );
         }
+        ui.separator();
+        self.section_tabs(ui);
+        ui.separator();
+        match self.active_section {
+            PrefSection::Behavior => self.render_behavior_section(ui, config),
+            PrefSection::LookAndFeel => self.render_look_feel_section(ui, config),
+            PrefSection::ImportExport => self.render_import_export_section(ui, config),
+            PrefSection::Advanced => self.render_advanced_section(ui, config),
+            PrefSection::System => self.render_system_section(ui, config),
+        }
 
+        Ok(())
+    }
+
+    pub fn status_line(&self) -> (&str, Option<&str>) {
+        (self.status.as_str(), self.last_error.as_deref())
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    pub fn clear_error_message(&mut self) {
+        self.last_error = None;
+    }
+
+    pub fn set_error(&mut self, message: String) {
+        self.last_error = Some(message);
+        self.status = "Error".to_string();
+    }
+
+    fn section_tabs(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            for section in PrefSection::all() {
+                if ui
+                    .selectable_label(self.active_section == section, section.label())
+                    .clicked()
+                {
+                    self.active_section = section;
+                }
+            }
+        });
+    }
+
+    fn render_system_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("App")
             .default_open(true)
             .show(ui, |ui| {
@@ -121,31 +167,6 @@ impl PreferencesView {
                 ui.label(format!("Temp: {}", config.paths.tmp_dir.display()));
                 ui.label(format!("Library: {}", config.paths.library_dir.display()));
             });
-
-        egui::CollapsingHeader::new("GUI").show(ui, |ui| {
-            ui.label(format!("List view mode: {}", config.gui.list_view_mode));
-            ui.label(format!("Row height: {}", config.gui.table_row_height));
-            ui.label(format!("Columns visible:"));
-            ui.label(format!("Title: {}", config.gui.show_title));
-            ui.label(format!("Authors: {}", config.gui.show_authors));
-            ui.label(format!("Series: {}", config.gui.show_series));
-            ui.label(format!("Tags: {}", config.gui.show_tags));
-            ui.label(format!("Formats: {}", config.gui.show_formats));
-            ui.label(format!("Rating: {}", config.gui.show_rating));
-            ui.label(format!("Publisher: {}", config.gui.show_publisher));
-            ui.label(format!("Languages: {}", config.gui.show_languages));
-            ui.label(format!("Cover: {}", config.gui.show_cover));
-            ui.label(format!("Cover thumb size: {}", config.gui.cover_thumb_size));
-            ui.label(format!(
-                "Cover preview size: {}",
-                config.gui.cover_preview_size
-            ));
-            ui.label(format!(
-                "Toast duration: {}s",
-                config.gui.toast_duration_secs
-            ));
-            ui.label(format!("Toast max: {}", config.gui.toast_max));
-        });
 
         egui::CollapsingHeader::new("Logging").show(ui, |ui| {
             if self.edit_mode {
@@ -174,66 +195,9 @@ impl PreferencesView {
             ui.label(format!("Pool size: {}", config.db.pool_size));
             ui.label(format!("Busy timeout (ms): {}", config.db.busy_timeout_ms));
         });
+    }
 
-        egui::CollapsingHeader::new("Server").show(ui, |ui| {
-            if self.edit_mode {
-                ui.text_edit_singleline(&mut self.state.server_host);
-                if self.state.server_host.trim().is_empty() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(190, 0, 0),
-                        "Host cannot be empty",
-                    );
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Port");
-                    ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Scheme");
-                    ui.text_edit_singleline(&mut self.state.server_scheme);
-                });
-                if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(190, 0, 0),
-                        "Scheme must be http or https",
-                    );
-                }
-                ui.text_edit_singleline(&mut self.state.server_url_prefix);
-                ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
-                ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
-                ui.horizontal(|ui| {
-                    ui.label("Download max bytes");
-                    ui.add(egui::DragValue::new(
-                        &mut self.state.server_download_max_bytes,
-                    ));
-                });
-                ui.checkbox(
-                    &mut self.state.server_download_allow_external,
-                    "Allow external download",
-                );
-            } else {
-                ui.label(format!(
-                    "Host: {}:{} ({})",
-                    config.server.host, config.server.port, config.server.scheme
-                ));
-                ui.label(format!("URL prefix: {}", config.server.url_prefix));
-                ui.label(format!("Auth enabled: {}", config.server.enable_auth));
-                ui.label(format!(
-                    "Download enabled: {}",
-                    config.server.download_enabled
-                ));
-                ui.label(format!(
-                    "Download max bytes: {}",
-                    config.server.download_max_bytes
-                ));
-                ui.label(format!(
-                    "Allow external download: {}",
-                    config.server.download_allow_external
-                ));
-            }
-            ui.label(format!("API keys: {}", config.server.api_keys.len()));
-        });
-
+    fn render_behavior_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("Assets").show(ui, |ui| {
             if self.edit_mode {
                 ui.checkbox(&mut self.state.assets_compress_raw, "Compress raw assets");
@@ -358,6 +322,46 @@ impl PreferencesView {
             ));
         });
 
+        egui::CollapsingHeader::new("Library").show(ui, |ui| {
+            ui.label(format!(
+                "Delete files on remove: {}",
+                config.library.delete_files_on_remove
+            ));
+            ui.label(format!(
+                "Delete reference files: {}",
+                config.library.delete_reference_files
+            ));
+        });
+    }
+
+    fn render_look_feel_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        egui::CollapsingHeader::new("GUI").show(ui, |ui| {
+            ui.label(format!("List view mode: {}", config.gui.list_view_mode));
+            ui.label(format!("Row height: {}", config.gui.table_row_height));
+            ui.label(format!("Columns visible:"));
+            ui.label(format!("Title: {}", config.gui.show_title));
+            ui.label(format!("Authors: {}", config.gui.show_authors));
+            ui.label(format!("Series: {}", config.gui.show_series));
+            ui.label(format!("Tags: {}", config.gui.show_tags));
+            ui.label(format!("Formats: {}", config.gui.show_formats));
+            ui.label(format!("Rating: {}", config.gui.show_rating));
+            ui.label(format!("Publisher: {}", config.gui.show_publisher));
+            ui.label(format!("Languages: {}", config.gui.show_languages));
+            ui.label(format!("Cover: {}", config.gui.show_cover));
+            ui.label(format!("Cover thumb size: {}", config.gui.cover_thumb_size));
+            ui.label(format!(
+                "Cover preview size: {}",
+                config.gui.cover_preview_size
+            ));
+            ui.label(format!(
+                "Toast duration: {}s",
+                config.gui.toast_duration_secs
+            ));
+            ui.label(format!("Toast max: {}", config.gui.toast_max));
+        });
+    }
+
+    fn render_import_export_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("Conversion").show(ui, |ui| {
             if self.edit_mode {
                 ui.checkbox(&mut self.state.conversion_enabled, "Enabled");
@@ -408,6 +412,75 @@ impl PreferencesView {
             ));
         });
 
+        egui::CollapsingHeader::new("Formats").show(ui, |ui| {
+            ui.label(format!(
+                "Supported formats: {}",
+                config.formats.supported.join(", ")
+            ));
+            ui.label(format!(
+                "Archive formats: {}",
+                config.formats.archive_formats.join(", ")
+            ));
+        });
+    }
+
+    fn render_advanced_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        egui::CollapsingHeader::new("Server").show(ui, |ui| {
+            if self.edit_mode {
+                ui.text_edit_singleline(&mut self.state.server_host);
+                if self.state.server_host.trim().is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(190, 0, 0), "Host cannot be empty");
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Port");
+                    ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Scheme");
+                    ui.text_edit_singleline(&mut self.state.server_scheme);
+                });
+                if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(190, 0, 0),
+                        "Scheme must be http or https",
+                    );
+                }
+                ui.text_edit_singleline(&mut self.state.server_url_prefix);
+                ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
+                ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
+                ui.horizontal(|ui| {
+                    ui.label("Download max bytes");
+                    ui.add(egui::DragValue::new(
+                        &mut self.state.server_download_max_bytes,
+                    ));
+                });
+                ui.checkbox(
+                    &mut self.state.server_download_allow_external,
+                    "Allow external download",
+                );
+            } else {
+                ui.label(format!(
+                    "Host: {}:{} ({})",
+                    config.server.host, config.server.port, config.server.scheme
+                ));
+                ui.label(format!("URL prefix: {}", config.server.url_prefix));
+                ui.label(format!("Auth enabled: {}", config.server.enable_auth));
+                ui.label(format!(
+                    "Download enabled: {}",
+                    config.server.download_enabled
+                ));
+                ui.label(format!(
+                    "Download max bytes: {}",
+                    config.server.download_max_bytes
+                ));
+                ui.label(format!(
+                    "Allow external download: {}",
+                    config.server.download_allow_external
+                ));
+            }
+            ui.label(format!("API keys: {}", config.server.api_keys.len()));
+        });
+
         egui::CollapsingHeader::new("FTS").show(ui, |ui| {
             if self.edit_mode {
                 ui.checkbox(&mut self.state.fts_enabled, "Enabled");
@@ -439,24 +512,11 @@ impl PreferencesView {
             }
         });
 
-        Ok(())
-    }
-
-    pub fn status_line(&self) -> (&str, Option<&str>) {
-        (self.status.as_str(), self.last_error.as_deref())
-    }
-
-    pub fn error_message(&self) -> Option<&str> {
-        self.last_error.as_deref()
-    }
-
-    pub fn clear_error_message(&mut self) {
-        self.last_error = None;
-    }
-
-    pub fn set_error(&mut self, message: String) {
-        self.last_error = Some(message);
-        self.status = "Error".to_string();
+        egui::CollapsingHeader::new("Metrics").show(ui, |ui| {
+            ui.label(format!("Enabled: {}", config.metrics.enabled));
+            ui.label(format!("Endpoint: {}", config.metrics.endpoint));
+            ui.label(format!("Namespace: {}", config.metrics.namespace));
+        });
     }
 
     fn apply_state(&mut self, config: &mut ControlPlane) -> CoreResult<()> {
@@ -546,7 +606,12 @@ impl PreferencesView {
         if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
             errors.push("server scheme must be http or https".to_string());
         }
-        if self.state.conversion_default_output_format.trim().is_empty() {
+        if self
+            .state
+            .conversion_default_output_format
+            .trim()
+            .is_empty()
+        {
             errors.push("default output format must not be empty".to_string());
         }
         if self.state.fts_tokenizer.trim().is_empty() {
@@ -627,6 +692,37 @@ enum PrefAction {
     BeginEdit,
     Save,
     Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrefSection {
+    Behavior,
+    LookAndFeel,
+    ImportExport,
+    Advanced,
+    System,
+}
+
+impl PrefSection {
+    fn label(&self) -> &'static str {
+        match self {
+            PrefSection::Behavior => "Behavior",
+            PrefSection::LookAndFeel => "Look & Feel",
+            PrefSection::ImportExport => "Import/Export",
+            PrefSection::Advanced => "Advanced",
+            PrefSection::System => "System",
+        }
+    }
+
+    fn all() -> [PrefSection; 5] {
+        [
+            PrefSection::Behavior,
+            PrefSection::LookAndFeel,
+            PrefSection::ImportExport,
+            PrefSection::Advanced,
+            PrefSection::System,
+        ]
+    }
 }
 
 #[cfg(test)]

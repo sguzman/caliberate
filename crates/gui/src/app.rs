@@ -277,16 +277,16 @@ impl CaliberateApp {
                 self.library.request_save();
             }
             AppAction::AddBooks => {
-                self.library.enqueue_job_action("Add books");
+                self.library.open_add_books(&self.config);
             }
             AppAction::RemoveBooks => {
-                self.library.enqueue_job_action("Remove books");
+                self.library.open_remove_books(&self.config);
             }
             AppAction::ConvertBooks => {
-                self.library.enqueue_job_action("Convert books");
+                self.library.open_convert_books(&self.config);
             }
             AppAction::SaveToDisk => {
-                self.library.enqueue_job_action("Save to disk");
+                self.library.open_save_to_disk(&self.config);
             }
             AppAction::OpenLogs => {
                 self.library.request_open_logs();

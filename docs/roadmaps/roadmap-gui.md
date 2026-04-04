@@ -59,20 +59,50 @@
 - [x] Implement book folder/path actions (open folder, open file)
 
 ## Library Operations
-- [ ] Implement add books workflow (files/folders, copy vs reference)
-- [ ] Implement remove books workflow (delete vs remove from db)
-- [ ] Implement edit metadata in bulk
-- [ ] Implement convert books workflow and progress
-- [ ] Implement save to disk/export workflow
-- [ ] Implement device sync workflow surface
-- [ ] Implement tags/series management dialogs
-- [ ] Implement custom columns management UI
-- [ ] Implement virtual library management UI
+- [x] Implement add books workflow (files/folders, copy vs reference)
+- [x] Add books dialog with file list input
+- [x] Add books folder ingest with format filtering
+- [x] Add books ingest mode selection (copy/reference)
+- [x] Add books archive reference toggle
+- [x] Add books DB insertion + refresh status
+- [x] Implement remove books workflow (delete vs remove from db)
+- [x] Remove books confirmation dialog with selection count
+- [x] Remove books delete stored files option
+- [x] Remove books delete reference files option
+- [x] Remove books DB deletion + refresh
+- [x] Implement edit metadata in bulk
+- [x] Bulk edit dialog for multi-select
+- [x] Bulk edit tags (append/replace)
+- [x] Bulk edit series name/index
+- [x] Bulk edit publisher set/clear
+- [x] Bulk edit languages
+- [x] Bulk edit rating
+- [x] Implement convert books workflow and progress
+- [x] Convert dialog output format + output dir
+- [x] Convert handles compressed assets
+- [x] Convert add-to-library option
+- [x] Convert status/toast update
+- [x] Implement save to disk/export workflow
+- [x] Save to disk dialog output dir + export all formats toggle
+- [x] Save to disk handles compressed assets
+- [x] Save to disk status/toast update
+- [x] Implement device sync workflow surface
+- [x] Device sync dialog with detected devices
+- [x] Device sync send selected assets with optional name override
+- [x] Implement tags/series management dialogs
+- [x] Tags management list + rename/delete actions
+- [x] Series management list + rename/delete actions
+- [x] Implement custom columns management UI
+- [x] Custom columns management list/create/delete
+- [x] Implement virtual library management UI
+- [x] Virtual library saved searches list/add/remove
 
 ## Preferences
 - [x] Add read-only preferences view from control-plane
 - [x] Implement editable preferences and persistence
-- [ ] Implement preferences sections parity (behavior, look & feel, import/export, advanced)
+- [x] Implement preferences sections parity (behavior, look & feel, import/export, advanced)
+- [x] Add preferences section tabs
+- [x] Group preferences into section views (system, behavior, look & feel, import/export, advanced)
 - [x] Implement validation + inline errors for editable preferences
 - [x] Add GUI layout section in Preferences
 - [x] Add inline validation messages for server/conversion/FTS fields

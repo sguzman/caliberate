@@ -4081,14 +4081,12 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
-        let rows = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|err| {
-                CoreError::Io(
-                    "query list all tags".to_string(),
-                    std::io::Error::new(std::io::ErrorKind::Other, err),
-                )
-            })?;
+        let rows = stmt.query_map([], |row| row.get(0)).map_err(|err| {
+            CoreError::Io(
+                "query list all tags".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
         let mut tags = Vec::new();
         for row in rows {
             tags.push(row.map_err(|err| {
@@ -4101,6 +4099,35 @@ impl Database {
         Ok(tags)
     }
 
+    pub fn rename_tag(&self, from: &str, to: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE tags SET name = ?1 WHERE name = ?2",
+                params![to, from],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "rename tag".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn delete_tag(&self, name: &str) -> CoreResult<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM tags WHERE name = ?1", params![name])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete tag".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(deleted > 0)
+    }
+
     pub fn list_languages(&self) -> CoreResult<Vec<String>> {
         let mut stmt = self
             .conn
@@ -4111,14 +4138,12 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
-        let rows = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|err| {
-                CoreError::Io(
-                    "query list languages".to_string(),
-                    std::io::Error::new(std::io::ErrorKind::Other, err),
-                )
-            })?;
+        let rows = stmt.query_map([], |row| row.get(0)).map_err(|err| {
+            CoreError::Io(
+                "query list languages".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
         let mut languages = Vec::new();
         for row in rows {
             languages.push(row.map_err(|err| {
@@ -4141,14 +4166,12 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })?;
-        let rows = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|err| {
-                CoreError::Io(
-                    "query list publishers".to_string(),
-                    std::io::Error::new(std::io::ErrorKind::Other, err),
-                )
-            })?;
+        let rows = stmt.query_map([], |row| row.get(0)).map_err(|err| {
+            CoreError::Io(
+                "query list publishers".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })?;
         let mut publishers = Vec::new();
         for row in rows {
             publishers.push(row.map_err(|err| {
@@ -4185,6 +4208,35 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })
+    }
+
+    pub fn rename_series(&self, from: &str, to: &str) -> CoreResult<bool> {
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE series SET name = ?1 WHERE name = ?2",
+                params![to, from],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "rename series".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(updated > 0)
+    }
+
+    pub fn delete_series(&self, name: &str) -> CoreResult<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM series WHERE name = ?1", params![name])
+            .map_err(|err| {
+                CoreError::Io(
+                    "delete series".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(deleted > 0)
     }
 
     pub fn set_book_series(&mut self, book_id: i64, name: &str, index: f64) -> CoreResult<()> {

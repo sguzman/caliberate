@@ -1,15 +1,27 @@
 //! GUI views and models.
 
-use caliberate_core::config::{ControlPlane, GuiConfig};
+use caliberate_assets::compression::decompress_file;
+use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode};
+use caliberate_conversion::pipeline::convert_file;
+use caliberate_conversion::settings::ConversionSettings;
+use caliberate_core::config::{ControlPlane, GuiConfig, IngestMode};
 use caliberate_core::error::{CoreError, CoreResult};
 use caliberate_db::cache::MetadataCache;
-use caliberate_db::database::{AssetRow, BookRecord, Database, IdentifierEntry, SeriesEntry};
+use caliberate_db::database::{
+    AssetRow, BookRecord, CategoryCount, CustomColumn, Database, IdentifierEntry, SeriesEntry,
+};
+use caliberate_device::detection::{DeviceInfo, detect_devices};
+use caliberate_device::sync::send_to_device;
+use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::info;
+use time::OffsetDateTime;
+use tracing::{info, warn};
+use walkdir::WalkDir;
 
 #[derive(Debug, Clone)]
 pub struct BookRow {
@@ -202,6 +214,16 @@ pub struct LibraryView {
     next_job_id: u64,
     last_tick: f64,
     comment_preview: bool,
+    add_books: AddBooksDialogState,
+    remove_books: RemoveBooksDialogState,
+    bulk_edit: BulkEditDialogState,
+    convert_books: ConvertBooksDialogState,
+    save_to_disk: SaveToDiskDialogState,
+    device_sync: DeviceSyncDialogState,
+    manage_tags: ManageTagsDialogState,
+    manage_series: ManageSeriesDialogState,
+    manage_custom_columns: ManageCustomColumnsDialogState,
+    manage_virtual_libraries: ManageVirtualLibrariesDialogState,
 }
 
 impl LibraryView {
@@ -250,6 +272,16 @@ impl LibraryView {
             next_job_id: 1,
             last_tick: 0.0,
             comment_preview: false,
+            add_books: AddBooksDialogState::default(),
+            remove_books: RemoveBooksDialogState::default(),
+            bulk_edit: BulkEditDialogState::default(),
+            convert_books: ConvertBooksDialogState::default(),
+            save_to_disk: SaveToDiskDialogState::default(),
+            device_sync: DeviceSyncDialogState::default(),
+            manage_tags: ManageTagsDialogState::default(),
+            manage_series: ManageSeriesDialogState::default(),
+            manage_custom_columns: ManageCustomColumnsDialogState::default(),
+            manage_virtual_libraries: ManageVirtualLibrariesDialogState::default(),
         };
         view.refresh_books()?;
         Ok(view)
@@ -283,13 +315,66 @@ impl LibraryView {
         self.open_logs_requested = true;
     }
 
+    pub fn open_add_books(&mut self, config: &ControlPlane) {
+        self.add_books.apply_defaults(config);
+        self.add_books.open = true;
+    }
+
+    pub fn open_remove_books(&mut self, config: &ControlPlane) {
+        self.remove_books.apply_defaults(config);
+        self.remove_books.open = true;
+    }
+
+    pub fn open_bulk_edit(&mut self) {
+        self.bulk_edit.reset();
+    }
+
+    pub fn open_convert_books(&mut self, config: &ControlPlane) {
+        self.convert_books.apply_defaults(config);
+        self.convert_books.open = true;
+    }
+
+    pub fn open_save_to_disk(&mut self, config: &ControlPlane) {
+        self.save_to_disk.apply_defaults(config);
+        self.save_to_disk.open = true;
+    }
+
+    pub fn open_device_sync(&mut self, config: &ControlPlane) {
+        self.device_sync.apply_defaults(config);
+        self.device_sync.open = true;
+    }
+
+    pub fn open_manage_tags(&mut self) {
+        self.manage_tags.open = true;
+        self.manage_tags.needs_refresh = true;
+    }
+
+    pub fn open_manage_series(&mut self) {
+        self.manage_series.open = true;
+        self.manage_series.needs_refresh = true;
+    }
+
+    pub fn open_manage_custom_columns(&mut self) {
+        self.manage_custom_columns.open = true;
+        self.manage_custom_columns.needs_refresh = true;
+    }
+
+    pub fn open_manage_virtual_libraries(&mut self) {
+        self.manage_virtual_libraries.open = true;
+        self.manage_virtual_libraries.needs_refresh = true;
+    }
+
     pub fn notify_unimplemented(&mut self, message: &str) {
         self.status = message.to_string();
         self.push_toast(message, ToastLevel::Warn);
     }
 
     pub fn enqueue_job_action(&mut self, name: &str) {
-        let now = if self.last_tick == 0.0 { 0.0 } else { self.last_tick };
+        let now = if self.last_tick == 0.0 {
+            0.0
+        } else {
+            self.last_tick
+        };
         self.enqueue_job(name, now);
     }
 
@@ -301,12 +386,7 @@ impl LibraryView {
         }
     }
 
-    pub fn ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        config: &mut ControlPlane,
-        config_path: &Path,
-    ) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane, config_path: &Path) {
         let now = ui.ctx().input(|i| i.time);
         self.tick_jobs(now);
         self.prune_toasts(now);
@@ -327,6 +407,10 @@ impl LibraryView {
                 self.format_controls(ui);
                 ui.separator();
                 self.layout_controls(ui, config, config_path);
+                ui.separator();
+                self.operations_controls(ui, config);
+                ui.separator();
+                self.management_controls(ui);
                 ui.separator();
                 if self.needs_refresh {
                     if let Err(err) = self.refresh_books() {
@@ -375,11 +459,27 @@ impl LibraryView {
             }
         }
 
+        self.add_books_dialog(ui, config);
+        self.remove_books_dialog(ui, config);
+        self.bulk_edit_dialog(ui, config);
+        self.convert_books_dialog(ui, config);
+        self.save_to_disk_dialog(ui, config);
+        self.device_sync_dialog(ui, config);
+        self.manage_tags_dialog(ui);
+        self.manage_series_dialog(ui);
+        self.manage_custom_columns_dialog(ui);
+        self.manage_virtual_libraries_dialog(ui);
+
         self.render_jobs(ui);
         self.render_toasts(ui);
     }
 
-    fn toolbar_controls(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane, config_path: &Path) {
+    fn toolbar_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut ControlPlane,
+        config_path: &Path,
+    ) {
         ui.horizontal(|ui| {
             if ui.button("Refresh").clicked() {
                 self.needs_refresh = true;
@@ -437,7 +537,9 @@ impl LibraryView {
                         .unwrap_or("Secondary: none"),
                 )
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(self.secondary_sort.is_none(), "Secondary: none").clicked()
+                    if ui
+                        .selectable_label(self.secondary_sort.is_none(), "Secondary: none")
+                        .clicked()
                     {
                         self.secondary_sort = None;
                     }
@@ -532,7 +634,12 @@ impl LibraryView {
         });
     }
 
-    fn layout_controls(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane, config_path: &Path) {
+    fn layout_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &mut ControlPlane,
+        config_path: &Path,
+    ) {
         ui.horizontal(|ui| {
             ui.label("View");
             egui::ComboBox::from_id_salt("view_mode")
@@ -581,10 +688,16 @@ impl LibraryView {
                 if ui.checkbox(&mut self.columns.rating, "Rating").changed() {
                     self.layout_dirty = true;
                 }
-                if ui.checkbox(&mut self.columns.publisher, "Publisher").changed() {
+                if ui
+                    .checkbox(&mut self.columns.publisher, "Publisher")
+                    .changed()
+                {
                     self.layout_dirty = true;
                 }
-                if ui.checkbox(&mut self.columns.languages, "Languages").changed() {
+                if ui
+                    .checkbox(&mut self.columns.languages, "Languages")
+                    .changed()
+                {
                     self.layout_dirty = true;
                 }
                 if ui.checkbox(&mut self.columns.cover, "Cover").changed() {
@@ -652,6 +765,76 @@ impl LibraryView {
             });
     }
 
+    fn operations_controls(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        egui::CollapsingHeader::new("Operations")
+            .default_open(true)
+            .show(ui, |ui| {
+                if ui.button("Add books…").clicked() {
+                    self.open_add_books(config);
+                }
+                if ui
+                    .add_enabled(
+                        !self.selected_ids.is_empty(),
+                        egui::Button::new("Remove books…"),
+                    )
+                    .clicked()
+                {
+                    self.open_remove_books(config);
+                }
+                if ui
+                    .add_enabled(self.selected_ids.len() > 1, egui::Button::new("Bulk edit…"))
+                    .clicked()
+                {
+                    self.open_bulk_edit();
+                }
+                if ui
+                    .add_enabled(
+                        !self.selected_ids.is_empty(),
+                        egui::Button::new("Convert books…"),
+                    )
+                    .clicked()
+                {
+                    self.open_convert_books(config);
+                }
+                if ui
+                    .add_enabled(
+                        !self.selected_ids.is_empty(),
+                        egui::Button::new("Save to disk…"),
+                    )
+                    .clicked()
+                {
+                    self.open_save_to_disk(config);
+                }
+                if ui
+                    .add_enabled(
+                        !self.selected_ids.is_empty(),
+                        egui::Button::new("Send to device…"),
+                    )
+                    .clicked()
+                {
+                    self.open_device_sync(config);
+                }
+            });
+    }
+
+    fn management_controls(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Manage")
+            .default_open(false)
+            .show(ui, |ui| {
+                if ui.button("Tags…").clicked() {
+                    self.open_manage_tags();
+                }
+                if ui.button("Series…").clicked() {
+                    self.open_manage_series();
+                }
+                if ui.button("Custom columns…").clicked() {
+                    self.open_manage_custom_columns();
+                }
+                if ui.button("Virtual libraries…").clicked() {
+                    self.open_manage_virtual_libraries();
+                }
+            });
+    }
 
     fn table_view(&mut self, ui: &mut egui::Ui) {
         let row_height = self.table_row_height.max(32.0);
@@ -730,7 +913,10 @@ impl LibraryView {
                     let mut modifiers = egui::Modifiers::default();
                     if self.columns.title {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, highlight_text(&book.title, &self.search_query));
+                            let response = ui.selectable_label(
+                                selected,
+                                highlight_text(&book.title, &self.search_query),
+                            );
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -744,7 +930,10 @@ impl LibraryView {
                     }
                     if self.columns.authors {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, highlight_text(&book.authors, &self.search_query));
+                            let response = ui.selectable_label(
+                                selected,
+                                highlight_text(&book.authors, &self.search_query),
+                            );
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -753,7 +942,10 @@ impl LibraryView {
                     }
                     if self.columns.series {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, highlight_text(&book.series, &self.search_query));
+                            let response = ui.selectable_label(
+                                selected,
+                                highlight_text(&book.series, &self.search_query),
+                            );
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -762,7 +954,10 @@ impl LibraryView {
                     }
                     if self.columns.tags {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, highlight_text(&book.tags, &self.search_query));
+                            let response = ui.selectable_label(
+                                selected,
+                                highlight_text(&book.tags, &self.search_query),
+                            );
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -870,7 +1065,10 @@ impl LibraryView {
         match &details_snapshot {
             Some(details) => {
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.edit_mode, egui::Button::new("Edit")).clicked() {
+                    if ui
+                        .add_enabled(!self.edit_mode, egui::Button::new("Edit"))
+                        .clicked()
+                    {
                         action = DetailAction::BeginEdit;
                     }
                     if ui
@@ -902,7 +1100,11 @@ impl LibraryView {
                 ));
                 ui.label(format!(
                     "Publisher: {}",
-                    details.extras.publisher.clone().unwrap_or_else(|| "none".to_string())
+                    details
+                        .extras
+                        .publisher
+                        .clone()
+                        .unwrap_or_else(|| "none".to_string())
                 ));
                 ui.label(format!(
                     "Rating: {}",
@@ -1101,8 +1303,638 @@ impl LibraryView {
         self.edit_mode = open;
     }
 
+    fn add_books_dialog(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane) {
+        if !self.add_books.open {
+            return;
+        }
+        let mut open = self.add_books.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Add books")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label("Files (one per line)");
+                ui.text_edit_multiline(&mut self.add_books.files_input);
+                ui.label("Folder");
+                ui.text_edit_singleline(&mut self.add_books.folder_input);
+                ui.horizontal(|ui| {
+                    ui.label("Mode");
+                    egui::ComboBox::from_id_salt("add_books_mode")
+                        .selected_text(format!("{:?}", self.add_books.mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.add_books.mode, IngestMode::Copy, "Copy");
+                            ui.selectable_value(
+                                &mut self.add_books.mode,
+                                IngestMode::Reference,
+                                "Reference",
+                            );
+                        });
+                });
+                if config.ingest.archive_reference_enabled {
+                    ui.checkbox(
+                        &mut self.add_books.archive_reference,
+                        "Treat archives as references",
+                    );
+                } else {
+                    ui.label("Archive reference disabled in config");
+                }
+                ui.checkbox(
+                    &mut self.add_books.include_archives,
+                    "Include archive formats",
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Add").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_add_books(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.add_books.open = open;
+    }
+
+    fn remove_books_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.remove_books.open {
+            return;
+        }
+        let mut open = self.remove_books.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Remove books")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!(
+                    "Remove {} selected book(s)",
+                    self.selected_ids.len()
+                ));
+                ui.checkbox(&mut self.remove_books.delete_files, "Delete stored files");
+                ui.checkbox(
+                    &mut self.remove_books.delete_reference_files,
+                    "Delete referenced files",
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Remove").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_remove_books(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.remove_books.open = open;
+    }
+
+    fn bulk_edit_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.bulk_edit.open {
+            return;
+        }
+        let mut open = self.bulk_edit.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Bulk edit metadata")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!(
+                    "Editing {} selected book(s)",
+                    self.selected_ids.len()
+                ));
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.bulk_edit.apply_tags, "Apply tags");
+                    ui.checkbox(&mut self.bulk_edit.replace_tags, "Replace");
+                });
+                ui.text_edit_singleline(&mut self.bulk_edit.tags);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.bulk_edit.apply_series, "Apply series");
+                    ui.text_edit_singleline(&mut self.bulk_edit.series_name);
+                    ui.add(
+                        egui::DragValue::new(&mut self.bulk_edit.series_index)
+                            .speed(0.1)
+                            .range(0.0..=999.0),
+                    );
+                });
+                ui.separator();
+                ui.checkbox(&mut self.bulk_edit.apply_publisher, "Apply publisher");
+                ui.text_edit_singleline(&mut self.bulk_edit.publisher);
+                ui.checkbox(&mut self.bulk_edit.clear_publisher, "Clear publisher");
+                ui.separator();
+                ui.checkbox(&mut self.bulk_edit.apply_languages, "Apply languages");
+                ui.text_edit_singleline(&mut self.bulk_edit.languages);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.bulk_edit.apply_rating, "Apply rating");
+                    ui.add(
+                        egui::DragValue::new(&mut self.bulk_edit.rating)
+                            .speed(1.0)
+                            .range(0..=5),
+                    );
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_bulk_edit(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.bulk_edit.open = open;
+    }
+
+    fn convert_books_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.convert_books.open {
+            return;
+        }
+        let mut open = self.convert_books.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Convert books")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!(
+                    "Convert {} selected book(s)",
+                    self.selected_ids.len()
+                ));
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Output format");
+                    egui::ComboBox::from_id_salt("convert_output_format")
+                        .selected_text(self.convert_books.output_format.as_str())
+                        .show_ui(ui, |ui| {
+                            for format in &config.formats.supported {
+                                ui.selectable_value(
+                                    &mut self.convert_books.output_format,
+                                    format.clone(),
+                                    format,
+                                );
+                            }
+                        });
+                });
+                ui.label("Output directory");
+                ui.text_edit_singleline(&mut self.convert_books.output_dir);
+                ui.checkbox(
+                    &mut self.convert_books.add_to_library,
+                    "Add converted format to library",
+                );
+                ui.checkbox(&mut self.convert_books.keep_output, "Keep output file");
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Convert").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_convert_books(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.convert_books.open = open;
+    }
+
+    fn save_to_disk_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.save_to_disk.open {
+            return;
+        }
+        let mut open = self.save_to_disk.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Save to disk")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!(
+                    "Export {} selected book(s)",
+                    self.selected_ids.len()
+                ));
+                ui.label("Output directory");
+                ui.text_edit_singleline(&mut self.save_to_disk.output_dir);
+                ui.checkbox(
+                    &mut self.save_to_disk.export_all_formats,
+                    "Export all formats",
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Export").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_save_to_disk(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.save_to_disk.open = open;
+    }
+
+    fn device_sync_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.device_sync.open {
+            return;
+        }
+        let mut open = self.device_sync.open;
+        let mut confirmed = false;
+        let mut close_requested = false;
+        egui::Window::new("Send to device")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!("Send {} selected book(s)", self.selected_ids.len()));
+                if let Some(err) = &self.device_sync.error {
+                    ui.colored_label(egui::Color32::from_rgb(190, 0, 0), err);
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Device");
+                    egui::ComboBox::from_id_salt("device_select")
+                        .selected_text(
+                            self.device_sync
+                                .selected_device
+                                .and_then(|idx| self.device_sync.devices.get(idx))
+                                .map(|device| device.name.as_str())
+                                .unwrap_or("None"),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (idx, device) in self.device_sync.devices.iter().enumerate() {
+                                ui.selectable_value(
+                                    &mut self.device_sync.selected_device,
+                                    Some(idx),
+                                    device.name.as_str(),
+                                );
+                            }
+                        });
+                });
+                ui.label("Destination name override (optional)");
+                ui.text_edit_singleline(&mut self.device_sync.destination_name);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Send").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                });
+            });
+        if confirmed {
+            match self.run_device_sync(config) {
+                Ok(()) => {
+                    close_requested = true;
+                }
+                Err(err) => {
+                    self.set_error(err);
+                }
+            }
+        }
+        if close_requested {
+            open = false;
+        }
+        self.device_sync.open = open;
+    }
+
+    fn manage_tags_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.manage_tags.open {
+            return;
+        }
+        if self.manage_tags.needs_refresh {
+            if let Err(err) = self.refresh_manage_tags() {
+                self.set_error(err);
+            }
+        }
+        let mut open = self.manage_tags.open;
+        let mut rename = false;
+        let mut delete = false;
+        egui::Window::new("Manage tags")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label("Tags");
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for tag in &self.manage_tags.tags {
+                            ui.label(format!("{} ({})", tag.name, tag.count));
+                        }
+                    });
+                ui.separator();
+                ui.label("Rename tag");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.manage_tags.rename_from);
+                    ui.label("→");
+                    ui.text_edit_singleline(&mut self.manage_tags.rename_to);
+                });
+                if ui.button("Rename").clicked() {
+                    rename = true;
+                }
+                ui.separator();
+                ui.label("Delete tag");
+                ui.text_edit_singleline(&mut self.manage_tags.delete_name);
+                if ui.button("Delete").clicked() {
+                    delete = true;
+                }
+            });
+        if rename {
+            if let Err(err) = self
+                .db
+                .rename_tag(&self.manage_tags.rename_from, &self.manage_tags.rename_to)
+            {
+                self.set_error(err);
+            } else {
+                self.manage_tags.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        if delete {
+            if let Err(err) = self.db.delete_tag(&self.manage_tags.delete_name) {
+                self.set_error(err);
+            } else {
+                self.manage_tags.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        self.manage_tags.open = open;
+    }
+
+    fn manage_series_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.manage_series.open {
+            return;
+        }
+        if self.manage_series.needs_refresh {
+            if let Err(err) = self.refresh_manage_series() {
+                self.set_error(err);
+            }
+        }
+        let mut open = self.manage_series.open;
+        let mut rename = false;
+        let mut delete = false;
+        egui::Window::new("Manage series")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label("Series");
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for series in &self.manage_series.series {
+                            ui.label(format!("{} ({})", series.name, series.count));
+                        }
+                    });
+                ui.separator();
+                ui.label("Rename series");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.manage_series.rename_from);
+                    ui.label("→");
+                    ui.text_edit_singleline(&mut self.manage_series.rename_to);
+                });
+                if ui.button("Rename").clicked() {
+                    rename = true;
+                }
+                ui.separator();
+                ui.label("Delete series");
+                ui.text_edit_singleline(&mut self.manage_series.delete_name);
+                if ui.button("Delete").clicked() {
+                    delete = true;
+                }
+            });
+        if rename {
+            if let Err(err) = self.db.rename_series(
+                &self.manage_series.rename_from,
+                &self.manage_series.rename_to,
+            ) {
+                self.set_error(err);
+            } else {
+                self.manage_series.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        if delete {
+            if let Err(err) = self.db.delete_series(&self.manage_series.delete_name) {
+                self.set_error(err);
+            } else {
+                self.manage_series.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        self.manage_series.open = open;
+    }
+
+    fn manage_custom_columns_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.manage_custom_columns.open {
+            return;
+        }
+        if self.manage_custom_columns.needs_refresh {
+            if let Err(err) = self.refresh_manage_custom_columns() {
+                self.set_error(err);
+            }
+        }
+        let mut open = self.manage_custom_columns.open;
+        let mut create = false;
+        let mut delete = false;
+        egui::Window::new("Manage custom columns")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label("Custom columns");
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for column in &self.manage_custom_columns.columns {
+                            ui.label(format!(
+                                "{} ({}, {})",
+                                column.label, column.name, column.datatype
+                            ));
+                        }
+                    });
+                ui.separator();
+                ui.label("Create column");
+                ui.text_edit_singleline(&mut self.manage_custom_columns.new_label);
+                ui.text_edit_singleline(&mut self.manage_custom_columns.new_name);
+                egui::ComboBox::from_id_salt("custom_column_datatype")
+                    .selected_text(self.manage_custom_columns.new_datatype.as_str())
+                    .show_ui(ui, |ui| {
+                        for datatype in ["text", "int", "float", "bool"] {
+                            ui.selectable_value(
+                                &mut self.manage_custom_columns.new_datatype,
+                                datatype.to_string(),
+                                datatype,
+                            );
+                        }
+                    });
+                ui.text_edit_singleline(&mut self.manage_custom_columns.new_display);
+                if ui.button("Create").clicked() {
+                    create = true;
+                }
+                ui.separator();
+                ui.label("Delete column (label)");
+                ui.text_edit_singleline(&mut self.manage_custom_columns.delete_label);
+                if ui.button("Delete").clicked() {
+                    delete = true;
+                }
+            });
+        if create {
+            if let Err(err) = self.db.create_custom_column(
+                &self.manage_custom_columns.new_label,
+                &self.manage_custom_columns.new_name,
+                &self.manage_custom_columns.new_datatype,
+                &self.manage_custom_columns.new_display,
+            ) {
+                self.set_error(err);
+            } else {
+                self.manage_custom_columns.needs_refresh = true;
+            }
+        }
+        if delete {
+            if let Err(err) = self
+                .db
+                .delete_custom_column(&self.manage_custom_columns.delete_label)
+            {
+                self.set_error(err);
+            } else {
+                self.manage_custom_columns.needs_refresh = true;
+            }
+        }
+        self.manage_custom_columns.open = open;
+    }
+
+    fn manage_virtual_libraries_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.manage_virtual_libraries.open {
+            return;
+        }
+        if self.manage_virtual_libraries.needs_refresh {
+            if let Err(err) = self.refresh_manage_virtual_libraries() {
+                self.set_error(err);
+            }
+        }
+        let mut open = self.manage_virtual_libraries.open;
+        let mut add = false;
+        let mut delete = false;
+        egui::Window::new("Manage virtual libraries")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.label("Saved searches");
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for (name, query) in &self.manage_virtual_libraries.searches {
+                            ui.label(format!("{name}: {query}"));
+                        }
+                    });
+                ui.separator();
+                ui.label("Add saved search");
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.new_name);
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.new_query);
+                if ui.button("Add").clicked() {
+                    add = true;
+                }
+                ui.separator();
+                ui.label("Remove saved search");
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.delete_name);
+                if ui.button("Remove").clicked() {
+                    delete = true;
+                }
+            });
+        if add {
+            if let Err(err) = self.db.add_saved_search(
+                &self.manage_virtual_libraries.new_name,
+                &self.manage_virtual_libraries.new_query,
+            ) {
+                self.set_error(err);
+            } else {
+                self.manage_virtual_libraries.needs_refresh = true;
+            }
+        }
+        if delete {
+            if let Err(err) = self
+                .db
+                .remove_saved_search(&self.manage_virtual_libraries.delete_name)
+            {
+                self.set_error(err);
+            } else {
+                self.manage_virtual_libraries.needs_refresh = true;
+            }
+        }
+        self.manage_virtual_libraries.open = open;
+    }
+
     fn tag_autocomplete(&mut self, ui: &mut egui::Ui) {
-        let query = self.edit.tags.split(',').last().unwrap_or("").trim().to_lowercase();
+        let query = self
+            .edit
+            .tags
+            .split(',')
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
         if query.is_empty() || self.available_tags.is_empty() {
             return;
         }
@@ -1144,6 +1976,408 @@ impl LibraryView {
         }
     }
 
+    fn run_add_books(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let paths = self.collect_ingest_paths(config)?;
+        if paths.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "no files selected for ingest".to_string(),
+            ));
+        }
+        let store = LocalAssetStore::from_config(config);
+        let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
+        let mut added = 0;
+        let mut skipped = 0;
+        for path in paths {
+            let is_archive = is_archive_path(&path, &config.formats);
+            let outcome = if is_archive && self.add_books.archive_reference {
+                ingestor.ingest_archive_reference(IngestRequest {
+                    source_path: &path,
+                    mode: Some(self.add_books.mode),
+                })?
+            } else {
+                ingestor.ingest(IngestRequest {
+                    source_path: &path,
+                    mode: Some(self.add_books.mode),
+                })?
+            };
+            match outcome {
+                IngestOutcome::Ingested(result) => {
+                    let id = self.insert_ingested_book(&result)?;
+                    info!(
+                        component = "gui",
+                        book_id = id,
+                        path = %path.display(),
+                        "book ingested"
+                    );
+                    added += 1;
+                }
+                IngestOutcome::Skipped(skip) => {
+                    warn!(
+                        component = "gui",
+                        path = %path.display(),
+                        reason = ?skip.reason,
+                        "skipped ingest duplicate"
+                    );
+                    skipped += 1;
+                }
+            }
+        }
+        self.needs_refresh = true;
+        self.status = format!("Added {added} book(s), skipped {skipped}");
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn run_remove_books(&mut self, _config: &ControlPlane) -> CoreResult<()> {
+        let ids = self.selected_ids.clone();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut removed = 0;
+        let mut files_removed = 0;
+        for book_id in ids {
+            let assets = self.db.list_assets_for_book(book_id)?;
+            if self.remove_books.delete_files {
+                for asset in &assets {
+                    if should_delete_asset(asset, self.remove_books.delete_reference_files) {
+                        let path = Path::new(&asset.stored_path);
+                        if path.exists() {
+                            fs::remove_file(path).map_err(|err| {
+                                CoreError::Io("remove asset file".to_string(), err)
+                            })?;
+                            files_removed += 1;
+                        }
+                    }
+                }
+            }
+            let summary = self.db.delete_book_with_assets(book_id)?;
+            if summary.book_deleted {
+                removed += 1;
+            }
+        }
+        self.selected_ids.clear();
+        self.details = None;
+        self.needs_refresh = true;
+        self.status = format!("Removed {removed} book(s), deleted {files_removed} file(s)");
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn run_bulk_edit(&mut self, _config: &ControlPlane) -> CoreResult<()> {
+        let ids = self.selected_ids.clone();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let tags = parse_list(&self.bulk_edit.tags);
+        let languages = parse_list(&self.bulk_edit.languages);
+        for book_id in ids {
+            if self.bulk_edit.apply_tags {
+                if self.bulk_edit.replace_tags {
+                    self.db.replace_book_tags(book_id, &tags)?;
+                } else {
+                    self.db.add_book_tags(book_id, &tags)?;
+                }
+            }
+            if self.bulk_edit.apply_series {
+                if self.bulk_edit.series_name.trim().is_empty() {
+                    self.db.clear_book_series(book_id)?;
+                } else {
+                    self.db.set_book_series(
+                        book_id,
+                        self.bulk_edit.series_name.trim(),
+                        self.bulk_edit.series_index,
+                    )?;
+                }
+            }
+            if self.bulk_edit.apply_publisher {
+                if self.bulk_edit.clear_publisher {
+                    self.db.set_book_publisher(book_id, "")?;
+                } else if !self.bulk_edit.publisher.trim().is_empty() {
+                    self.db
+                        .set_book_publisher(book_id, self.bulk_edit.publisher.trim())?;
+                }
+            }
+            if self.bulk_edit.apply_languages {
+                self.db.set_book_languages(book_id, &languages)?;
+            }
+            if self.bulk_edit.apply_rating {
+                self.db
+                    .set_book_rating(book_id, self.bulk_edit.rating as i64)?;
+            }
+        }
+        self.needs_refresh = true;
+        self.status = "Bulk edit applied".to_string();
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn run_convert_books(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let ids = self.selected_ids.clone();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let output_dir = output_dir_or_default(
+            &self.convert_books.output_dir,
+            &config.conversion.output_dir,
+        );
+        ensure_dir(&output_dir)?;
+        let mut converted = 0;
+        for book_id in ids {
+            let Some(book) = self.db.get_book(book_id)? else {
+                continue;
+            };
+            let assets = self.db.list_assets_for_book(book_id)?;
+            let Some(asset) = choose_asset(&assets) else {
+                continue;
+            };
+            let (input_path, temp_input) = resolve_asset_input_path(asset, &config.paths.tmp_dir)?;
+            let input_format = asset_format(asset, &book.format);
+            let output_path = build_output_path(
+                &output_dir,
+                &book.title,
+                book_id,
+                &self.convert_books.output_format,
+            );
+            let settings = ConversionSettings::from_config(&config.conversion)
+                .with_input_format(input_format)
+                .with_output_format(Some(self.convert_books.output_format.clone()));
+            let _report = convert_file(&input_path, &output_path, &settings)?;
+            if self.convert_books.add_to_library {
+                match LocalAssetStore::from_config(config).store(&output_path, StorageMode::Copy)? {
+                    caliberate_assets::storage::StoreOutcome::Stored(asset_record) => {
+                        let created_at = now_timestamp()?;
+                        let storage_mode = match asset_record.storage_mode {
+                            StorageMode::Copy => "copy",
+                            StorageMode::Reference => "reference",
+                        };
+                        let _asset_id = self.db.add_asset(
+                            book_id,
+                            storage_mode,
+                            &asset_record.stored_path.display().to_string(),
+                            asset_record
+                                .source_path
+                                .as_ref()
+                                .map(|path| path.display().to_string())
+                                .as_deref(),
+                            asset_record.size_bytes,
+                            asset_record.stored_size_bytes,
+                            asset_record.checksum.as_deref(),
+                            asset_record.is_compressed,
+                            &created_at,
+                        )?;
+                    }
+                    caliberate_assets::storage::StoreOutcome::Skipped(skip) => {
+                        warn!(
+                            component = "gui",
+                            path = %skip.existing_path.display(),
+                            "skipped storing converted asset"
+                        );
+                    }
+                }
+            }
+            if !self.convert_books.keep_output {
+                let _ = fs::remove_file(&output_path);
+            }
+            if let Some(temp_path) = temp_input {
+                let _ = fs::remove_file(temp_path);
+            }
+            converted += 1;
+        }
+        self.needs_refresh = true;
+        self.status = format!("Converted {converted} book(s)");
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn run_save_to_disk(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let ids = self.selected_ids.clone();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let output_dir =
+            output_dir_or_default(&self.save_to_disk.output_dir, &config.conversion.output_dir);
+        ensure_dir(&output_dir)?;
+        let mut exported = 0;
+        for book_id in ids {
+            let Some(book) = self.db.get_book(book_id)? else {
+                continue;
+            };
+            let assets = self.db.list_assets_for_book(book_id)?;
+            let assets = if self.save_to_disk.export_all_formats {
+                assets
+            } else {
+                choose_asset(&assets)
+                    .map(|asset| vec![asset.clone()])
+                    .unwrap_or_default()
+            };
+            for asset in assets {
+                let format =
+                    asset_format(&asset, &book.format).unwrap_or_else(|| book.format.clone());
+                let dest = build_output_path(&output_dir, &book.title, book_id, &format);
+                let (input_path, temp_input) =
+                    resolve_asset_input_path(&asset, &config.paths.tmp_dir)?;
+                if asset.is_compressed {
+                    fs::copy(&input_path, &dest).map_err(|err| {
+                        CoreError::Io("write decompressed export".to_string(), err)
+                    })?;
+                } else {
+                    fs::copy(&input_path, &dest)
+                        .map_err(|err| CoreError::Io("copy export".to_string(), err))?;
+                }
+                if let Some(temp_path) = temp_input {
+                    let _ = fs::remove_file(temp_path);
+                }
+                exported += 1;
+            }
+        }
+        self.status = format!("Exported {exported} file(s)");
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn run_device_sync(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let ids = self.selected_ids.clone();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let Some(device_index) = self.device_sync.selected_device else {
+            return Err(CoreError::ConfigValidate("no device selected".to_string()));
+        };
+        let device = self
+            .device_sync
+            .devices
+            .get(device_index)
+            .ok_or_else(|| CoreError::ConfigValidate("device selection invalid".to_string()))?
+            .clone();
+        let mut sent = 0;
+        for book_id in ids {
+            let Some(book) = self.db.get_book(book_id)? else {
+                continue;
+            };
+            let assets = self.db.list_assets_for_book(book_id)?;
+            let Some(asset) = choose_asset(&assets) else {
+                continue;
+            };
+            let (input_path, temp_input) = resolve_asset_input_path(asset, &config.paths.tmp_dir)?;
+            let format = asset_format(asset, &book.format).unwrap_or_else(|| book.format.clone());
+            let dest_name = if self.device_sync.destination_name.trim().is_empty() {
+                Some(build_output_name(&book.title, book_id, &format))
+            } else {
+                Some(self.device_sync.destination_name.trim().to_string())
+            };
+            let _result = send_to_device(&input_path, &device, dest_name.as_deref())?;
+            if let Some(temp_path) = temp_input {
+                let _ = fs::remove_file(temp_path);
+            }
+            sent += 1;
+        }
+        self.status = format!("Sent {sent} file(s) to device {}", device.name);
+        let status = self.status.clone();
+        self.push_toast(&status, ToastLevel::Info);
+        Ok(())
+    }
+
+    fn refresh_manage_tags(&mut self) -> CoreResult<()> {
+        self.manage_tags.tags = self.db.list_tag_categories()?;
+        self.manage_tags.needs_refresh = false;
+        Ok(())
+    }
+
+    fn refresh_manage_series(&mut self) -> CoreResult<()> {
+        self.manage_series.series = self.db.list_series_categories()?;
+        self.manage_series.needs_refresh = false;
+        Ok(())
+    }
+
+    fn refresh_manage_custom_columns(&mut self) -> CoreResult<()> {
+        self.manage_custom_columns.columns = self.db.list_custom_columns()?;
+        self.manage_custom_columns.needs_refresh = false;
+        Ok(())
+    }
+
+    fn refresh_manage_virtual_libraries(&mut self) -> CoreResult<()> {
+        let searches = self.db.list_saved_searches()?;
+        self.manage_virtual_libraries.searches = searches.into_iter().collect();
+        self.manage_virtual_libraries.needs_refresh = false;
+        Ok(())
+    }
+
+    fn collect_ingest_paths(&self, config: &ControlPlane) -> CoreResult<Vec<PathBuf>> {
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for line in self.add_books.files_input.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            paths.push(PathBuf::from(trimmed));
+        }
+        if !self.add_books.folder_input.trim().is_empty() {
+            let folder = PathBuf::from(self.add_books.folder_input.trim());
+            if folder.is_dir() {
+                for entry in WalkDir::new(&folder).into_iter().flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    if !is_supported_path(path, &config.formats, self.add_books.include_archives) {
+                        continue;
+                    }
+                    paths.push(path.to_path_buf());
+                }
+            }
+        }
+        Ok(paths)
+    }
+
+    fn insert_ingested_book(
+        &mut self,
+        result: &caliberate_library::ingest::IngestResult,
+    ) -> CoreResult<i64> {
+        let created_at = now_timestamp()?;
+        let id = self.db.add_book(
+            &result.metadata.title,
+            &result.metadata.format,
+            &result.asset.stored_path.display().to_string(),
+            &created_at,
+        )?;
+        let storage_mode = match result.asset.storage_mode {
+            StorageMode::Copy => "copy",
+            StorageMode::Reference => "reference",
+        };
+        let _asset_id = self.db.add_asset(
+            id,
+            storage_mode,
+            &result.asset.stored_path.display().to_string(),
+            result
+                .asset
+                .source_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .as_deref(),
+            result.asset.size_bytes,
+            result.asset.stored_size_bytes,
+            result.asset.checksum.as_deref(),
+            result.asset.is_compressed,
+            &created_at,
+        )?;
+        self.db.add_book_authors(id, &result.metadata.authors)?;
+        self.db.add_book_tags(id, &result.metadata.tags)?;
+        if let Some(series) = &result.metadata.series {
+            self.db.set_book_series(id, &series.name, series.index)?;
+        }
+        self.db
+            .add_book_identifiers(id, &result.metadata.identifiers)?;
+        if let Some(comment) = &result.metadata.comment {
+            self.db.set_book_comment(id, comment)?;
+        }
+        Ok(id)
+    }
+
     fn refresh_books(&mut self) -> CoreResult<()> {
         self.cache.refresh_books(&self.db)?;
         let query = self.search_query.trim().to_string();
@@ -1181,39 +2415,36 @@ impl LibraryView {
     }
 
     fn build_row(&mut self, book: &BookRecord) -> CoreResult<BookRow> {
-        let details = self
-            .cache
-            .get_book_details(&self.db, book.id)?
-            .cloned();
-        let (authors, tags, series, rating, publisher, languages, has_cover) = if let Some(details) = details
-        {
-            (
-                details.authors.join(", "),
-                details.tags.join(", "),
-                details
-                    .series
-                    .map(|series| format!("{} ({})", series.name, series.index))
-                    .unwrap_or_default(),
-                details
-                    .extras
-                    .rating
-                    .map(|rating| rating.to_string())
-                    .unwrap_or_default(),
-                details.extras.publisher.unwrap_or_default(),
-                details.extras.languages.join(", "),
-                details.extras.has_cover,
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                false,
-            )
-        };
+        let details = self.cache.get_book_details(&self.db, book.id)?.cloned();
+        let (authors, tags, series, rating, publisher, languages, has_cover) =
+            if let Some(details) = details {
+                (
+                    details.authors.join(", "),
+                    details.tags.join(", "),
+                    details
+                        .series
+                        .map(|series| format!("{} ({})", series.name, series.index))
+                        .unwrap_or_default(),
+                    details
+                        .extras
+                        .rating
+                        .map(|rating| rating.to_string())
+                        .unwrap_or_default(),
+                    details.extras.publisher.unwrap_or_default(),
+                    details.extras.languages.join(", "),
+                    details.extras.has_cover,
+                )
+            } else {
+                (
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    false,
+                )
+            };
         Ok(BookRow {
             id: book.id,
             title: book.title.clone(),
@@ -1474,7 +2705,8 @@ impl LibraryView {
 
     fn prune_toasts(&mut self, now: f64) {
         let duration = self.toast_duration_secs;
-        self.toasts.retain(|toast| now - toast.created_at <= duration);
+        self.toasts
+            .retain(|toast| now - toast.created_at <= duration);
     }
 
     fn render_toasts(&self, ui: &mut egui::Ui) {
@@ -1487,7 +2719,10 @@ impl LibraryView {
                 ToastLevel::Error => egui::Color32::from_rgb(200, 60, 60),
             };
             egui::Area::new(egui::Id::new(format!("toast-{}", toast.created_at)))
-                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0 - offset))
+                .anchor(
+                    egui::Align2::RIGHT_BOTTOM,
+                    egui::vec2(-16.0, -16.0 - offset),
+                )
                 .show(&ctx, |ui| {
                     ui.visuals_mut().window_fill = color;
                     ui.label(egui::RichText::new(&toast.message).color(egui::Color32::WHITE));
@@ -1565,18 +2800,25 @@ impl LibraryView {
                             if matches!(job.status, JobStatus::Running) {
                                 if ui.button("Pause").clicked() {
                                     job.status = JobStatus::Paused;
-                                    toasts.push((format!("Paused job {}", job.id), ToastLevel::Warn));
+                                    toasts
+                                        .push((format!("Paused job {}", job.id), ToastLevel::Warn));
                                 }
                             } else if matches!(job.status, JobStatus::Paused) {
                                 if ui.button("Resume").clicked() {
                                     job.status = JobStatus::Running;
-                                    toasts.push((format!("Resumed job {}", job.id), ToastLevel::Info));
+                                    toasts.push((
+                                        format!("Resumed job {}", job.id),
+                                        ToastLevel::Info,
+                                    ));
                                 }
                             }
                             if !matches!(job.status, JobStatus::Completed | JobStatus::Cancelled) {
                                 if ui.button("Cancel").clicked() {
                                     job.status = JobStatus::Cancelled;
-                                    toasts.push((format!("Cancelled job {}", job.id), ToastLevel::Warn));
+                                    toasts.push((
+                                        format!("Cancelled job {}", job.id),
+                                        ToastLevel::Warn,
+                                    ));
                                 }
                             }
                         });
@@ -1604,6 +2846,306 @@ struct EditState {
     languages: String,
     rating: i64,
     uuid: String,
+}
+
+#[derive(Debug, Clone)]
+struct AddBooksDialogState {
+    open: bool,
+    files_input: String,
+    folder_input: String,
+    mode: IngestMode,
+    archive_reference: bool,
+    include_archives: bool,
+}
+
+impl Default for AddBooksDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            files_input: String::new(),
+            folder_input: String::new(),
+            mode: IngestMode::Copy,
+            archive_reference: false,
+            include_archives: true,
+        }
+    }
+}
+
+impl AddBooksDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.mode = config.ingest.default_mode;
+        self.archive_reference = config.ingest.archive_reference_enabled;
+        if self.output_fields_empty() {
+            self.files_input.clear();
+            self.folder_input.clear();
+        }
+    }
+
+    fn output_fields_empty(&self) -> bool {
+        self.files_input.trim().is_empty() && self.folder_input.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RemoveBooksDialogState {
+    open: bool,
+    delete_files: bool,
+    delete_reference_files: bool,
+}
+
+impl Default for RemoveBooksDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            delete_files: false,
+            delete_reference_files: false,
+        }
+    }
+}
+
+impl RemoveBooksDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.delete_files = config.library.delete_files_on_remove;
+        self.delete_reference_files = config.library.delete_reference_files;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BulkEditDialogState {
+    open: bool,
+    apply_tags: bool,
+    replace_tags: bool,
+    tags: String,
+    apply_series: bool,
+    series_name: String,
+    series_index: f64,
+    apply_publisher: bool,
+    publisher: String,
+    clear_publisher: bool,
+    apply_languages: bool,
+    languages: String,
+    apply_rating: bool,
+    rating: i64,
+}
+
+impl Default for BulkEditDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            apply_tags: false,
+            replace_tags: false,
+            tags: String::new(),
+            apply_series: false,
+            series_name: String::new(),
+            series_index: 1.0,
+            apply_publisher: false,
+            publisher: String::new(),
+            clear_publisher: false,
+            apply_languages: false,
+            languages: String::new(),
+            apply_rating: false,
+            rating: 0,
+        }
+    }
+}
+
+impl BulkEditDialogState {
+    fn reset(&mut self) {
+        *self = Self::default();
+        self.open = true;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ConvertBooksDialogState {
+    open: bool,
+    output_format: String,
+    output_dir: String,
+    add_to_library: bool,
+    keep_output: bool,
+}
+
+impl Default for ConvertBooksDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            output_format: "epub".to_string(),
+            output_dir: String::new(),
+            add_to_library: false,
+            keep_output: true,
+        }
+    }
+}
+
+impl ConvertBooksDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.output_format = config.conversion.default_output_format.clone();
+        self.output_dir = config.conversion.output_dir.display().to_string();
+        self.add_to_library = false;
+        self.keep_output = true;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SaveToDiskDialogState {
+    open: bool,
+    output_dir: String,
+    export_all_formats: bool,
+}
+
+impl Default for SaveToDiskDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            output_dir: String::new(),
+            export_all_formats: true,
+        }
+    }
+}
+
+impl SaveToDiskDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.output_dir = config.conversion.output_dir.display().to_string();
+        self.export_all_formats = true;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DeviceSyncDialogState {
+    open: bool,
+    devices: Vec<DeviceInfo>,
+    selected_device: Option<usize>,
+    destination_name: String,
+    error: Option<String>,
+}
+
+impl Default for DeviceSyncDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            devices: Vec::new(),
+            selected_device: None,
+            destination_name: String::new(),
+            error: None,
+        }
+    }
+}
+
+impl DeviceSyncDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.error = None;
+        match detect_devices(&config.device) {
+            Ok(devices) => {
+                self.devices = devices;
+                self.selected_device = if self.devices.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
+            }
+            Err(err) => {
+                self.error = Some(err.to_string());
+                self.devices.clear();
+                self.selected_device = None;
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ManageTagsDialogState {
+    open: bool,
+    tags: Vec<CategoryCount>,
+    rename_from: String,
+    rename_to: String,
+    delete_name: String,
+    needs_refresh: bool,
+}
+
+impl Default for ManageTagsDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            tags: Vec::new(),
+            rename_from: String::new(),
+            rename_to: String::new(),
+            delete_name: String::new(),
+            needs_refresh: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ManageSeriesDialogState {
+    open: bool,
+    series: Vec<CategoryCount>,
+    rename_from: String,
+    rename_to: String,
+    delete_name: String,
+    needs_refresh: bool,
+}
+
+impl Default for ManageSeriesDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            series: Vec::new(),
+            rename_from: String::new(),
+            rename_to: String::new(),
+            delete_name: String::new(),
+            needs_refresh: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ManageCustomColumnsDialogState {
+    open: bool,
+    columns: Vec<CustomColumn>,
+    new_label: String,
+    new_name: String,
+    new_datatype: String,
+    new_display: String,
+    delete_label: String,
+    needs_refresh: bool,
+}
+
+impl Default for ManageCustomColumnsDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            columns: Vec::new(),
+            new_label: String::new(),
+            new_name: String::new(),
+            new_datatype: "text".to_string(),
+            new_display: String::new(),
+            delete_label: String::new(),
+            needs_refresh: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ManageVirtualLibrariesDialogState {
+    open: bool,
+    searches: Vec<(String, String)>,
+    new_name: String,
+    new_query: String,
+    delete_name: String,
+    needs_refresh: bool,
+}
+
+impl Default for ManageVirtualLibrariesDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            searches: Vec::new(),
+            new_name: String::new(),
+            new_query: String::new(),
+            delete_name: String::new(),
+            needs_refresh: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1702,7 +3244,11 @@ impl EditState {
                 .as_ref()
                 .map(|series| series.name.clone())
                 .unwrap_or_default(),
-            series_index: details.series.as_ref().map(|series| series.index).unwrap_or(1.0),
+            series_index: details
+                .series
+                .as_ref()
+                .map(|series| series.index)
+                .unwrap_or(1.0),
             identifiers: details
                 .identifiers
                 .iter()
@@ -1725,6 +3271,121 @@ fn parse_list(text: &str) -> Vec<String> {
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
         .collect()
+}
+
+fn is_archive_path(path: &Path, formats: &caliberate_core::config::FormatsConfig) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase())
+        .map(|ext| formats.archive_formats.iter().any(|fmt| fmt == &ext))
+        .unwrap_or(false)
+}
+
+fn is_supported_path(
+    path: &Path,
+    formats: &caliberate_core::config::FormatsConfig,
+    include_archives: bool,
+) -> bool {
+    let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+        return false;
+    };
+    let ext = ext.to_lowercase();
+    if formats.supported.iter().any(|fmt| fmt == &ext) {
+        return true;
+    }
+    include_archives && formats.archive_formats.iter().any(|fmt| fmt == &ext)
+}
+
+fn should_delete_asset(asset: &AssetRow, delete_reference_files: bool) -> bool {
+    if asset.storage_mode.eq_ignore_ascii_case("reference") {
+        delete_reference_files
+    } else {
+        true
+    }
+}
+
+fn asset_format(asset: &AssetRow, fallback: &str) -> Option<String> {
+    let source_ext = asset
+        .source_path
+        .as_deref()
+        .and_then(|path| Path::new(path).extension().and_then(|ext| ext.to_str()))
+        .map(|ext| ext.to_lowercase());
+    let stored_ext = Path::new(&asset.stored_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+    let ext = source_ext.or(stored_ext);
+    match ext.as_deref() {
+        Some("zst") | None => Some(fallback.to_string()),
+        Some(value) => Some(value.to_string()),
+    }
+}
+
+fn build_output_name(title: &str, book_id: i64, format: &str) -> String {
+    let safe = sanitize_filename(title);
+    format!("{safe}_{book_id}.{format}")
+}
+
+fn build_output_path(output_dir: &Path, title: &str, book_id: i64, format: &str) -> PathBuf {
+    output_dir.join(build_output_name(title, book_id, format))
+}
+
+fn sanitize_filename(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "untitled".to_string();
+    }
+    trimmed
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
+}
+
+fn output_dir_or_default(input: &str, fallback: &Path) -> PathBuf {
+    if input.trim().is_empty() {
+        fallback.to_path_buf()
+    } else {
+        PathBuf::from(input.trim())
+    }
+}
+
+fn ensure_dir(path: &Path) -> CoreResult<()> {
+    fs::create_dir_all(path).map_err(|err| CoreError::Io("create output dir".to_string(), err))
+}
+
+fn resolve_asset_input_path(
+    asset: &AssetRow,
+    tmp_dir: &Path,
+) -> CoreResult<(PathBuf, Option<PathBuf>)> {
+    let stored = PathBuf::from(&asset.stored_path);
+    if asset.is_compressed {
+        fs::create_dir_all(tmp_dir)
+            .map_err(|err| CoreError::Io("create temp dir".to_string(), err))?;
+        let stem = stored
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("asset");
+        let temp_path = tmp_dir.join(format!("decompressed-{}-{}", asset.id, stem));
+        decompress_file(&stored, &temp_path)?;
+        Ok((temp_path.clone(), Some(temp_path)))
+    } else {
+        Ok((stored, None))
+    }
+}
+
+fn choose_asset(assets: &[AssetRow]) -> Option<&AssetRow> {
+    assets
+        .iter()
+        .find(|asset| !asset.is_compressed)
+        .or_else(|| assets.first())
+}
+
+fn now_timestamp() -> CoreResult<String> {
+    let format = time::format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]Z")
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    OffsetDateTime::now_utc()
+        .format(&format)
+        .map_err(|err| CoreError::ConfigValidate(err.to_string()))
 }
 
 fn parse_identifiers(text: &str, isbn: &str) -> Vec<(String, String)> {
@@ -1796,12 +3457,7 @@ fn parse_view_mode(value: &str) -> ViewMode {
     }
 }
 
-fn column_width_control(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut f32,
-    layout_dirty: &mut bool,
-) {
+fn column_width_control(ui: &mut egui::Ui, label: &str, value: &mut f32, layout_dirty: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add(egui::DragValue::new(value).range(60.0..=720.0).speed(1.0));
@@ -1855,7 +3511,11 @@ fn cover_preview(ui: &mut egui::Ui, has_cover: bool, size: f32) {
         egui::Color32::from_rgb(90, 90, 90)
     };
     ui.painter().rect_filled(rect, 4.0, color);
-    let label = if has_cover { "Cover Preview" } else { "No Cover" };
+    let label = if has_cover {
+        "Cover Preview"
+    } else {
+        "No Cover"
+    };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
