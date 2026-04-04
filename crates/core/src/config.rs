@@ -22,6 +22,8 @@ pub struct ControlPlane {
     pub fts: FtsConfig,
     pub device: DeviceConfig,
     pub plugins: PluginsConfig,
+    #[serde(default)]
+    pub gui: GuiConfig,
 }
 
 impl ControlPlane {
@@ -143,6 +145,22 @@ impl ControlPlane {
         if self.plugins.plugins_dir.as_os_str().is_empty() {
             return Err(CoreError::ConfigValidate(
                 "plugins.plugins_dir must not be empty".to_string(),
+            ));
+        }
+        if !(40.0..=600.0).contains(&self.gui.table_row_height) {
+            return Err(CoreError::ConfigValidate(
+                "gui.table_row_height must be between 40 and 600".to_string(),
+            ));
+        }
+        if self.gui.table_column_min_width <= 0.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.table_column_min_width must be greater than 0".to_string(),
+            ));
+        }
+        if self.gui.table_column_max_width <= self.gui.table_column_min_width {
+            return Err(CoreError::ConfigValidate(
+                "gui.table_column_max_width must be greater than gui.table_column_min_width"
+                    .to_string(),
             ));
         }
         Ok(())
@@ -399,6 +417,77 @@ pub struct PluginsConfig {
     pub plugins_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GuiConfig {
+    #[serde(default = "default_gui_list_view_mode")]
+    pub list_view_mode: String,
+    #[serde(default = "default_gui_table_row_height")]
+    pub table_row_height: f32,
+    #[serde(default = "default_gui_table_column_min_width")]
+    pub table_column_min_width: f32,
+    #[serde(default = "default_gui_table_column_max_width")]
+    pub table_column_max_width: f32,
+    #[serde(default = "default_gui_show_title")]
+    pub show_title: bool,
+    #[serde(default = "default_gui_show_authors")]
+    pub show_authors: bool,
+    #[serde(default = "default_gui_show_series")]
+    pub show_series: bool,
+    #[serde(default = "default_gui_show_tags")]
+    pub show_tags: bool,
+    #[serde(default = "default_gui_show_formats")]
+    pub show_formats: bool,
+    #[serde(default = "default_gui_show_rating")]
+    pub show_rating: bool,
+    #[serde(default = "default_gui_show_publisher")]
+    pub show_publisher: bool,
+    #[serde(default = "default_gui_show_languages")]
+    pub show_languages: bool,
+    #[serde(default = "default_gui_col_width_title")]
+    pub width_title: f32,
+    #[serde(default = "default_gui_col_width_authors")]
+    pub width_authors: f32,
+    #[serde(default = "default_gui_col_width_series")]
+    pub width_series: f32,
+    #[serde(default = "default_gui_col_width_tags")]
+    pub width_tags: f32,
+    #[serde(default = "default_gui_col_width_formats")]
+    pub width_formats: f32,
+    #[serde(default = "default_gui_col_width_rating")]
+    pub width_rating: f32,
+    #[serde(default = "default_gui_col_width_publisher")]
+    pub width_publisher: f32,
+    #[serde(default = "default_gui_col_width_languages")]
+    pub width_languages: f32,
+}
+
+impl Default for GuiConfig {
+    fn default() -> Self {
+        Self {
+            list_view_mode: default_gui_list_view_mode(),
+            table_row_height: default_gui_table_row_height(),
+            table_column_min_width: default_gui_table_column_min_width(),
+            table_column_max_width: default_gui_table_column_max_width(),
+            show_title: default_gui_show_title(),
+            show_authors: default_gui_show_authors(),
+            show_series: default_gui_show_series(),
+            show_tags: default_gui_show_tags(),
+            show_formats: default_gui_show_formats(),
+            show_rating: default_gui_show_rating(),
+            show_publisher: default_gui_show_publisher(),
+            show_languages: default_gui_show_languages(),
+            width_title: default_gui_col_width_title(),
+            width_authors: default_gui_col_width_authors(),
+            width_series: default_gui_col_width_series(),
+            width_tags: default_gui_col_width_tags(),
+            width_formats: default_gui_col_width_formats(),
+            width_rating: default_gui_col_width_rating(),
+            width_publisher: default_gui_col_width_publisher(),
+            width_languages: default_gui_col_width_languages(),
+        }
+    }
+}
+
 impl Default for FtsConfig {
     fn default() -> Self {
         Self {
@@ -457,6 +546,86 @@ fn default_server_auth_mode() -> ServerAuthMode {
 
 fn default_server_scheme() -> String {
     "http".to_string()
+}
+
+fn default_gui_list_view_mode() -> String {
+    "table".to_string()
+}
+
+fn default_gui_table_row_height() -> f32 {
+    48.0
+}
+
+fn default_gui_table_column_min_width() -> f32 {
+    80.0
+}
+
+fn default_gui_table_column_max_width() -> f32 {
+    520.0
+}
+
+fn default_gui_show_title() -> bool {
+    true
+}
+
+fn default_gui_show_authors() -> bool {
+    true
+}
+
+fn default_gui_show_series() -> bool {
+    true
+}
+
+fn default_gui_show_tags() -> bool {
+    true
+}
+
+fn default_gui_show_formats() -> bool {
+    true
+}
+
+fn default_gui_show_rating() -> bool {
+    true
+}
+
+fn default_gui_show_publisher() -> bool {
+    true
+}
+
+fn default_gui_show_languages() -> bool {
+    true
+}
+
+fn default_gui_col_width_title() -> f32 {
+    240.0
+}
+
+fn default_gui_col_width_authors() -> f32 {
+    180.0
+}
+
+fn default_gui_col_width_series() -> f32 {
+    140.0
+}
+
+fn default_gui_col_width_tags() -> f32 {
+    180.0
+}
+
+fn default_gui_col_width_formats() -> f32 {
+    120.0
+}
+
+fn default_gui_col_width_rating() -> f32 {
+    90.0
+}
+
+fn default_gui_col_width_publisher() -> f32 {
+    160.0
+}
+
+fn default_gui_col_width_languages() -> f32 {
+    120.0
 }
 
 fn default_server_download_enabled() -> bool {

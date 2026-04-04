@@ -11,6 +11,7 @@ pub struct PreferencesView {
     state: PreferencesState,
     status: String,
     last_error: Option<String>,
+    restart_required: bool,
 }
 
 impl PreferencesView {
@@ -21,6 +22,7 @@ impl PreferencesView {
             state: PreferencesState::from_config(config),
             status: "Ready".to_string(),
             last_error: None,
+            restart_required: false,
         }
     }
 
@@ -60,10 +62,22 @@ impl PreferencesView {
                 self.status = "Editing preferences".to_string();
             }
             PrefAction::Save => {
+                let errors = self.validate_state();
+                if !errors.is_empty() {
+                    self.last_error = Some(errors.join("; "));
+                    self.status = "Validation failed".to_string();
+                    return Ok(());
+                }
+                let restart_needed = self.logging_changed(config);
                 self.apply_state(config)?;
                 config.save_to_path(config_path)?;
                 self.edit_mode = false;
-                self.status = "Preferences saved".to_string();
+                self.restart_required = restart_needed;
+                self.status = if restart_needed {
+                    "Preferences saved (restart required)".to_string()
+                } else {
+                    "Preferences saved".to_string()
+                };
                 info!(
                     component = "gui",
                     path = %config_path.display(),
@@ -81,6 +95,12 @@ impl PreferencesView {
         if !self.edit_mode {
             ui.label(&self.read_only_notice);
             ui.separator();
+        }
+        if self.restart_required {
+            ui.colored_label(
+                egui::Color32::from_rgb(180, 110, 0),
+                "Some changes require restart to take effect.",
+            );
         }
 
         egui::CollapsingHeader::new("App")
@@ -101,6 +121,20 @@ impl PreferencesView {
                 ui.label(format!("Temp: {}", config.paths.tmp_dir.display()));
                 ui.label(format!("Library: {}", config.paths.library_dir.display()));
             });
+
+        egui::CollapsingHeader::new("GUI").show(ui, |ui| {
+            ui.label(format!("List view mode: {}", config.gui.list_view_mode));
+            ui.label(format!("Row height: {}", config.gui.table_row_height));
+            ui.label(format!("Columns visible:"));
+            ui.label(format!("Title: {}", config.gui.show_title));
+            ui.label(format!("Authors: {}", config.gui.show_authors));
+            ui.label(format!("Series: {}", config.gui.show_series));
+            ui.label(format!("Tags: {}", config.gui.show_tags));
+            ui.label(format!("Formats: {}", config.gui.show_formats));
+            ui.label(format!("Rating: {}", config.gui.show_rating));
+            ui.label(format!("Publisher: {}", config.gui.show_publisher));
+            ui.label(format!("Languages: {}", config.gui.show_languages));
+        });
 
         egui::CollapsingHeader::new("Logging").show(ui, |ui| {
             if self.edit_mode {
@@ -133,6 +167,12 @@ impl PreferencesView {
         egui::CollapsingHeader::new("Server").show(ui, |ui| {
             if self.edit_mode {
                 ui.text_edit_singleline(&mut self.state.server_host);
+                if self.state.server_host.trim().is_empty() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(190, 0, 0),
+                        "Host cannot be empty",
+                    );
+                }
                 ui.horizontal(|ui| {
                     ui.label("Port");
                     ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
@@ -141,6 +181,12 @@ impl PreferencesView {
                     ui.label("Scheme");
                     ui.text_edit_singleline(&mut self.state.server_scheme);
                 });
+                if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(190, 0, 0),
+                        "Scheme must be http or https",
+                    );
+                }
                 ui.text_edit_singleline(&mut self.state.server_url_prefix);
                 ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
                 ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
@@ -315,6 +361,17 @@ impl PreferencesView {
                     ));
                 });
                 ui.text_edit_singleline(&mut self.state.conversion_default_output_format);
+                if self
+                    .state
+                    .conversion_default_output_format
+                    .trim()
+                    .is_empty()
+                {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(190, 0, 0),
+                        "Default output format cannot be empty",
+                    );
+                }
             } else {
                 ui.label(format!("Enabled: {}", config.conversion.enabled));
                 ui.label(format!(
@@ -344,6 +401,12 @@ impl PreferencesView {
             if self.edit_mode {
                 ui.checkbox(&mut self.state.fts_enabled, "Enabled");
                 ui.text_edit_singleline(&mut self.state.fts_tokenizer);
+                if self.state.fts_tokenizer.trim().is_empty() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(190, 0, 0),
+                        "FTS tokenizer cannot be empty",
+                    );
+                }
                 ui.checkbox(&mut self.state.fts_rebuild_on_migrate, "Rebuild on migrate");
                 ui.horizontal(|ui| {
                     ui.label("Min query len");
@@ -444,6 +507,33 @@ impl PreferencesView {
         config.fts.result_limit = self.state.fts_result_limit;
 
         Ok(())
+    }
+
+    fn logging_changed(&self, config: &ControlPlane) -> bool {
+        self.state.logging_level.trim() != config.logging.level
+            || self.state.logging_json != config.logging.json
+            || self.state.logging_stdout != config.logging.stdout
+            || self.state.logging_file_enabled != config.logging.file_enabled
+    }
+
+    fn validate_state(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        if self.state.server_host.trim().is_empty() {
+            errors.push("server host must not be empty".to_string());
+        }
+        if self.state.server_scheme.trim().is_empty() {
+            errors.push("server scheme must not be empty".to_string());
+        }
+        if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
+            errors.push("server scheme must be http or https".to_string());
+        }
+        if self.state.conversion_default_output_format.trim().is_empty() {
+            errors.push("default output format must not be empty".to_string());
+        }
+        if self.state.fts_tokenizer.trim().is_empty() {
+            errors.push("fts tokenizer must not be empty".to_string());
+        }
+        errors
     }
 }
 

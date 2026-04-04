@@ -4071,6 +4071,96 @@ impl Database {
         Ok(tags)
     }
 
+    pub fn list_tags(&self) -> CoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE")
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list all tags".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list all tags".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut tags = Vec::new();
+        for row in rows {
+            tags.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list all tags".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(tags)
+    }
+
+    pub fn list_languages(&self) -> CoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT lang_code FROM languages ORDER BY lang_code COLLATE NOCASE")
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut languages = Vec::new();
+        for row in rows {
+            languages.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list languages".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(languages)
+    }
+
+    pub fn list_publishers(&self) -> CoreResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM publishers ORDER BY name COLLATE NOCASE")
+            .map_err(|err| {
+                CoreError::Io(
+                    "prepare list publishers".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|err| {
+                CoreError::Io(
+                    "query list publishers".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        let mut publishers = Vec::new();
+        for row in rows {
+            publishers.push(row.map_err(|err| {
+                CoreError::Io(
+                    "read list publishers".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?);
+        }
+        Ok(publishers)
+    }
+
     pub fn upsert_series(&self, name: &str) -> CoreResult<i64> {
         self.conn
             .execute(

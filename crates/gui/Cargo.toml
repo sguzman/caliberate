@@ -7,6 +7,7 @@ edition = "2024"
 caliberate-core = { path = "../core" }
 caliberate-db = { path = "../db" }
 eframe = "0.34.1"
+egui_extras = "0.34.1"
 tracing = "0.1.44"
 
 [dev-dependencies]

@@ -94,3 +94,25 @@ library_subdir = "Caliberate Library"
 [plugins]
 enabled = true
 plugins_dir = "./plugins"
+
+[gui]
+list_view_mode = "table"
+table_row_height = 48.0
+table_column_min_width = 80.0
+table_column_max_width = 520.0
+show_title = true
+show_authors = true
+show_series = true
+show_tags = true
+show_formats = true
+show_rating = true
+show_publisher = true
+show_languages = true
+width_title = 240.0
+width_authors = 180.0
+width_series = 140.0
+width_tags = 180.0
+width_formats = 120.0
+width_rating = 90.0
+width_publisher = 160.0
+width_languages = 120.0

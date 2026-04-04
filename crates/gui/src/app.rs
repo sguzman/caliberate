@@ -12,6 +12,7 @@ pub struct CaliberateApp {
     library: LibraryView,
     preferences: PreferencesView,
     active_view: AppView,
+    pending_action: Option<AppAction>,
 }
 
 impl CaliberateApp {
@@ -27,13 +28,19 @@ impl CaliberateApp {
             library,
             preferences,
             active_view: AppView::Library,
+            pending_action: None,
         })
     }
 }
 
 impl eframe::App for CaliberateApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.handle_shortcuts(ui);
         egui::Panel::top("top_nav").show_inside(ui, |ui| {
+            self.menu_bar(ui);
+            ui.separator();
+            self.toolbar(ui);
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui
                     .selectable_label(self.active_view == AppView::Library, "Library")
@@ -52,7 +59,7 @@ impl eframe::App for CaliberateApp {
 
         match self.active_view {
             AppView::Library => {
-                self.library.ui(ui);
+                self.library.ui(ui, &mut self.config, &self.config_path);
             }
             AppView::Preferences => {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -74,6 +81,10 @@ impl eframe::App for CaliberateApp {
                 ui.label(status);
             }
         });
+
+        if let Some(action) = self.pending_action.take() {
+            self.apply_action(action);
+        }
     }
 }
 
@@ -81,4 +92,168 @@ impl eframe::App for CaliberateApp {
 enum AppView {
     Library,
     Preferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppAction {
+    FocusSearch,
+    RefreshLibrary,
+    BeginEdit,
+    SaveEdit,
+    OpenPreferences,
+    OpenLibrary,
+    AddBooks,
+    RemoveBooks,
+    ConvertBooks,
+    SaveToDisk,
+    OpenLogs,
+}
+
+impl CaliberateApp {
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        egui::menu::bar(ui, |ui| {
+            ui.menu_button("File", |ui| {
+                if ui.button("Add books").clicked() {
+                    self.pending_action = Some(AppAction::AddBooks);
+                    ui.close_menu();
+                }
+                if ui.button("Save to disk").clicked() {
+                    self.pending_action = Some(AppAction::SaveToDisk);
+                    ui.close_menu();
+                }
+                if ui.button("Preferences").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferences);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Library", |ui| {
+                if ui.button("Refresh").clicked() {
+                    self.pending_action = Some(AppAction::RefreshLibrary);
+                    ui.close_menu();
+                }
+                if ui.button("Remove books").clicked() {
+                    self.pending_action = Some(AppAction::RemoveBooks);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Edit", |ui| {
+                if ui.button("Edit metadata").clicked() {
+                    self.pending_action = Some(AppAction::BeginEdit);
+                    ui.close_menu();
+                }
+                if ui.button("Save metadata").clicked() {
+                    self.pending_action = Some(AppAction::SaveEdit);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Convert", |ui| {
+                if ui.button("Convert books").clicked() {
+                    self.pending_action = Some(AppAction::ConvertBooks);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("View", |ui| {
+                if ui.button("Library").clicked() {
+                    self.pending_action = Some(AppAction::OpenLibrary);
+                    ui.close_menu();
+                }
+                if ui.button("Preferences").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferences);
+                    ui.close_menu();
+                }
+                if ui.button("Open logs").clicked() {
+                    self.pending_action = Some(AppAction::OpenLogs);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Help", |ui| {
+                ui.label("Caliberate GUI");
+            });
+        });
+    }
+
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.button("Add").clicked() {
+                self.pending_action = Some(AppAction::AddBooks);
+            }
+            if ui.button("Remove").clicked() {
+                self.pending_action = Some(AppAction::RemoveBooks);
+            }
+            if ui.button("Convert").clicked() {
+                self.pending_action = Some(AppAction::ConvertBooks);
+            }
+            if ui.button("Save to Disk").clicked() {
+                self.pending_action = Some(AppAction::SaveToDisk);
+            }
+            if ui.button("Refresh").clicked() {
+                self.pending_action = Some(AppAction::RefreshLibrary);
+            }
+            if ui.button("Preferences").clicked() {
+                self.pending_action = Some(AppAction::OpenPreferences);
+            }
+            if ui.button("Open Logs").clicked() {
+                self.pending_action = Some(AppAction::OpenLogs);
+            }
+        });
+    }
+
+    fn handle_shortcuts(&mut self, ui: &mut egui::Ui) {
+        if ui.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::FocusSearch);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::R) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::RefreshLibrary);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::E) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::BeginEdit);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::SaveEdit);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::OpenPreferences);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::L) && i.modifiers.ctrl) {
+            self.pending_action = Some(AppAction::OpenLibrary);
+        }
+    }
+
+    fn apply_action(&mut self, action: AppAction) {
+        match action {
+            AppAction::OpenPreferences => {
+                self.active_view = AppView::Preferences;
+            }
+            AppAction::OpenLibrary => {
+                self.active_view = AppView::Library;
+            }
+            AppAction::FocusSearch => {
+                self.library.request_search_focus();
+            }
+            AppAction::RefreshLibrary => {
+                self.library.request_refresh();
+            }
+            AppAction::BeginEdit => {
+                self.library.begin_edit();
+            }
+            AppAction::SaveEdit => {
+                self.library.request_save();
+            }
+            AppAction::AddBooks => {
+                self.library.notify_unimplemented("Add books not wired yet.");
+            }
+            AppAction::RemoveBooks => {
+                self.library.notify_unimplemented("Remove books not wired yet.");
+            }
+            AppAction::ConvertBooks => {
+                self.library.notify_unimplemented("Convert books not wired yet.");
+            }
+            AppAction::SaveToDisk => {
+                self.library.notify_unimplemented("Save to disk not wired yet.");
+            }
+            AppAction::OpenLogs => {
+                self.library.request_open_logs();
+            }
+        }
+    }
 }

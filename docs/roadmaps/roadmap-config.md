@@ -22,3 +22,6 @@
 - [x] Define `[conversion]` keys: `default_output_format`, `temp_dir`, `output_dir`
 - [x] Define `[device]` keys: `mount_roots`, `library_subdir`
 - [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
+- [x] Define `[gui]` keys: `list_view_mode`, `table_row_height`, `table_column_min_width`, `table_column_max_width`
+- [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
+- [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`

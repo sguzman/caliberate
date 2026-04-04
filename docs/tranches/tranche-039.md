@@ -1,0 +1,32 @@
+# Tranche 039
+
+- [x] Implement toolbar with Calibre-style actions (Add, Remove, Convert, Save to Disk, etc.)
+- [x] Implement menu bar parity (File/Library/Edit/Convert/View/Preferences/Help)
+- [x] Implement keyboard shortcuts for primary actions
+- [x] Implement column-based table view (Title, Authors, Series, Tags, Formats, Rating, etc.)
+- [x] Implement column visibility management
+- [x] Implement column sorting parity (single-column)
+- [x] Implement column resizing and persistence
+- [x] Persist column visibility to control-plane config
+- [x] Persist column widths to control-plane config
+- [x] Persist list view mode to control-plane config
+- [x] Implement row selection with multi-select and range select
+- [x] Implement inline quick-search with highlights
+- [x] Implement virtualized list rendering for large libraries
+- [x] Implement list view mode toggles (cover grid vs table)
+- [x] Implement library statistics footer (count, virtual libraries)
+- [x] Implement Calibre-style metadata editor dialog layout
+- [x] Implement identifiers editor with validation
+- [x] Implement tags editor with autocomplete
+- [x] Implement series editor with index controls parity
+- [x] Implement ratings editor with star UI
+- [x] Implement languages editor with locale picker
+- [x] Implement publisher/ISBN/UUID fields parity
+- [x] Implement formats list with per-format actions (open, remove, convert)
+- [x] Implement book folder/path actions (open folder, open file)
+- [x] Implement validation + inline errors for editable preferences
+- [x] Add GUI layout section in Preferences
+- [x] Add inline validation messages for server/conversion/FTS fields
+- [x] Implement preferences restart-required messaging
+- [x] Implement open-with-external-viewer option
+- [x] Implement log viewer / open logs action in UI
