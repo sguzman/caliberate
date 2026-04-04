@@ -6,7 +6,7 @@
 - [x] Implement `calibredb` binary scaffold
 - [x] Implement `calibre-server` binary scaffold
 - [x] Implement `calibredb` init/add/list/search stubs
-- [ ] Implement library management commands parity set
+- [x] Implement library management commands parity set
 - [x] Add `calibredb --with-library` override
 - [x] Add `calibredb --library-path` alias
 - [x] Add `calibredb` library override for config library_dir
@@ -170,7 +170,7 @@
 - [x] Add `calibredb extract-archive` command
 - [x] Add `calibredb fts status` command
 - [x] Add `calibredb fts rebuild` command
-- [ ] Implement conversion commands parity set
+- [x] Implement conversion commands parity set
 - [x] Add `ebook-convert` binary scaffold
 - [x] Add `ebook-convert` conversion wiring
 - [x] Add `ebook-convert --list-formats` command
@@ -213,7 +213,7 @@
 - [x] Add `calibredb device send` command
 - [x] Add `calibredb device cleanup` command
 - [x] Add `calibredb device` CLI tests
-- [ ] Implement server/OPDS commands parity set
+- [x] Implement server/OPDS commands parity set
 - [x] Add `calibre-server health` command
 - [x] Add `calibre-server opds-root` command
 - [x] Add `calibre-server opds-books` command

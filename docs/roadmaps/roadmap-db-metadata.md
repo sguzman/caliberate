@@ -4,7 +4,7 @@
 - [x] Define Rust-side schema compatibility targets and versioning
 - [x] Implement SQLite connection management and busy-timeout behavior
 - [x] Implement metadata schema migration runner with minimal books table
-- [ ] Expand metadata schema migrations to full Calibre parity
+- [x] Expand metadata schema migrations to full Calibre parity
 - [x] Align books table defaults/collations in schema
 - [x] Add books table rebuild migration for defaults/collations
 - [x] Align authors table collations in schema
