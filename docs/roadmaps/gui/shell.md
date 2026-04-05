@@ -16,17 +16,17 @@
 - [ ] Expand menu bar to full Calibre parity (all actions present)
 - [ ] Implement toolbar customization (show/hide actions)
 - [ ] Add toolbar overflow handling for small windows
-- [ ] Add toolbar action tooltips with shortcut hints
-- [ ] Add toolbar separators and action groups
+- [x] Add toolbar action tooltips with shortcut hints
+- [x] Add toolbar separators and action groups
 - [ ] Add toolbar icon-only vs text+icon toggle
 
 ## Global Search + Status
 - [ ] Add global search entry with scope selector (title/author/tags/series)
 - [ ] Add global search result count + clear action
-- [ ] Add status bar segments for jobs, selection count, and library stats
+- [x] Add status bar segments for jobs, selection count, and library stats
 - [ ] Add notification center panel for recent toasts
-- [ ] Add search history dropdown with recent queries
-- [ ] Add saved search quick access in status bar
+- [x] Add search history dropdown with recent queries
+- [x] Add saved search quick access in status bar
 
 ## Shortcuts + Input
 - [ ] Implement shortcut editor UI with conflict detection

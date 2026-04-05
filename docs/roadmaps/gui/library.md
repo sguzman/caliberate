@@ -5,7 +5,7 @@
 - [ ] Add column chooser with search + reorder
 - [ ] Add multi-column custom sort presets
 - [ ] Add in-table inline edit for title/authors/tags
-- [ ] Add per-book action menu (context menu parity)
+- [x] Add per-book action menu (context menu parity)
 - [ ] Add per-row quick edit buttons (edit metadata, remove, convert)
 - [ ] Add column coloring/conditional formatting rules
 - [ ] Add date columns (added, modified, pubdate) with sorting
@@ -14,9 +14,9 @@
 ## Browser Pane
 - [ ] Implement tri-state filter behavior (include/exclude/neutral)
 - [ ] Add hierarchical browser categories (e.g., series with subentries)
-- [ ] Add browser category sort options (name/count)
-- [ ] Add browser counts refresh button
-- [ ] Add browser category collapse/expand all actions
+- [x] Add browser category sort options (name/count)
+- [x] Add browser counts refresh button
+- [x] Add browser category collapse/expand all actions
 - [ ] Add browser filter chips with include/exclude badges
 - [ ] Add browser filter persistence per virtual library
 

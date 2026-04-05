@@ -129,3 +129,4 @@ reader_page_chars = 1800
 reader_theme = "light"
 toast_duration_secs = 6.0
 toast_max = 4
+search_history_max = 20

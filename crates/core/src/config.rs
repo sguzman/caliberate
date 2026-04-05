@@ -208,6 +208,11 @@ impl ControlPlane {
                 "gui.toast_max must be greater than 0".to_string(),
             ));
         }
+        if !(1..=200).contains(&self.gui.search_history_max) {
+            return Err(CoreError::ConfigValidate(
+                "gui.search_history_max must be between 1 and 200".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -530,6 +535,8 @@ pub struct GuiConfig {
     pub toast_duration_secs: f64,
     #[serde(default = "default_gui_toast_max")]
     pub toast_max: usize,
+    #[serde(default = "default_gui_search_history_max")]
+    pub search_history_max: usize,
 }
 
 impl Default for GuiConfig {
@@ -568,6 +575,7 @@ impl Default for GuiConfig {
             reader_theme: default_gui_reader_theme(),
             toast_duration_secs: default_gui_toast_duration_secs(),
             toast_max: default_gui_toast_max(),
+            search_history_max: default_gui_search_history_max(),
         }
     }
 }
@@ -762,6 +770,10 @@ fn default_gui_toast_duration_secs() -> f64 {
 
 fn default_gui_toast_max() -> usize {
     4
+}
+
+fn default_gui_search_history_max() -> usize {
+    20
 }
 
 fn default_server_download_enabled() -> bool {

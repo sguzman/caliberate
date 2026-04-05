@@ -30,3 +30,4 @@
 - [x] Define `[gui]` keys: `cover_dir`, `cover_cache_dir`, `cover_max_bytes`
 - [x] Define `[gui]` keys: `reader_font_size`, `reader_line_spacing`, `reader_page_chars`, `reader_theme`
 - [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
+- [x] Define `[gui]` keys: `search_history_max`
