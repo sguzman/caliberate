@@ -121,11 +121,22 @@ impl BrowserSort {
 struct BrowserFilter {
     category: BrowserCategory,
     value: String,
+    mode: BrowserFilterMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserFilterMode {
+    Include,
+    Exclude,
 }
 
 impl BrowserFilter {
     fn label(&self) -> String {
-        format!("{}: {}", self.category.label(), self.value)
+        let prefix = match self.mode {
+            BrowserFilterMode::Include => "+",
+            BrowserFilterMode::Exclude => "-",
+        };
+        format!("{prefix} {}: {}", self.category.label(), self.value)
     }
 }
 
@@ -237,7 +248,7 @@ pub struct LibraryView {
     available_languages: Vec<String>,
     available_publishers: Vec<String>,
     browser_query: String,
-    browser_filter: Option<BrowserFilter>,
+    browser_filters: Vec<BrowserFilter>,
     browser_authors: Vec<CategoryCount>,
     browser_tags: Vec<CategoryCount>,
     browser_series: Vec<CategoryCount>,
@@ -254,6 +265,8 @@ pub struct LibraryView {
     browser_open_ratings: bool,
     browser_open_languages: bool,
     browser_open_dirty: bool,
+    active_virtual_library: Option<String>,
+    virtual_library_filters: HashMap<String, Vec<BrowserFilter>>,
     selected_ids: Vec<i64>,
     last_selected: Option<i64>,
     details: Option<BookDetails>,
@@ -273,6 +286,8 @@ pub struct LibraryView {
     needs_refresh: bool,
     search_focus: bool,
     view_mode: ViewMode,
+    view_density: ViewDensity,
+    quick_details_panel: bool,
     columns: ColumnVisibility,
     column_widths: ColumnWidths,
     layout_dirty: bool,
@@ -319,6 +334,12 @@ pub struct LibraryView {
     manage_virtual_libraries: ManageVirtualLibrariesDialogState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewDensity {
+    Compact,
+    Comfortable,
+}
+
 impl LibraryView {
     pub fn new(config: &ControlPlane) -> CoreResult<Self> {
         let db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -334,7 +355,7 @@ impl LibraryView {
             available_languages: Vec::new(),
             available_publishers: Vec::new(),
             browser_query: String::new(),
-            browser_filter: None,
+            browser_filters: Vec::new(),
             browser_authors: Vec::new(),
             browser_tags: Vec::new(),
             browser_series: Vec::new(),
@@ -351,6 +372,8 @@ impl LibraryView {
             browser_open_ratings: false,
             browser_open_languages: false,
             browser_open_dirty: false,
+            active_virtual_library: None,
+            virtual_library_filters: HashMap::new(),
             selected_ids: Vec::new(),
             last_selected: None,
             details: None,
@@ -370,6 +393,8 @@ impl LibraryView {
             needs_refresh: true,
             search_focus: false,
             view_mode: parse_view_mode(&config.gui.list_view_mode),
+            view_density: parse_view_density(&config.gui.view_density),
+            quick_details_panel: config.gui.quick_details_panel,
             columns: ColumnVisibility::from_config(&config.gui),
             column_widths: ColumnWidths::from_config(&config.gui),
             layout_dirty: false,
@@ -560,6 +585,12 @@ impl LibraryView {
                     ViewMode::Table => self.table_view(ui, config),
                     ViewMode::Grid => self.grid_view(ui, config),
                 }
+                if self.quick_details_panel {
+                    ui.separator();
+                    self.quick_details_preview(ui);
+                }
+                ui.separator();
+                self.library_stats_panel(ui, &config.paths.cache_dir);
                 ui.separator();
                 self.status_bar(ui);
             });
@@ -817,7 +848,7 @@ impl LibraryView {
     fn filter_summary_controls(&mut self, ui: &mut egui::Ui) {
         let has_filters = !self.search_query.trim().is_empty()
             || self.format_filter.is_some()
-            || self.browser_filter.is_some();
+            || !self.browser_filters.is_empty();
         if !has_filters {
             return;
         }
@@ -837,9 +868,9 @@ impl LibraryView {
                     self.apply_filters();
                 }
             }
-            if let Some(filter) = &self.browser_filter {
+            for filter in self.browser_filters.clone() {
                 if ui.button(filter.label()).clicked() {
-                    self.browser_filter = None;
+                    self.remove_browser_filter(&filter);
                     self.apply_filters();
                 }
             }
@@ -858,8 +889,42 @@ impl LibraryView {
                 self.browser_query.clear();
             }
             if ui.button("Clear filter").clicked() {
-                self.browser_filter = None;
+                self.browser_filters.clear();
+                self.persist_active_virtual_filters();
                 self.apply_filters();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Virtual library");
+            let selected_text = self
+                .active_virtual_library
+                .as_deref()
+                .unwrap_or("All books")
+                .to_string();
+            let mut selected_library = self.active_virtual_library.clone();
+            egui::ComboBox::from_id_salt("active_virtual_library")
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(selected_library.is_none(), "All books")
+                        .clicked()
+                    {
+                        selected_library = None;
+                    }
+                    for (name, _) in &self.browser_saved_searches {
+                        if ui
+                            .selectable_label(
+                                selected_library.as_deref() == Some(name.as_str()),
+                                name,
+                            )
+                            .clicked()
+                        {
+                            selected_library = Some(name.clone());
+                        }
+                    }
+                });
+            if selected_library != self.active_virtual_library {
+                self.set_active_virtual_library(selected_library);
             }
         });
         ui.horizontal(|ui| {
@@ -989,17 +1054,15 @@ impl LibraryView {
                         if !query.is_empty() && !entry.name.to_lowercase().contains(&query) {
                             continue;
                         }
-                        let selected = self
-                            .browser_filter
-                            .as_ref()
-                            .map(|filter| filter.category == category && filter.value == entry.name)
-                            .unwrap_or(false);
-                        let label = format!("{} ({})", entry.name, entry.count);
+                        let mode = self.browser_filter_mode(category, &entry.name);
+                        let selected = mode.is_some();
+                        let label = format!(
+                            "{} ({})",
+                            hierarchical_category_label(category, &entry.name),
+                            entry.count
+                        );
                         if ui.selectable_label(selected, label).clicked() {
-                            self.browser_filter = Some(BrowserFilter {
-                                category,
-                                value: entry.name.clone(),
-                            });
+                            self.cycle_browser_filter(category, &entry.name);
                             self.apply_filters();
                         }
                     }
@@ -1018,9 +1081,82 @@ impl LibraryView {
     fn clear_all_filters(&mut self) {
         self.search_query.clear();
         self.format_filter = None;
-        self.browser_filter = None;
+        self.browser_filters.clear();
+        self.persist_active_virtual_filters();
         self.needs_refresh = true;
         self.apply_filters();
+    }
+
+    fn browser_filter_mode(
+        &self,
+        category: BrowserCategory,
+        value: &str,
+    ) -> Option<BrowserFilterMode> {
+        self.browser_filters
+            .iter()
+            .find(|filter| filter.category == category && filter.value == value)
+            .map(|filter| filter.mode)
+    }
+
+    fn cycle_browser_filter(&mut self, category: BrowserCategory, value: &str) {
+        if let Some(pos) = self
+            .browser_filters
+            .iter()
+            .position(|filter| filter.category == category && filter.value == value)
+        {
+            match self.browser_filters[pos].mode {
+                BrowserFilterMode::Include => {
+                    self.browser_filters[pos].mode = BrowserFilterMode::Exclude;
+                }
+                BrowserFilterMode::Exclude => {
+                    self.browser_filters.remove(pos);
+                }
+            }
+        } else {
+            self.browser_filters.push(BrowserFilter {
+                category,
+                value: value.to_string(),
+                mode: BrowserFilterMode::Include,
+            });
+        }
+        self.persist_active_virtual_filters();
+    }
+
+    fn remove_browser_filter(&mut self, filter: &BrowserFilter) {
+        self.browser_filters
+            .retain(|item| !(item.category == filter.category && item.value == filter.value));
+        self.persist_active_virtual_filters();
+    }
+
+    fn set_active_virtual_library(&mut self, selected: Option<String>) {
+        self.active_virtual_library = selected.clone();
+        if let Some(name) = selected {
+            if let Some((_, query)) = self
+                .browser_saved_searches
+                .iter()
+                .find(|(saved_name, _)| saved_name == &name)
+            {
+                self.search_query = query.clone();
+                self.search_commit_requested = true;
+                self.search_focus = false;
+            }
+            self.browser_filters = self
+                .virtual_library_filters
+                .get(&name)
+                .cloned()
+                .unwrap_or_default();
+        } else {
+            self.browser_filters.clear();
+        }
+        self.needs_refresh = true;
+        self.apply_filters();
+    }
+
+    fn persist_active_virtual_filters(&mut self) {
+        if let Some(name) = &self.active_virtual_library {
+            self.virtual_library_filters
+                .insert(name.clone(), self.browser_filters.clone());
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1031,24 +1167,77 @@ impl LibraryView {
             }
             ui.label(format!("Selected: {}", self.selected_ids.len()));
             ui.label(format!("Jobs: {}", self.jobs.len()));
+            if let Some(active) = &self.active_virtual_library {
+                ui.label(format!("Virtual library: {active}"));
+            }
             if !self.browser_saved_searches.is_empty() {
-                let mut selected = None;
+                let mut selected = None::<String>;
                 egui::ComboBox::from_id_salt("saved_search_quick")
                     .selected_text("Saved search")
                     .show_ui(ui, |ui| {
-                        for (name, query) in &self.browser_saved_searches {
+                        for (name, _) in &self.browser_saved_searches {
                             if ui.selectable_label(false, name).clicked() {
-                                selected = Some(query.clone());
+                                selected = Some(name.clone());
                             }
                         }
                     });
-                if let Some(query) = selected {
-                    self.search_query = query;
-                    self.search_commit_requested = true;
-                    self.needs_refresh = true;
+                if let Some(name) = selected {
+                    self.set_active_virtual_library(Some(name));
                 }
             }
         });
+    }
+
+    fn quick_details_preview(&mut self, ui: &mut egui::Ui) {
+        ui.label("Quick details");
+        if let Some(details) = &self.details {
+            ui.label(format!("Title: {}", details.book.title));
+            ui.label(format!("Authors: {}", details.authors.join(", ")));
+            ui.label(format!(
+                "Series: {}",
+                details
+                    .series
+                    .as_ref()
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default()
+            ));
+            ui.label(format!("Tags: {}", details.tags.join(", ")));
+        } else {
+            ui.label("No selected book.");
+        }
+    }
+
+    fn library_stats_panel(&mut self, ui: &mut egui::Ui, cache_dir: &Path) {
+        egui::CollapsingHeader::new("Library stats")
+            .default_open(false)
+            .show(ui, |ui| {
+                let stats = compute_library_stats(&self.all_books);
+                ui.label(format!("Formats: {}", stats.formats.len()));
+                ui.label(format!("Languages: {}", stats.languages.len()));
+                ui.label(format!("Tags: {}", stats.tags.len()));
+                ui.label(format!("Authors: {}", stats.authors.len()));
+                ui.label(format!("Series: {}", stats.series.len()));
+                ui.separator();
+                ui.label("Formats distribution");
+                for (format, count) in stats.formats.iter().take(8) {
+                    ui.label(format!("{format}: {count}"));
+                }
+                ui.separator();
+                if ui.button("Refresh stats").clicked() {
+                    self.needs_refresh = true;
+                }
+                if ui.button("Export stats CSV").clicked() {
+                    match export_stats_csv(cache_dir, &stats) {
+                        Ok(path) => {
+                            self.push_toast(
+                                &format!("Exported stats: {}", path.display()),
+                                ToastLevel::Info,
+                            );
+                        }
+                        Err(err) => self.set_error(err),
+                    }
+                }
+            });
     }
 
     fn row_context_menu(&mut self, ui: &mut egui::Ui, config: &ControlPlane, book: &BookRow) {
@@ -1123,6 +1312,48 @@ impl LibraryView {
                 });
             if self.layout_dirty {
                 ui.label("Layout changed");
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Density");
+            egui::ComboBox::from_id_salt("view_density")
+                .selected_text(match self.view_density {
+                    ViewDensity::Compact => "Compact",
+                    ViewDensity::Comfortable => "Comfortable",
+                })
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_value(&mut self.view_density, ViewDensity::Compact, "Compact")
+                        .clicked()
+                    {
+                        self.layout_dirty = true;
+                    }
+                    if ui
+                        .selectable_value(
+                            &mut self.view_density,
+                            ViewDensity::Comfortable,
+                            "Comfortable",
+                        )
+                        .clicked()
+                    {
+                        self.layout_dirty = true;
+                    }
+                });
+            if ui
+                .checkbox(&mut self.quick_details_panel, "Quick details")
+                .changed()
+            {
+                self.layout_dirty = true;
+            }
+            if self.view_mode == ViewMode::Grid {
+                let mut zoom = self.cover_thumb_size;
+                if ui
+                    .add(egui::Slider::new(&mut zoom, 48.0..=140.0).text("Cover zoom"))
+                    .changed()
+                {
+                    self.cover_thumb_size = zoom;
+                    self.layout_dirty = true;
+                }
             }
         });
 
@@ -1297,7 +1528,11 @@ impl LibraryView {
     }
 
     fn table_view(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
-        let row_height = self.table_row_height.max(32.0);
+        let density_factor = match self.view_density {
+            ViewDensity::Compact => 0.85,
+            ViewDensity::Comfortable => 1.0,
+        };
+        let row_height = (self.table_row_height * density_factor).max(30.0);
         let mut table = TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
@@ -1373,16 +1608,34 @@ impl LibraryView {
                     let mut modifiers = egui::Modifiers::default();
                     if self.columns.title {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(
-                                selected,
-                                highlight_text(&book.title, &self.search_query),
-                            );
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                            response.context_menu(|ui| {
-                                self.row_context_menu(ui, config, &book);
+                            ui.horizontal(|ui| {
+                                let response = ui.selectable_label(
+                                    selected,
+                                    highlight_text(&book.title, &self.search_query),
+                                );
+                                if response.clicked() {
+                                    row_clicked = true;
+                                    modifiers = response.ctx.input(|i| i.modifiers);
+                                }
+                                response.context_menu(|ui| {
+                                    self.row_context_menu(ui, config, &book);
+                                });
+                                if ui
+                                    .small_button("E")
+                                    .on_hover_text("Edit metadata")
+                                    .clicked()
+                                {
+                                    self.select_book(book.id);
+                                    self.begin_edit();
+                                }
+                                if ui.small_button("R").on_hover_text("Remove book").clicked() {
+                                    self.selected_ids = vec![book.id];
+                                    self.open_remove_books(config);
+                                }
+                                if ui.small_button("C").on_hover_text("Convert book").clicked() {
+                                    self.selected_ids = vec![book.id];
+                                    self.open_convert_books(config);
+                                }
                             });
                         });
                     }
@@ -1482,7 +1735,10 @@ impl LibraryView {
         egui::ScrollArea::vertical().show(ui, |ui| {
             let mut row = 0;
             let mut col = 0;
-            let columns = 3;
+            let columns = match self.view_density {
+                ViewDensity::Compact => 4,
+                ViewDensity::Comfortable => 3,
+            };
             for book in &books {
                 if col == 0 {
                     ui.horizontal(|ui| {
@@ -3533,6 +3789,16 @@ impl LibraryView {
         self.browser_languages = self.db.list_language_categories()?;
         let searches = self.db.list_saved_searches()?;
         self.browser_saved_searches = searches.into_iter().collect();
+        if let Some(active) = &self.active_virtual_library {
+            if !self
+                .browser_saved_searches
+                .iter()
+                .any(|(name, _)| name == active)
+            {
+                self.active_virtual_library = None;
+                self.browser_filters.clear();
+            }
+        }
         Ok(())
     }
 
@@ -3675,9 +3941,9 @@ impl LibraryView {
                 } else {
                     true
                 };
-                let browser_matches = if let Some(filter) = &self.browser_filter {
+                let browser_matches = self.browser_filters.iter().all(|filter| {
                     let needle = filter.value.to_lowercase();
-                    match filter.category {
+                    let matched = match filter.category {
                         BrowserCategory::Authors => field_contains(&book.authors, &needle),
                         BrowserCategory::Tags => field_contains(&book.tags, &needle),
                         BrowserCategory::Series => field_contains(&book.series, &needle),
@@ -3686,10 +3952,12 @@ impl LibraryView {
                             book.rating.trim().eq_ignore_ascii_case(&needle)
                         }
                         BrowserCategory::Languages => field_contains(&book.languages, &needle),
+                    };
+                    match filter.mode {
+                        BrowserFilterMode::Include => matched,
+                        BrowserFilterMode::Exclude => !matched,
                     }
-                } else {
-                    true
-                };
+                });
                 format_matches && browser_matches
             })
             .cloned()
@@ -3823,6 +4091,11 @@ impl LibraryView {
             ViewMode::Table => "table".to_string(),
             ViewMode::Grid => "grid".to_string(),
         };
+        config.gui.view_density = match self.view_density {
+            ViewDensity::Compact => "compact".to_string(),
+            ViewDensity::Comfortable => "comfortable".to_string(),
+        };
+        config.gui.quick_details_panel = self.quick_details_panel;
         if let Err(err) = config.save_to_path(config_path) {
             self.set_error(err);
         } else {
@@ -4649,6 +4922,15 @@ struct JobEntry {
     updated_at: f64,
 }
 
+#[derive(Debug, Clone)]
+struct LibraryStatsSummary {
+    formats: Vec<(String, usize)>,
+    languages: Vec<(String, usize)>,
+    tags: Vec<(String, usize)>,
+    authors: Vec<(String, usize)>,
+    series: Vec<(String, usize)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JobStatus {
     Queued,
@@ -4892,6 +5174,22 @@ fn field_contains(haystack: &str, needle_lower: &str) -> bool {
     haystack.to_lowercase().contains(needle_lower)
 }
 
+fn hierarchical_category_label(category: BrowserCategory, name: &str) -> String {
+    let delimiter = match category {
+        BrowserCategory::Tags => Some('/'),
+        BrowserCategory::Series => Some(':'),
+        _ => None,
+    };
+    if let Some(delim) = delimiter {
+        let depth = name.split(delim).count().saturating_sub(1);
+        if depth > 0 {
+            let indent = "  ".repeat(depth.min(6));
+            return format!("{indent}{name}");
+        }
+    }
+    name.to_string()
+}
+
 fn highlight_text(text: &str, query: &str) -> egui::RichText {
     let query = query.trim();
     if query.is_empty() {
@@ -4936,10 +5234,91 @@ fn rating_stars(ui: &mut egui::Ui, rating: &mut i64) {
     });
 }
 
+fn compute_library_stats(rows: &[BookRow]) -> LibraryStatsSummary {
+    let mut formats = HashMap::<String, usize>::new();
+    let mut languages = HashMap::<String, usize>::new();
+    let mut tags = HashMap::<String, usize>::new();
+    let mut authors = HashMap::<String, usize>::new();
+    let mut series = HashMap::<String, usize>::new();
+    for row in rows {
+        *formats.entry(row.format.clone()).or_insert(0) += 1;
+        for item in split_csv_field(&row.languages) {
+            *languages.entry(item).or_insert(0) += 1;
+        }
+        for item in split_csv_field(&row.tags) {
+            *tags.entry(item).or_insert(0) += 1;
+        }
+        for item in split_csv_field(&row.authors) {
+            *authors.entry(item).or_insert(0) += 1;
+        }
+        if !row.series.trim().is_empty() {
+            *series.entry(row.series.clone()).or_insert(0) += 1;
+        }
+    }
+    LibraryStatsSummary {
+        formats: sort_count_map(formats),
+        languages: sort_count_map(languages),
+        tags: sort_count_map(tags),
+        authors: sort_count_map(authors),
+        series: sort_count_map(series),
+    }
+}
+
+fn sort_count_map(map: HashMap<String, usize>) -> Vec<(String, usize)> {
+    let mut items = map.into_iter().collect::<Vec<_>>();
+    items.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    items
+}
+
+fn split_csv_field(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn export_stats_csv(cache_dir: &Path, stats: &LibraryStatsSummary) -> CoreResult<PathBuf> {
+    fs::create_dir_all(cache_dir)
+        .map_err(|err| CoreError::Io("create cache dir".to_string(), err))?;
+    let output = cache_dir.join("library-stats.csv");
+    let mut lines = vec!["kind,name,count".to_string()];
+    append_stat_lines(&mut lines, "format", &stats.formats);
+    append_stat_lines(&mut lines, "language", &stats.languages);
+    append_stat_lines(&mut lines, "tag", &stats.tags);
+    append_stat_lines(&mut lines, "author", &stats.authors);
+    append_stat_lines(&mut lines, "series", &stats.series);
+    fs::write(&output, lines.join("\n"))
+        .map_err(|err| CoreError::Io("write stats csv".to_string(), err))?;
+    Ok(output)
+}
+
+fn append_stat_lines(lines: &mut Vec<String>, kind: &str, items: &[(String, usize)]) {
+    for (name, count) in items {
+        lines.push(format!("{kind},{},{}", escape_csv_cell(name), count));
+    }
+}
+
+fn escape_csv_cell(value: &str) -> String {
+    if value.contains(',') || value.contains('"') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 fn parse_view_mode(value: &str) -> ViewMode {
     match value {
         "grid" => ViewMode::Grid,
         _ => ViewMode::Table,
+    }
+}
+
+fn parse_view_density(value: &str) -> ViewDensity {
+    match value {
+        "compact" => ViewDensity::Compact,
+        _ => ViewDensity::Comfortable,
     }
 }
 

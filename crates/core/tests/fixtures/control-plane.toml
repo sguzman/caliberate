@@ -130,3 +130,5 @@ reader_theme = "light"
 toast_duration_secs = 6.0
 toast_max = 4
 search_history_max = 20
+view_density = "comfortable"
+quick_details_panel = true

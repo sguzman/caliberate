@@ -213,6 +213,11 @@ impl ControlPlane {
                 "gui.search_history_max must be between 1 and 200".to_string(),
             ));
         }
+        if !matches!(self.gui.view_density.as_str(), "compact" | "comfortable") {
+            return Err(CoreError::ConfigValidate(
+                "gui.view_density must be 'compact' or 'comfortable'".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -537,6 +542,10 @@ pub struct GuiConfig {
     pub toast_max: usize,
     #[serde(default = "default_gui_search_history_max")]
     pub search_history_max: usize,
+    #[serde(default = "default_gui_view_density")]
+    pub view_density: String,
+    #[serde(default = "default_gui_quick_details_panel")]
+    pub quick_details_panel: bool,
 }
 
 impl Default for GuiConfig {
@@ -576,6 +585,8 @@ impl Default for GuiConfig {
             toast_duration_secs: default_gui_toast_duration_secs(),
             toast_max: default_gui_toast_max(),
             search_history_max: default_gui_search_history_max(),
+            view_density: default_gui_view_density(),
+            quick_details_panel: default_gui_quick_details_panel(),
         }
     }
 }
@@ -774,6 +785,14 @@ fn default_gui_toast_max() -> usize {
 
 fn default_gui_search_history_max() -> usize {
     20
+}
+
+fn default_gui_view_density() -> String {
+    "comfortable".to_string()
+}
+
+fn default_gui_quick_details_panel() -> bool {
+    true
 }
 
 fn default_server_download_enabled() -> bool {

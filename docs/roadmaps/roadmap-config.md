@@ -31,3 +31,4 @@
 - [x] Define `[gui]` keys: `reader_font_size`, `reader_line_spacing`, `reader_page_chars`, `reader_theme`
 - [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
 - [x] Define `[gui]` keys: `search_history_max`
+- [x] Define `[gui]` keys: `view_density`, `quick_details_panel`
