@@ -32,3 +32,5 @@
 - [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
 - [x] Define `[gui]` keys: `search_history_max`
 - [x] Define `[gui]` keys: `view_density`, `quick_details_panel`
+- [x] Define `[gui]` keys: `show_format_badges`, `show_language_badges`
+- [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`

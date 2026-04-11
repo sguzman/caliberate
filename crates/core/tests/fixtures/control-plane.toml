@@ -132,3 +132,5 @@ toast_max = 4
 search_history_max = 20
 view_density = "comfortable"
 quick_details_panel = true
+show_format_badges = true
+show_language_badges = true

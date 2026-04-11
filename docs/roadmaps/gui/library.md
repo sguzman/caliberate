@@ -9,7 +9,7 @@
 - [x] Add per-row quick edit buttons (edit metadata, remove, convert)
 - [ ] Add column coloring/conditional formatting rules
 - [ ] Add date columns (added, modified, pubdate) with sorting
-- [ ] Add language/format icon badges in list view
+- [x] Add language/format icon badges in list view
 
 ## Browser Pane
 - [x] Implement tri-state filter behavior (include/exclude/neutral)
@@ -19,7 +19,7 @@
 - [x] Add browser category collapse/expand all actions
 - [x] Add browser filter chips with include/exclude badges
 - [x] Add browser filter persistence per virtual library
-- [ ] Persist virtual library browser filters across app restarts
+- [x] Persist virtual library browser filters across app restarts
 
 ## Views + Shelves
 - [ ] Implement cover flow / shelf view mode

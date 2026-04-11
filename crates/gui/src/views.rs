@@ -291,12 +291,15 @@ pub struct LibraryView {
     columns: ColumnVisibility,
     column_widths: ColumnWidths,
     layout_dirty: bool,
+    config_dirty: bool,
     pending_save: bool,
     open_logs_requested: bool,
     log_dir: PathBuf,
     tmp_dir: PathBuf,
     cover_thumb_size: f32,
     cover_preview_size: f32,
+    show_format_badges: bool,
+    show_language_badges: bool,
     cover_dir: PathBuf,
     cover_cache_dir: PathBuf,
     cover_max_bytes: u64,
@@ -372,8 +375,10 @@ impl LibraryView {
             browser_open_ratings: false,
             browser_open_languages: false,
             browser_open_dirty: false,
-            active_virtual_library: None,
-            virtual_library_filters: HashMap::new(),
+            active_virtual_library: config.gui.active_virtual_library.clone(),
+            virtual_library_filters: decode_virtual_library_filters(
+                &config.gui.virtual_library_filters,
+            ),
             selected_ids: Vec::new(),
             last_selected: None,
             details: None,
@@ -398,12 +403,15 @@ impl LibraryView {
             columns: ColumnVisibility::from_config(&config.gui),
             column_widths: ColumnWidths::from_config(&config.gui),
             layout_dirty: false,
+            config_dirty: false,
             pending_save: false,
             open_logs_requested: false,
             log_dir: config.paths.log_dir.clone(),
             tmp_dir: config.paths.tmp_dir.clone(),
             cover_thumb_size: config.gui.cover_thumb_size,
             cover_preview_size: config.gui.cover_preview_size,
+            show_format_badges: config.gui.show_format_badges,
+            show_language_badges: config.gui.show_language_badges,
             cover_dir: config.gui.cover_dir.clone(),
             cover_cache_dir: config.gui.cover_cache_dir.clone(),
             cover_max_bytes: config.gui.cover_max_bytes,
@@ -440,6 +448,13 @@ impl LibraryView {
             manage_custom_columns: ManageCustomColumnsDialogState::default(),
             manage_virtual_libraries: ManageVirtualLibrariesDialogState::default(),
         };
+        if let Some(active) = &view.active_virtual_library {
+            view.browser_filters = view
+                .virtual_library_filters
+                .get(active)
+                .cloned()
+                .unwrap_or_default();
+        }
         view.refresh_books()?;
         Ok(view)
     }
@@ -639,6 +654,15 @@ impl LibraryView {
         self.reader_dialog(ui);
         self.remove_asset_dialog(ui, config);
         self.note_delete_dialog(ui);
+
+        if self.config_dirty {
+            self.sync_gui_runtime_config(config);
+            if let Err(err) = config.save_to_path(config_path) {
+                self.set_error(err);
+            } else {
+                self.config_dirty = false;
+            }
+        }
 
         self.render_jobs(ui);
         self.render_toasts(ui);
@@ -1120,12 +1144,14 @@ impl LibraryView {
             });
         }
         self.persist_active_virtual_filters();
+        self.config_dirty = true;
     }
 
     fn remove_browser_filter(&mut self, filter: &BrowserFilter) {
         self.browser_filters
             .retain(|item| !(item.category == filter.category && item.value == filter.value));
         self.persist_active_virtual_filters();
+        self.config_dirty = true;
     }
 
     fn set_active_virtual_library(&mut self, selected: Option<String>) {
@@ -1150,12 +1176,14 @@ impl LibraryView {
         }
         self.needs_refresh = true;
         self.apply_filters();
+        self.config_dirty = true;
     }
 
     fn persist_active_virtual_filters(&mut self) {
         if let Some(name) = &self.active_virtual_library {
             self.virtual_library_filters
                 .insert(name.clone(), self.browser_filters.clone());
+            self.config_dirty = true;
         }
     }
 
@@ -1354,6 +1382,20 @@ impl LibraryView {
                     self.cover_thumb_size = zoom;
                     self.layout_dirty = true;
                 }
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut self.show_format_badges, "Format badges")
+                .changed()
+            {
+                self.config_dirty = true;
+            }
+            if ui
+                .checkbox(&mut self.show_language_badges, "Language badges")
+                .changed()
+            {
+                self.config_dirty = true;
             }
         });
 
@@ -1689,7 +1731,12 @@ impl LibraryView {
                     }
                     if self.columns.formats {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, &book.format);
+                            let text = if self.show_format_badges {
+                                format_badge_text(&book.format)
+                            } else {
+                                book.format.clone()
+                            };
+                            let response = ui.selectable_label(selected, text);
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -1716,7 +1763,12 @@ impl LibraryView {
                     }
                     if self.columns.languages {
                         row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, &book.languages);
+                            let text = if self.show_language_badges {
+                                language_badge_text(&book.languages)
+                            } else {
+                                book.languages.clone()
+                            };
+                            let response = ui.selectable_label(selected, text);
                             if response.clicked() {
                                 row_clicked = true;
                                 modifiers = response.ctx.input(|i| i.modifiers);
@@ -4104,6 +4156,19 @@ impl LibraryView {
         }
     }
 
+    fn sync_gui_runtime_config(&self, config: &mut ControlPlane) {
+        config.gui.active_virtual_library = self.active_virtual_library.clone();
+        config.gui.virtual_library_filters =
+            encode_virtual_library_filters(&self.virtual_library_filters);
+        config.gui.show_format_badges = self.show_format_badges;
+        config.gui.show_language_badges = self.show_language_badges;
+        config.gui.view_density = match self.view_density {
+            ViewDensity::Compact => "compact".to_string(),
+            ViewDensity::Comfortable => "comfortable".to_string(),
+        };
+        config.gui.quick_details_panel = self.quick_details_panel;
+    }
+
     fn push_toast(&mut self, message: &str, level: ToastLevel) {
         let now = self.last_tick;
         self.toasts.push(Toast {
@@ -5306,6 +5371,89 @@ fn escape_csv_cell(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn format_badge_text(format: &str) -> String {
+    format!("[{}]", format.trim().to_uppercase())
+}
+
+fn language_badge_text(languages: &str) -> String {
+    let parts = split_csv_field(languages);
+    if parts.is_empty() {
+        return String::new();
+    }
+    parts
+        .iter()
+        .map(|lang| format!("[{}]", lang.trim().to_uppercase()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn encode_filter_entry(filter: &BrowserFilter) -> String {
+    let category = match filter.category {
+        BrowserCategory::Authors => "authors",
+        BrowserCategory::Tags => "tags",
+        BrowserCategory::Series => "series",
+        BrowserCategory::Publishers => "publishers",
+        BrowserCategory::Ratings => "ratings",
+        BrowserCategory::Languages => "languages",
+    };
+    let mode = match filter.mode {
+        BrowserFilterMode::Include => "include",
+        BrowserFilterMode::Exclude => "exclude",
+    };
+    format!("{category}|{mode}|{}", filter.value.replace('|', "\\|"))
+}
+
+fn decode_filter_entry(value: &str) -> Option<BrowserFilter> {
+    let mut parts = value.splitn(3, '|');
+    let category = parts.next()?;
+    let mode = parts.next()?;
+    let raw = parts.next()?.replace("\\|", "|");
+    let category = match category {
+        "authors" => BrowserCategory::Authors,
+        "tags" => BrowserCategory::Tags,
+        "series" => BrowserCategory::Series,
+        "publishers" => BrowserCategory::Publishers,
+        "ratings" => BrowserCategory::Ratings,
+        "languages" => BrowserCategory::Languages,
+        _ => return None,
+    };
+    let mode = match mode {
+        "include" => BrowserFilterMode::Include,
+        "exclude" => BrowserFilterMode::Exclude,
+        _ => return None,
+    };
+    Some(BrowserFilter {
+        category,
+        value: raw,
+        mode,
+    })
+}
+
+fn encode_virtual_library_filters(
+    source: &HashMap<String, Vec<BrowserFilter>>,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out = std::collections::BTreeMap::new();
+    for (name, filters) in source {
+        let entries = filters.iter().map(encode_filter_entry).collect::<Vec<_>>();
+        out.insert(name.clone(), entries);
+    }
+    out
+}
+
+fn decode_virtual_library_filters(
+    source: &std::collections::BTreeMap<String, Vec<String>>,
+) -> HashMap<String, Vec<BrowserFilter>> {
+    let mut out = HashMap::new();
+    for (name, filters) in source {
+        let parsed = filters
+            .iter()
+            .filter_map(|entry| decode_filter_entry(entry))
+            .collect::<Vec<_>>();
+        out.insert(name.clone(), parsed);
+    }
+    out
 }
 
 fn parse_view_mode(value: &str) -> ViewMode {

@@ -2,6 +2,7 @@
 
 use crate::error::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -217,6 +218,27 @@ impl ControlPlane {
             return Err(CoreError::ConfigValidate(
                 "gui.view_density must be 'compact' or 'comfortable'".to_string(),
             ));
+        }
+        if let Some(active) = &self.gui.active_virtual_library {
+            if active.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.active_virtual_library must not be empty when set".to_string(),
+                ));
+            }
+        }
+        for (name, filters) in &self.gui.virtual_library_filters {
+            if name.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.virtual_library_filters keys must not be empty".to_string(),
+                ));
+            }
+            for filter in filters {
+                if filter.trim().is_empty() {
+                    return Err(CoreError::ConfigValidate(
+                        "gui.virtual_library_filters entries must not be empty".to_string(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -546,6 +568,14 @@ pub struct GuiConfig {
     pub view_density: String,
     #[serde(default = "default_gui_quick_details_panel")]
     pub quick_details_panel: bool,
+    #[serde(default = "default_gui_show_format_badges")]
+    pub show_format_badges: bool,
+    #[serde(default = "default_gui_show_language_badges")]
+    pub show_language_badges: bool,
+    #[serde(default)]
+    pub active_virtual_library: Option<String>,
+    #[serde(default)]
+    pub virtual_library_filters: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for GuiConfig {
@@ -587,6 +617,10 @@ impl Default for GuiConfig {
             search_history_max: default_gui_search_history_max(),
             view_density: default_gui_view_density(),
             quick_details_panel: default_gui_quick_details_panel(),
+            show_format_badges: default_gui_show_format_badges(),
+            show_language_badges: default_gui_show_language_badges(),
+            active_virtual_library: None,
+            virtual_library_filters: BTreeMap::new(),
         }
     }
 }
@@ -792,6 +826,14 @@ fn default_gui_view_density() -> String {
 }
 
 fn default_gui_quick_details_panel() -> bool {
+    true
+}
+
+fn default_gui_show_format_badges() -> bool {
+    true
+}
+
+fn default_gui_show_language_badges() -> bool {
     true
 }
 
