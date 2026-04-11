@@ -227,6 +227,24 @@ impl ControlPlane {
                 "gui.stats_top_n must be between 1 and 100".to_string(),
             ));
         }
+        if !matches!(
+            self.gui.group_mode.as_str(),
+            "none" | "series" | "authors" | "tags"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.group_mode must be one of 'none', 'series', 'authors', or 'tags'".to_string(),
+            ));
+        }
+        if !(1..=12).contains(&self.gui.shelf_columns) {
+            return Err(CoreError::ConfigValidate(
+                "gui.shelf_columns must be between 1 and 12".to_string(),
+            ));
+        }
+        if !(0..=10).contains(&self.gui.low_rating_threshold) {
+            return Err(CoreError::ConfigValidate(
+                "gui.low_rating_threshold must be between 0 and 10".to_string(),
+            ));
+        }
         if !matches!(self.gui.view_density.as_str(), "compact" | "comfortable") {
             return Err(CoreError::ConfigValidate(
                 "gui.view_density must be 'compact' or 'comfortable'".to_string(),
@@ -246,6 +264,14 @@ impl ControlPlane {
                 ));
             }
         }
+        for (name, preset) in &self.gui.column_presets {
+            if name.trim().is_empty() || preset.is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.column_presets keys must be non-empty and values must have entries"
+                        .to_string(),
+                ));
+            }
+        }
         if let Some(active) = &self.gui.active_sort_preset {
             if active.trim().is_empty() {
                 return Err(CoreError::ConfigValidate(
@@ -255,6 +281,18 @@ impl ControlPlane {
             if !self.gui.sort_presets.contains_key(active) {
                 return Err(CoreError::ConfigValidate(
                     "gui.active_sort_preset must reference gui.sort_presets".to_string(),
+                ));
+            }
+        }
+        if let Some(active) = &self.gui.active_column_preset {
+            if active.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.active_column_preset must not be empty when set".to_string(),
+                ));
+            }
+            if !self.gui.column_presets.contains_key(active) {
+                return Err(CoreError::ConfigValidate(
+                    "gui.active_column_preset must reference gui.column_presets".to_string(),
                 ));
             }
         }
@@ -631,6 +669,24 @@ pub struct GuiConfig {
     pub active_sort_preset: Option<String>,
     #[serde(default = "default_gui_stats_top_n")]
     pub stats_top_n: usize,
+    #[serde(default = "default_gui_group_mode")]
+    pub group_mode: String,
+    #[serde(default = "default_gui_shelf_columns")]
+    pub shelf_columns: usize,
+    #[serde(default = "default_gui_conditional_missing_cover")]
+    pub conditional_missing_cover: bool,
+    #[serde(default = "default_gui_conditional_low_rating")]
+    pub conditional_low_rating: bool,
+    #[serde(default = "default_gui_low_rating_threshold")]
+    pub low_rating_threshold: i64,
+    #[serde(default = "default_gui_color_missing_cover")]
+    pub color_missing_cover: String,
+    #[serde(default = "default_gui_color_low_rating")]
+    pub color_low_rating: String,
+    #[serde(default)]
+    pub column_presets: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub active_column_preset: Option<String>,
     #[serde(default)]
     pub active_virtual_library: Option<String>,
     #[serde(default)]
@@ -688,6 +744,15 @@ impl Default for GuiConfig {
             sort_presets: BTreeMap::new(),
             active_sort_preset: None,
             stats_top_n: default_gui_stats_top_n(),
+            group_mode: default_gui_group_mode(),
+            shelf_columns: default_gui_shelf_columns(),
+            conditional_missing_cover: default_gui_conditional_missing_cover(),
+            conditional_low_rating: default_gui_conditional_low_rating(),
+            low_rating_threshold: default_gui_low_rating_threshold(),
+            color_missing_cover: default_gui_color_missing_cover(),
+            color_low_rating: default_gui_color_low_rating(),
+            column_presets: BTreeMap::new(),
+            active_column_preset: None,
             active_virtual_library: None,
             virtual_library_filters: BTreeMap::new(),
         }
@@ -949,6 +1014,34 @@ fn default_gui_column_order() -> Vec<String> {
 
 fn default_gui_stats_top_n() -> usize {
     8
+}
+
+fn default_gui_group_mode() -> String {
+    "none".to_string()
+}
+
+fn default_gui_shelf_columns() -> usize {
+    4
+}
+
+fn default_gui_conditional_missing_cover() -> bool {
+    true
+}
+
+fn default_gui_conditional_low_rating() -> bool {
+    true
+}
+
+fn default_gui_low_rating_threshold() -> i64 {
+    4
+}
+
+fn default_gui_color_missing_cover() -> String {
+    "#d4a017".to_string()
+}
+
+fn default_gui_color_low_rating() -> String {
+    "#cc4444".to_string()
 }
 
 fn default_server_download_enabled() -> bool {

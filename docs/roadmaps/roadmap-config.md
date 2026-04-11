@@ -38,4 +38,8 @@
 - [x] Define `[gui]` keys: `column_order`
 - [x] Define `[gui]` keys: `sort_presets`, `active_sort_preset`
 - [x] Define `[gui]` keys: `stats_top_n`
+- [x] Define `[gui]` keys: `group_mode`, `shelf_columns`
+- [x] Define `[gui]` keys: `conditional_missing_cover`, `conditional_low_rating`, `low_rating_threshold`
+- [x] Define `[gui]` keys: `color_missing_cover`, `color_low_rating`
+- [x] Define `[gui]` keys: `column_presets`, `active_column_preset`
 - [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`
