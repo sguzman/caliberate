@@ -13,6 +13,19 @@ pub struct CaliberateApp {
     preferences: PreferencesView,
     active_view: AppView,
     pending_action: Option<AppAction>,
+    nav_back: Vec<AppView>,
+    nav_forward: Vec<AppView>,
+    command_palette_open: bool,
+    command_palette_query: String,
+    global_search_query: String,
+    global_search_scope: GlobalSearchScope,
+    global_search_count: usize,
+    notification_center_open: bool,
+    toolbar: ToolbarConfig,
+    shortcuts: ShortcutBindings,
+    shortcut_editor_open: bool,
+    drag_drop_hints_enabled: bool,
+    shell_config_dirty: bool,
 }
 
 impl CaliberateApp {
@@ -22,6 +35,17 @@ impl CaliberateApp {
     ) -> CoreResult<Self> {
         let library = LibraryView::new(&config)?;
         let preferences = PreferencesView::new(&config);
+        let toolbar = ToolbarConfig::from_actions(
+            config.gui.toolbar_icon_only,
+            &config.gui.toolbar_visible_actions,
+        );
+        let shortcuts = if config.gui.shortcut_preset == "calibre_like" {
+            ShortcutBindings::calibre_like()
+        } else {
+            ShortcutBindings::default()
+        };
+        let drag_drop_hints_enabled = config.gui.drag_drop_hints;
+        let global_search_scope = GlobalSearchScope::from_config(&config.gui.global_search_scope);
         Ok(Self {
             config,
             config_path,
@@ -29,6 +53,19 @@ impl CaliberateApp {
             preferences,
             active_view: AppView::Library,
             pending_action: None,
+            nav_back: Vec::new(),
+            nav_forward: Vec::new(),
+            command_palette_open: false,
+            command_palette_query: String::new(),
+            global_search_query: String::new(),
+            global_search_scope,
+            global_search_count: 0,
+            notification_center_open: false,
+            toolbar,
+            shortcuts,
+            shortcut_editor_open: false,
+            drag_drop_hints_enabled,
+            shell_config_dirty: false,
         })
     }
 }
@@ -41,18 +78,30 @@ impl eframe::App for CaliberateApp {
             ui.separator();
             self.toolbar(ui);
             ui.separator();
+            self.global_search_bar(ui);
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui
                     .selectable_label(self.active_view == AppView::Library, "Library")
                     .clicked()
                 {
-                    self.active_view = AppView::Library;
+                    self.switch_view(AppView::Library);
                 }
                 if ui
                     .selectable_label(self.active_view == AppView::Preferences, "Preferences")
                     .clicked()
                 {
-                    self.active_view = AppView::Preferences;
+                    self.switch_view(AppView::Preferences);
+                }
+                let active_jobs = self.library.active_jobs_count();
+                if active_jobs > 0 {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(230, 170, 70),
+                        format!("Busy: {active_jobs}"),
+                    );
+                }
+                if ui.button("Notifications").clicked() {
+                    self.notification_center_open = true;
                 }
             });
         });
@@ -86,6 +135,11 @@ impl eframe::App for CaliberateApp {
             self.apply_action(action);
         }
 
+        self.command_palette(ui);
+        self.shortcut_editor(ui);
+        self.notification_center(ui);
+        self.drag_drop_hint(ui);
+        self.sync_shell_config();
         self.error_dialog(ui);
     }
 }
@@ -109,9 +163,160 @@ enum AppAction {
     ConvertBooks,
     SaveToDisk,
     OpenLogs,
+    Back,
+    Forward,
+    ToggleNotifications,
+    ToggleCommandPalette,
+    ToggleShortcutEditor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlobalSearchScope {
+    All,
+    Title,
+    Authors,
+    Tags,
+    Series,
+}
+
+impl GlobalSearchScope {
+    fn from_config(value: &str) -> Self {
+        match value {
+            "title" => Self::Title,
+            "authors" => Self::Authors,
+            "tags" => Self::Tags,
+            "series" => Self::Series,
+            _ => Self::All,
+        }
+    }
+
+    fn as_config(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Title => "title",
+            Self::Authors => "authors",
+            Self::Tags => "tags",
+            Self::Series => "series",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ToolbarConfig {
+    show_add: bool,
+    show_remove: bool,
+    show_convert: bool,
+    show_save_to_disk: bool,
+    show_refresh: bool,
+    show_preferences: bool,
+    show_logs: bool,
+    icon_only: bool,
+}
+
+impl Default for ToolbarConfig {
+    fn default() -> Self {
+        Self {
+            show_add: true,
+            show_remove: true,
+            show_convert: true,
+            show_save_to_disk: true,
+            show_refresh: true,
+            show_preferences: true,
+            show_logs: true,
+            icon_only: false,
+        }
+    }
+}
+
+impl ToolbarConfig {
+    fn from_actions(icon_only: bool, actions: &[String]) -> Self {
+        let mut cfg = Self::default();
+        cfg.icon_only = icon_only;
+        cfg.show_add = actions.iter().any(|item| item == "add");
+        cfg.show_remove = actions.iter().any(|item| item == "remove");
+        cfg.show_convert = actions.iter().any(|item| item == "convert");
+        cfg.show_save_to_disk = actions.iter().any(|item| item == "save_to_disk");
+        cfg.show_refresh = actions.iter().any(|item| item == "refresh");
+        cfg.show_preferences = actions.iter().any(|item| item == "preferences");
+        cfg.show_logs = actions.iter().any(|item| item == "open_logs");
+        cfg
+    }
+
+    fn to_actions(self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.show_add {
+            out.push("add".to_string());
+        }
+        if self.show_remove {
+            out.push("remove".to_string());
+        }
+        if self.show_convert {
+            out.push("convert".to_string());
+        }
+        if self.show_save_to_disk {
+            out.push("save_to_disk".to_string());
+        }
+        if self.show_refresh {
+            out.push("refresh".to_string());
+        }
+        if self.show_preferences {
+            out.push("preferences".to_string());
+        }
+        if self.show_logs {
+            out.push("open_logs".to_string());
+        }
+        out
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ShortcutBindings {
+    focus_search: egui::KeyboardShortcut,
+    refresh: egui::KeyboardShortcut,
+    edit: egui::KeyboardShortcut,
+    save: egui::KeyboardShortcut,
+    preferences: egui::KeyboardShortcut,
+    library: egui::KeyboardShortcut,
+    command_palette: egui::KeyboardShortcut,
+}
+
+impl Default for ShortcutBindings {
+    fn default() -> Self {
+        Self {
+            focus_search: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F),
+            refresh: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::R),
+            edit: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::E),
+            save: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S),
+            preferences: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::P),
+            library: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::L),
+            command_palette: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::K),
+        }
+    }
+}
+
+impl ShortcutBindings {
+    fn calibre_like() -> Self {
+        Self {
+            focus_search: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F),
+            refresh: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F5),
+            edit: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::E),
+            save: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S),
+            preferences: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::P),
+            library: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::L),
+            command_palette: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::K),
+        }
+    }
 }
 
 impl CaliberateApp {
+    fn switch_view(&mut self, next: AppView) {
+        if self.active_view != next {
+            self.nav_back.push(self.active_view);
+            self.nav_forward.clear();
+            self.active_view = next;
+        }
+    }
+
     fn error_dialog(&mut self, ui: &mut egui::Ui) {
         let error = self
             .library
@@ -189,6 +394,16 @@ impl CaliberateApp {
                     ui.close_menu();
                 }
             });
+            ui.menu_button("Navigate", |ui| {
+                if ui.button("Back").clicked() {
+                    self.pending_action = Some(AppAction::Back);
+                    ui.close_menu();
+                }
+                if ui.button("Forward").clicked() {
+                    self.pending_action = Some(AppAction::Forward);
+                    ui.close_menu();
+                }
+            });
             ui.menu_button("View", |ui| {
                 if ui.button("Library").clicked() {
                     self.pending_action = Some(AppAction::OpenLibrary);
@@ -202,6 +417,47 @@ impl CaliberateApp {
                     self.pending_action = Some(AppAction::OpenLogs);
                     ui.close_menu();
                 }
+                if ui.button("Command palette").clicked() {
+                    self.pending_action = Some(AppAction::ToggleCommandPalette);
+                    ui.close_menu();
+                }
+                if ui.button("Notifications").clicked() {
+                    self.pending_action = Some(AppAction::ToggleNotifications);
+                    ui.close_menu();
+                }
+                if ui.button("Shortcut editor").clicked() {
+                    self.pending_action = Some(AppAction::ToggleShortcutEditor);
+                    ui.close_menu();
+                }
+                ui.separator();
+                ui.label("Toolbar");
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_add, "Show Add")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_remove, "Show Remove")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_convert, "Show Convert")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_save_to_disk, "Show Save to Disk")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_refresh, "Show Refresh")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_preferences, "Show Preferences")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.show_logs, "Show Open Logs")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.toolbar.icon_only, "Icon-only toolbar")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.drag_drop_hints_enabled, "Drag-drop hints")
+                    .changed();
             });
             ui.menu_button("Help", |ui| {
                 ui.label("Caliberate GUI");
@@ -211,58 +467,115 @@ impl CaliberateApp {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("Add").clicked() {
-                self.pending_action = Some(AppAction::AddBooks);
+            let mut overflow = Vec::new();
+            let compact = ui.available_width() < 760.0;
+            if self.toolbar.show_add {
+                self.toolbar_button(ui, compact, "＋", "Add", AppAction::AddBooks, &mut overflow);
             }
-            if ui.button("Remove").clicked() {
-                self.pending_action = Some(AppAction::RemoveBooks);
+            if self.toolbar.show_remove {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "－",
+                    "Remove",
+                    AppAction::RemoveBooks,
+                    &mut overflow,
+                );
             }
-            if ui.button("Convert").clicked() {
-                self.pending_action = Some(AppAction::ConvertBooks);
+            if self.toolbar.show_convert {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "⇄",
+                    "Convert",
+                    AppAction::ConvertBooks,
+                    &mut overflow,
+                );
             }
-            if ui.button("Save to Disk").clicked() {
-                self.pending_action = Some(AppAction::SaveToDisk);
+            if self.toolbar.show_save_to_disk {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "⤓",
+                    "Save",
+                    AppAction::SaveToDisk,
+                    &mut overflow,
+                );
             }
-            if ui.button("Refresh").clicked() {
-                self.pending_action = Some(AppAction::RefreshLibrary);
+            if self.toolbar.show_refresh {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "↻",
+                    "Refresh",
+                    AppAction::RefreshLibrary,
+                    &mut overflow,
+                );
             }
-            if ui.button("Preferences").clicked() {
-                self.pending_action = Some(AppAction::OpenPreferences);
+            if self.toolbar.show_preferences {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "⚙",
+                    "Preferences",
+                    AppAction::OpenPreferences,
+                    &mut overflow,
+                );
             }
-            if ui.button("Open Logs").clicked() {
-                self.pending_action = Some(AppAction::OpenLogs);
+            if self.toolbar.show_logs {
+                self.toolbar_button(
+                    ui,
+                    compact,
+                    "📝",
+                    "Open Logs",
+                    AppAction::OpenLogs,
+                    &mut overflow,
+                );
+            }
+            if !overflow.is_empty() {
+                ui.menu_button("More", |ui| {
+                    for (label, action) in overflow {
+                        if ui.button(label).clicked() {
+                            self.pending_action = Some(action);
+                            ui.close_menu();
+                        }
+                    }
+                });
             }
         });
     }
 
     fn handle_shortcuts(&mut self, ui: &mut egui::Ui) {
-        if ui.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.focus_search)) {
             self.pending_action = Some(AppAction::FocusSearch);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::R) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.refresh)) {
             self.pending_action = Some(AppAction::RefreshLibrary);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::E) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.edit)) {
             self.pending_action = Some(AppAction::BeginEdit);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.save)) {
             self.pending_action = Some(AppAction::SaveEdit);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.preferences)) {
             self.pending_action = Some(AppAction::OpenPreferences);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::L) && i.modifiers.ctrl) {
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.library)) {
             self.pending_action = Some(AppAction::OpenLibrary);
+        }
+        if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.command_palette)) {
+            self.pending_action = Some(AppAction::ToggleCommandPalette);
         }
     }
 
     fn apply_action(&mut self, action: AppAction) {
         match action {
             AppAction::OpenPreferences => {
-                self.active_view = AppView::Preferences;
+                self.switch_view(AppView::Preferences);
             }
             AppAction::OpenLibrary => {
-                self.active_view = AppView::Library;
+                self.switch_view(AppView::Library);
             }
             AppAction::FocusSearch => {
                 self.library.request_search_focus();
@@ -291,6 +604,313 @@ impl CaliberateApp {
             AppAction::OpenLogs => {
                 self.library.request_open_logs();
             }
+            AppAction::Back => {
+                if let Some(prev) = self.nav_back.pop() {
+                    self.nav_forward.push(self.active_view);
+                    self.active_view = prev;
+                }
+            }
+            AppAction::Forward => {
+                if let Some(next) = self.nav_forward.pop() {
+                    self.nav_back.push(self.active_view);
+                    self.active_view = next;
+                }
+            }
+            AppAction::ToggleNotifications => {
+                self.notification_center_open = !self.notification_center_open;
+            }
+            AppAction::ToggleCommandPalette => {
+                self.command_palette_open = !self.command_palette_open;
+                if self.command_palette_open {
+                    self.command_palette_query.clear();
+                }
+            }
+            AppAction::ToggleShortcutEditor => {
+                self.shortcut_editor_open = !self.shortcut_editor_open;
+            }
+        }
+    }
+
+    fn toolbar_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        compact: bool,
+        icon: &str,
+        label: &str,
+        action: AppAction,
+        overflow: &mut Vec<(String, AppAction)>,
+    ) {
+        if compact {
+            overflow.push((label.to_string(), action));
+            return;
+        }
+        let text = if self.toolbar.icon_only {
+            icon.to_string()
+        } else {
+            format!("{icon} {label}")
+        };
+        if ui.button(text).clicked() {
+            self.pending_action = Some(action);
+        }
+    }
+
+    fn global_search_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Global");
+            let response = ui.text_edit_singleline(&mut self.global_search_query);
+            let previous_scope = self.global_search_scope;
+            egui::ComboBox::from_id_salt("global_scope")
+                .selected_text(match self.global_search_scope {
+                    GlobalSearchScope::All => "All",
+                    GlobalSearchScope::Title => "Title",
+                    GlobalSearchScope::Authors => "Authors",
+                    GlobalSearchScope::Tags => "Tags",
+                    GlobalSearchScope::Series => "Series",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.global_search_scope,
+                        GlobalSearchScope::All,
+                        "All",
+                    );
+                    ui.selectable_value(
+                        &mut self.global_search_scope,
+                        GlobalSearchScope::Title,
+                        "Title",
+                    );
+                    ui.selectable_value(
+                        &mut self.global_search_scope,
+                        GlobalSearchScope::Authors,
+                        "Authors",
+                    );
+                    ui.selectable_value(
+                        &mut self.global_search_scope,
+                        GlobalSearchScope::Tags,
+                        "Tags",
+                    );
+                    ui.selectable_value(
+                        &mut self.global_search_scope,
+                        GlobalSearchScope::Series,
+                        "Series",
+                    );
+                });
+            if self.global_search_scope != previous_scope {
+                self.shell_config_dirty = true;
+            }
+            if response.changed() || ui.button("Apply").clicked() {
+                self.library.apply_global_search(
+                    &self.global_search_query,
+                    match self.global_search_scope {
+                        GlobalSearchScope::All => "all",
+                        GlobalSearchScope::Title => "title",
+                        GlobalSearchScope::Authors => "authors",
+                        GlobalSearchScope::Tags => "tags",
+                        GlobalSearchScope::Series => "series",
+                    },
+                );
+                self.global_search_count = self.library.filtered_count();
+            }
+            if ui.button("Clear").clicked() {
+                self.global_search_query.clear();
+                self.library.clear_search_query();
+                self.global_search_count = self.library.filtered_count();
+            }
+            ui.label(format!("Results: {}", self.global_search_count));
+        });
+    }
+
+    fn command_palette(&mut self, ui: &mut egui::Ui) {
+        if !self.command_palette_open {
+            return;
+        }
+        let mut open = self.command_palette_open;
+        let mut selected = None::<AppAction>;
+        egui::Window::new("Command Palette")
+            .open(&mut open)
+            .collapsible(false)
+            .show(ui.ctx(), |ui| {
+                ui.text_edit_singleline(&mut self.command_palette_query);
+                let query = self.command_palette_query.to_lowercase();
+                let commands = vec![
+                    ("Open Library", AppAction::OpenLibrary),
+                    ("Open Preferences", AppAction::OpenPreferences),
+                    ("Refresh Library", AppAction::RefreshLibrary),
+                    ("Add Books", AppAction::AddBooks),
+                    ("Remove Books", AppAction::RemoveBooks),
+                    ("Convert Books", AppAction::ConvertBooks),
+                    ("Save To Disk", AppAction::SaveToDisk),
+                    ("Open Logs", AppAction::OpenLogs),
+                    ("Toggle Notifications", AppAction::ToggleNotifications),
+                    ("Toggle Shortcut Editor", AppAction::ToggleShortcutEditor),
+                ];
+                for (label, action) in commands {
+                    if !query.is_empty() && !label.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    if ui.button(label).clicked() {
+                        selected = Some(action);
+                    }
+                }
+            });
+        self.command_palette_open = open;
+        if let Some(action) = selected {
+            self.command_palette_open = false;
+            self.pending_action = Some(action);
+        }
+    }
+
+    fn notification_center(&mut self, ui: &mut egui::Ui) {
+        if !self.notification_center_open {
+            return;
+        }
+        let mut open = self.notification_center_open;
+        egui::Window::new("Notification Center")
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                let notifications = self.library.recent_notifications(30);
+                if notifications.is_empty() {
+                    ui.label("No notifications.");
+                } else {
+                    for message in notifications {
+                        ui.label(message);
+                    }
+                }
+            });
+        self.notification_center_open = open;
+    }
+
+    fn shortcut_editor(&mut self, ui: &mut egui::Ui) {
+        if !self.shortcut_editor_open {
+            return;
+        }
+        let mut open = self.shortcut_editor_open;
+        egui::Window::new("Shortcut Editor")
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Default preset").clicked() {
+                        self.shortcuts = ShortcutBindings::default();
+                        self.shell_config_dirty = true;
+                    }
+                    if ui.button("Calibre-like preset").clicked() {
+                        self.shortcuts = ShortcutBindings::calibre_like();
+                        self.shell_config_dirty = true;
+                    }
+                });
+                ui.separator();
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Focus search", &mut self.shortcuts.focus_search);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Refresh", &mut self.shortcuts.refresh);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Edit metadata", &mut self.shortcuts.edit);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Save metadata", &mut self.shortcuts.save);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Open preferences", &mut self.shortcuts.preferences);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Open library", &mut self.shortcuts.library);
+                self.shell_config_dirty |=
+                    Self::shortcut_row(ui, "Command palette", &mut self.shortcuts.command_palette);
+                if self.shortcuts_have_conflict() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 80, 80),
+                        "Shortcut conflict detected",
+                    );
+                } else {
+                    ui.label("No conflicts.");
+                }
+            });
+        self.shortcut_editor_open = open;
+    }
+
+    fn shortcut_row(ui: &mut egui::Ui, label: &str, binding: &mut egui::KeyboardShortcut) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label(label);
+            let mut key = binding.logical_key;
+            egui::ComboBox::from_id_salt(format!("shortcut_{label}"))
+                .selected_text(format!("{:?}", key))
+                .show_ui(ui, |ui| {
+                    for candidate in [
+                        egui::Key::A,
+                        egui::Key::C,
+                        egui::Key::E,
+                        egui::Key::F,
+                        egui::Key::K,
+                        egui::Key::L,
+                        egui::Key::P,
+                        egui::Key::R,
+                        egui::Key::S,
+                        egui::Key::F5,
+                    ] {
+                        ui.selectable_value(&mut key, candidate, format!("{candidate:?}"));
+                    }
+                });
+            if key != binding.logical_key {
+                changed = true;
+            }
+            binding.logical_key = key;
+            changed |= ui.checkbox(&mut binding.modifiers.ctrl, "Ctrl").changed();
+            changed |= ui.checkbox(&mut binding.modifiers.shift, "Shift").changed();
+            changed |= ui.checkbox(&mut binding.modifiers.alt, "Alt").changed();
+        });
+        changed
+    }
+
+    fn shortcuts_have_conflict(&self) -> bool {
+        let all = [
+            self.shortcuts.focus_search,
+            self.shortcuts.refresh,
+            self.shortcuts.edit,
+            self.shortcuts.save,
+            self.shortcuts.preferences,
+            self.shortcuts.library,
+            self.shortcuts.command_palette,
+        ];
+        for (idx, left) in all.iter().enumerate() {
+            for right in all.iter().skip(idx + 1) {
+                if left.modifiers == right.modifiers && left.logical_key == right.logical_key {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn drag_drop_hint(&mut self, ui: &mut egui::Ui) {
+        let hovering_files = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
+        if self.drag_drop_hints_enabled && hovering_files {
+            egui::Area::new("drop_hint".into())
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 80.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::window(ui.style()).show(ui, |ui| {
+                        ui.label("Drop files to add books");
+                    });
+                });
+        }
+    }
+
+    fn sync_shell_config(&mut self) {
+        if !self.shell_config_dirty {
+            return;
+        }
+        self.config.gui.toolbar_icon_only = self.toolbar.icon_only;
+        self.config.gui.toolbar_visible_actions = self.toolbar.to_actions();
+        self.config.gui.global_search_scope = self.global_search_scope.as_config().to_string();
+        self.config.gui.shortcut_preset = if self.shortcuts == ShortcutBindings::calibre_like() {
+            "calibre_like".to_string()
+        } else {
+            "default".to_string()
+        };
+        self.config.gui.drag_drop_hints = self.drag_drop_hints_enabled;
+        self.config.gui.command_palette_enabled = true;
+        self.config.gui.notification_center_enabled = true;
+        if let Err(err) = self.config.save_to_path(&self.config_path) {
+            self.library.request_refresh();
+            self.preferences.set_error(err.to_string());
+        } else {
+            self.shell_config_dirty = false;
         }
     }
 }

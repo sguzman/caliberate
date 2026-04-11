@@ -42,4 +42,7 @@
 - [x] Define `[gui]` keys: `conditional_missing_cover`, `conditional_low_rating`, `low_rating_threshold`
 - [x] Define `[gui]` keys: `color_missing_cover`, `color_low_rating`
 - [x] Define `[gui]` keys: `column_presets`, `active_column_preset`
+- [x] Define `[gui]` keys: `toolbar_icon_only`, `toolbar_visible_actions`
+- [x] Define `[gui]` keys: `global_search_scope`, `shortcut_preset`
+- [x] Define `[gui]` keys: `command_palette_enabled`, `notification_center_enabled`, `drag_drop_hints`
 - [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`

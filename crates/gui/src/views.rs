@@ -73,6 +73,15 @@ enum GroupMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchScope {
+    All,
+    Title,
+    Authors,
+    Tags,
+    Series,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SortDirection {
     Asc,
     Desc,
@@ -489,6 +498,7 @@ pub struct LibraryView {
     column_preset_name: String,
     active_column_preset: Option<String>,
     search_query: String,
+    search_scope: SearchScope,
     search_history: Vec<String>,
     search_history_max: usize,
     search_commit_requested: bool,
@@ -618,6 +628,7 @@ impl LibraryView {
             column_preset_name: String::new(),
             active_column_preset: config.gui.active_column_preset.clone(),
             search_query: String::new(),
+            search_scope: SearchScope::All,
             search_history: Vec::new(),
             search_history_max: config.gui.search_history_max,
             search_commit_requested: false,
@@ -730,6 +741,49 @@ impl LibraryView {
 
     pub fn request_open_logs(&mut self) {
         self.open_logs_requested = true;
+    }
+
+    pub fn apply_global_search(&mut self, query: &str, scope: &str) {
+        self.search_query = query.to_string();
+        self.search_scope = match scope {
+            "title" => SearchScope::Title,
+            "authors" => SearchScope::Authors,
+            "tags" => SearchScope::Tags,
+            "series" => SearchScope::Series,
+            _ => SearchScope::All,
+        };
+        self.search_commit_requested = true;
+        self.needs_refresh = true;
+    }
+
+    pub fn clear_search_query(&mut self) {
+        self.search_query.clear();
+        self.needs_refresh = true;
+    }
+
+    pub fn filtered_count(&self) -> usize {
+        self.books.len()
+    }
+
+    pub fn active_jobs_count(&self) -> usize {
+        self.jobs
+            .iter()
+            .filter(|job| {
+                matches!(
+                    job.status,
+                    JobStatus::Queued | JobStatus::Running | JobStatus::Paused
+                )
+            })
+            .count()
+    }
+
+    pub fn recent_notifications(&self, limit: usize) -> Vec<String> {
+        self.toasts
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|toast| toast.message.clone())
+            .collect()
     }
 
     pub fn open_add_books(&mut self, config: &ControlPlane) {
@@ -973,6 +1027,46 @@ impl LibraryView {
                 self.search_query.clear();
                 self.needs_refresh = true;
             }
+            egui::ComboBox::from_id_salt("search_scope")
+                .selected_text(match self.search_scope {
+                    SearchScope::All => "All",
+                    SearchScope::Title => "Title",
+                    SearchScope::Authors => "Authors",
+                    SearchScope::Tags => "Tags",
+                    SearchScope::Series => "Series",
+                })
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_value(&mut self.search_scope, SearchScope::All, "All")
+                        .clicked()
+                    {
+                        self.needs_refresh = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.search_scope, SearchScope::Title, "Title")
+                        .clicked()
+                    {
+                        self.needs_refresh = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.search_scope, SearchScope::Authors, "Authors")
+                        .clicked()
+                    {
+                        self.needs_refresh = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.search_scope, SearchScope::Tags, "Tags")
+                        .clicked()
+                    {
+                        self.needs_refresh = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.search_scope, SearchScope::Series, "Series")
+                        .clicked()
+                    {
+                        self.needs_refresh = true;
+                    }
+                });
             ui.menu_button("Recent", |ui| {
                 if self.search_history.is_empty() {
                     ui.label("No recent searches.");
@@ -4462,7 +4556,7 @@ impl LibraryView {
             record_search_history(&mut self.search_history, self.search_history_max, &query);
             self.search_commit_requested = false;
         }
-        let list = if query.is_empty() {
+        let list = if query.is_empty() || self.search_scope != SearchScope::All {
             self.db.list_books()?
         } else {
             self.db.search_books(&query)?
@@ -4471,6 +4565,16 @@ impl LibraryView {
         for book in list {
             let row = self.build_row(&book)?;
             rows.push(row);
+        }
+        if !query.is_empty() && self.search_scope != SearchScope::All {
+            let needle = query.to_lowercase();
+            rows.retain(|book| match self.search_scope {
+                SearchScope::All => true,
+                SearchScope::Title => field_contains(&book.title, &needle),
+                SearchScope::Authors => field_contains(&book.authors, &needle),
+                SearchScope::Tags => field_contains(&book.tags, &needle),
+                SearchScope::Series => field_contains(&book.series, &needle),
+            });
         }
         self.all_books = rows;
         self.available_formats = self

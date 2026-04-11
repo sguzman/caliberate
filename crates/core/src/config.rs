@@ -245,6 +245,29 @@ impl ControlPlane {
                 "gui.low_rating_threshold must be between 0 and 10".to_string(),
             ));
         }
+        if !matches!(
+            self.gui.global_search_scope.as_str(),
+            "all" | "title" | "authors" | "tags" | "series"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.global_search_scope must be one of all/title/authors/tags/series".to_string(),
+            ));
+        }
+        if !matches!(
+            self.gui.shortcut_preset.as_str(),
+            "default" | "calibre_like"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.shortcut_preset must be 'default' or 'calibre_like'".to_string(),
+            ));
+        }
+        for action in &self.gui.toolbar_visible_actions {
+            if action.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.toolbar_visible_actions entries must not be empty".to_string(),
+                ));
+            }
+        }
         if !matches!(self.gui.view_density.as_str(), "compact" | "comfortable") {
             return Err(CoreError::ConfigValidate(
                 "gui.view_density must be 'compact' or 'comfortable'".to_string(),
@@ -683,6 +706,20 @@ pub struct GuiConfig {
     pub color_missing_cover: String,
     #[serde(default = "default_gui_color_low_rating")]
     pub color_low_rating: String,
+    #[serde(default = "default_gui_toolbar_icon_only")]
+    pub toolbar_icon_only: bool,
+    #[serde(default = "default_gui_toolbar_visible_actions")]
+    pub toolbar_visible_actions: Vec<String>,
+    #[serde(default = "default_gui_global_search_scope")]
+    pub global_search_scope: String,
+    #[serde(default = "default_gui_shortcut_preset")]
+    pub shortcut_preset: String,
+    #[serde(default = "default_gui_command_palette_enabled")]
+    pub command_palette_enabled: bool,
+    #[serde(default = "default_gui_notification_center_enabled")]
+    pub notification_center_enabled: bool,
+    #[serde(default = "default_gui_drag_drop_hints")]
+    pub drag_drop_hints: bool,
     #[serde(default)]
     pub column_presets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -751,6 +788,13 @@ impl Default for GuiConfig {
             low_rating_threshold: default_gui_low_rating_threshold(),
             color_missing_cover: default_gui_color_missing_cover(),
             color_low_rating: default_gui_color_low_rating(),
+            toolbar_icon_only: default_gui_toolbar_icon_only(),
+            toolbar_visible_actions: default_gui_toolbar_visible_actions(),
+            global_search_scope: default_gui_global_search_scope(),
+            shortcut_preset: default_gui_shortcut_preset(),
+            command_palette_enabled: default_gui_command_palette_enabled(),
+            notification_center_enabled: default_gui_notification_center_enabled(),
+            drag_drop_hints: default_gui_drag_drop_hints(),
             column_presets: BTreeMap::new(),
             active_column_preset: None,
             active_virtual_library: None,
@@ -1042,6 +1086,42 @@ fn default_gui_color_missing_cover() -> String {
 
 fn default_gui_color_low_rating() -> String {
     "#cc4444".to_string()
+}
+
+fn default_gui_toolbar_icon_only() -> bool {
+    false
+}
+
+fn default_gui_toolbar_visible_actions() -> Vec<String> {
+    vec![
+        "add".to_string(),
+        "remove".to_string(),
+        "convert".to_string(),
+        "save_to_disk".to_string(),
+        "refresh".to_string(),
+        "preferences".to_string(),
+        "open_logs".to_string(),
+    ]
+}
+
+fn default_gui_global_search_scope() -> String {
+    "all".to_string()
+}
+
+fn default_gui_shortcut_preset() -> String {
+    "default".to_string()
+}
+
+fn default_gui_command_palette_enabled() -> bool {
+    true
+}
+
+fn default_gui_notification_center_enabled() -> bool {
+    true
+}
+
+fn default_gui_drag_drop_hints() -> bool {
+    true
 }
 
 fn default_server_download_enabled() -> bool {
