@@ -268,6 +268,23 @@ impl ControlPlane {
                 ));
             }
         }
+        if self.gui.recent_libraries_max == 0 || self.gui.recent_libraries_max > 100 {
+            return Err(CoreError::ConfigValidate(
+                "gui.recent_libraries_max must be between 1 and 100".to_string(),
+            ));
+        }
+        if self.gui.window_width < 640.0 || self.gui.window_height < 480.0 {
+            return Err(CoreError::ConfigValidate(
+                "gui.window_width/window_height are too small".to_string(),
+            ));
+        }
+        for path in &self.gui.recent_libraries {
+            if path.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.recent_libraries entries must not be empty".to_string(),
+                ));
+            }
+        }
         if !matches!(self.gui.view_density.as_str(), "compact" | "comfortable") {
             return Err(CoreError::ConfigValidate(
                 "gui.view_density must be 'compact' or 'comfortable'".to_string(),
@@ -720,6 +737,24 @@ pub struct GuiConfig {
     pub notification_center_enabled: bool,
     #[serde(default = "default_gui_drag_drop_hints")]
     pub drag_drop_hints: bool,
+    #[serde(default = "default_gui_recent_libraries")]
+    pub recent_libraries: Vec<String>,
+    #[serde(default = "default_gui_recent_libraries_max")]
+    pub recent_libraries_max: usize,
+    #[serde(default = "default_gui_active_library_label")]
+    pub active_library_label: String,
+    #[serde(default = "default_gui_window_width")]
+    pub window_width: f32,
+    #[serde(default = "default_gui_window_height")]
+    pub window_height: f32,
+    #[serde(default = "default_gui_window_pos_x")]
+    pub window_pos_x: f32,
+    #[serde(default = "default_gui_window_pos_y")]
+    pub window_pos_y: f32,
+    #[serde(default = "default_gui_window_restore")]
+    pub window_restore: bool,
+    #[serde(default = "default_gui_mouse_gestures")]
+    pub mouse_gestures: bool,
     #[serde(default)]
     pub column_presets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -795,6 +830,15 @@ impl Default for GuiConfig {
             command_palette_enabled: default_gui_command_palette_enabled(),
             notification_center_enabled: default_gui_notification_center_enabled(),
             drag_drop_hints: default_gui_drag_drop_hints(),
+            recent_libraries: default_gui_recent_libraries(),
+            recent_libraries_max: default_gui_recent_libraries_max(),
+            active_library_label: default_gui_active_library_label(),
+            window_width: default_gui_window_width(),
+            window_height: default_gui_window_height(),
+            window_pos_x: default_gui_window_pos_x(),
+            window_pos_y: default_gui_window_pos_y(),
+            window_restore: default_gui_window_restore(),
+            mouse_gestures: default_gui_mouse_gestures(),
             column_presets: BTreeMap::new(),
             active_column_preset: None,
             active_virtual_library: None,
@@ -1124,6 +1168,42 @@ fn default_gui_drag_drop_hints() -> bool {
     true
 }
 
+fn default_gui_recent_libraries() -> Vec<String> {
+    vec!["./.cache/caliberate/data/caliberate.db".to_string()]
+}
+
+fn default_gui_recent_libraries_max() -> usize {
+    10
+}
+
+fn default_gui_active_library_label() -> String {
+    "Default Library".to_string()
+}
+
+fn default_gui_window_width() -> f32 {
+    1400.0
+}
+
+fn default_gui_window_height() -> f32 {
+    900.0
+}
+
+fn default_gui_window_pos_x() -> f32 {
+    40.0
+}
+
+fn default_gui_window_pos_y() -> f32 {
+    40.0
+}
+
+fn default_gui_window_restore() -> bool {
+    true
+}
+
+fn default_gui_mouse_gestures() -> bool {
+    true
+}
+
 fn default_server_download_enabled() -> bool {
     true
 }
@@ -1194,7 +1274,7 @@ fn default_fts_result_limit() -> usize {
 
 fn default_device_mount_roots() -> Vec<PathBuf> {
     vec![
-        PathBuf::from("./devices"),
+        PathBuf::from("./.cache/caliberate/devices"),
         PathBuf::from("/media"),
         PathBuf::from("/run/media"),
     ]
@@ -1209,7 +1289,7 @@ fn default_plugins_enabled() -> bool {
 }
 
 fn default_plugins_dir() -> PathBuf {
-    PathBuf::from("./plugins")
+    PathBuf::from("./.cache/caliberate/plugins")
 }
 
 fn default_server_host() -> String {
@@ -1265,9 +1345,9 @@ fn default_conversion_default_output_format() -> String {
 }
 
 fn default_conversion_temp_dir() -> PathBuf {
-    PathBuf::from("./tmp/conversion")
+    PathBuf::from("./.cache/caliberate/tmp/conversion")
 }
 
 fn default_conversion_output_dir() -> PathBuf {
-    PathBuf::from("./output/conversion")
+    PathBuf::from("./.cache/caliberate/output/conversion")
 }

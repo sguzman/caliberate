@@ -6,6 +6,7 @@
 - [x] Centralize default `paths` under `./.cache/caliberate` tree
 - [x] Define `[logging]` keys: `level`, `json`, `stdout`, `file_enabled`, `file_max_size_mb`, `file_max_backups`
 - [x] Define `[db]` keys: `sqlite_path`, `pool_size`, `busy_timeout_ms`
+- [x] Point `[db].sqlite_path` default to `./.cache/caliberate/data/caliberate.db`
 - [x] Define `[runtime]` keys: `worker_threads`, `max_blocking_threads`, `shutdown_timeout_ms`
 - [x] Define `[metrics]` keys: `enabled`, `endpoint`, `namespace`
 - [x] Define `[formats]` keys: `supported`, `archive_formats`
@@ -21,8 +22,11 @@
 - [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`
 - [x] Define `[conversion]` keys: `enabled`, `allow_passthrough`, `max_input_bytes`
 - [x] Define `[conversion]` keys: `default_output_format`, `temp_dir`, `output_dir`
+- [x] Point `[conversion].temp_dir` and `[conversion].output_dir` under `./.cache/caliberate`
 - [x] Define `[device]` keys: `mount_roots`, `library_subdir`
+- [x] Point `[device].mount_roots` project default to `./.cache/caliberate/devices`
 - [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
+- [x] Point `[plugins].plugins_dir` default to `./.cache/caliberate/plugins`
 - [x] Define `[gui]` keys: `list_view_mode`, `table_row_height`, `table_column_min_width`, `table_column_max_width`
 - [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
 - [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`
@@ -45,4 +49,7 @@
 - [x] Define `[gui]` keys: `toolbar_icon_only`, `toolbar_visible_actions`
 - [x] Define `[gui]` keys: `global_search_scope`, `shortcut_preset`
 - [x] Define `[gui]` keys: `command_palette_enabled`, `notification_center_enabled`, `drag_drop_hints`
+- [x] Define `[gui]` keys: `recent_libraries`, `recent_libraries_max`, `active_library_label`
+- [x] Define `[gui]` keys: `window_width`, `window_height`, `window_pos_x`, `window_pos_y`, `window_restore`
+- [x] Define `[gui]` key: `mouse_gestures`
 - [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`

@@ -20,7 +20,7 @@ file_max_size_mb = 50
 file_max_backups = 5
 
 [db]
-sqlite_path = "./data/caliberate.db"
+sqlite_path = "./.cache/caliberate/data/caliberate.db"
 pool_size = 4
 busy_timeout_ms = 5000
 
@@ -77,8 +77,8 @@ enabled = true
 allow_passthrough = true
 max_input_bytes = 104857600
 default_output_format = "epub"
-temp_dir = "./tmp/conversion"
-output_dir = "./output/conversion"
+temp_dir = "./.cache/caliberate/tmp/conversion"
+output_dir = "./.cache/caliberate/output/conversion"
 
 [fts]
 enabled = false
@@ -157,4 +157,13 @@ shortcut_preset = "default"
 command_palette_enabled = true
 notification_center_enabled = true
 drag_drop_hints = true
+recent_libraries = ["./.cache/caliberate/data/caliberate.db"]
+recent_libraries_max = 10
+active_library_label = "Default Library"
+window_width = 1400.0
+window_height = 900.0
+window_pos_x = 40.0
+window_pos_y = 40.0
+window_restore = true
+mouse_gestures = true
 column_presets = {}

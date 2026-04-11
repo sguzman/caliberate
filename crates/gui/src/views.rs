@@ -791,6 +791,28 @@ impl LibraryView {
         self.add_books.open = true;
     }
 
+    pub fn ingest_paths_now(
+        &mut self,
+        config: &ControlPlane,
+        paths: &[std::path::PathBuf],
+    ) -> CoreResult<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        info!(
+            component = "gui_library",
+            ingest_paths = paths.len(),
+            "running immediate ingest for dropped files"
+        );
+        self.add_books.apply_defaults(config);
+        self.add_books.files_input = paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.run_add_books(config)
+    }
+
     pub fn open_remove_books(&mut self, config: &ControlPlane) {
         self.remove_books.apply_defaults(config);
         self.remove_books.open = true;

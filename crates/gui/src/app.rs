@@ -5,6 +5,7 @@ use eframe::egui;
 
 use crate::preferences::PreferencesView;
 use crate::views::LibraryView;
+use tracing::{debug, info, warn};
 
 pub struct CaliberateApp {
     config: caliberate_core::config::ControlPlane,
@@ -25,7 +26,17 @@ pub struct CaliberateApp {
     shortcuts: ShortcutBindings,
     shortcut_editor_open: bool,
     drag_drop_hints_enabled: bool,
+    mouse_gestures_enabled: bool,
+    gesture_accum_x: f32,
     shell_config_dirty: bool,
+    recent_libraries: Vec<String>,
+    recent_libraries_max: usize,
+    active_library_label: String,
+    library_switcher_open: bool,
+    open_library_dialog_open: bool,
+    open_library_input: String,
+    create_library_dialog_open: bool,
+    create_library_dir_input: String,
 }
 
 impl CaliberateApp {
@@ -46,6 +57,13 @@ impl CaliberateApp {
         };
         let drag_drop_hints_enabled = config.gui.drag_drop_hints;
         let global_search_scope = GlobalSearchScope::from_config(&config.gui.global_search_scope);
+        let mut recent_libraries = config.gui.recent_libraries.clone();
+        if recent_libraries.is_empty() {
+            recent_libraries.push(config.db.sqlite_path.display().to_string());
+        }
+        let recent_libraries_max = config.gui.recent_libraries_max;
+        let active_library_label = config.gui.active_library_label.clone();
+        let mouse_gestures_enabled = config.gui.mouse_gestures;
         Ok(Self {
             config,
             config_path,
@@ -65,7 +83,17 @@ impl CaliberateApp {
             shortcuts,
             shortcut_editor_open: false,
             drag_drop_hints_enabled,
+            mouse_gestures_enabled,
+            gesture_accum_x: 0.0,
             shell_config_dirty: false,
+            recent_libraries,
+            recent_libraries_max,
+            active_library_label,
+            library_switcher_open: false,
+            open_library_dialog_open: false,
+            open_library_input: String::new(),
+            create_library_dialog_open: false,
+            create_library_dir_input: String::new(),
         })
     }
 }
@@ -73,6 +101,9 @@ impl CaliberateApp {
 impl eframe::App for CaliberateApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.handle_shortcuts(ui);
+        self.handle_mouse_gestures(ui);
+        self.handle_dropped_files(ui);
+        self.capture_window_geometry(ui);
         egui::Panel::top("top_nav").show_inside(ui, |ui| {
             self.menu_bar(ui);
             ui.separator();
@@ -103,6 +134,8 @@ impl eframe::App for CaliberateApp {
                 if ui.button("Notifications").clicked() {
                     self.notification_center_open = true;
                 }
+                ui.label(format!("Library: {}", self.active_library_label));
+                ui.label(format!("Known libraries: {}", self.recent_libraries.len()));
             });
         });
 
@@ -129,6 +162,8 @@ impl eframe::App for CaliberateApp {
             } else {
                 ui.label(status);
             }
+            ui.separator();
+            ui.label(format!("DB: {}", self.config.db.sqlite_path.display()));
         });
 
         if let Some(action) = self.pending_action.take() {
@@ -138,6 +173,9 @@ impl eframe::App for CaliberateApp {
         self.command_palette(ui);
         self.shortcut_editor(ui);
         self.notification_center(ui);
+        self.library_switcher(ui);
+        self.open_library_dialog(ui);
+        self.create_library_dialog(ui);
         self.drag_drop_hint(ui);
         self.sync_shell_config();
         self.error_dialog(ui);
@@ -168,6 +206,14 @@ enum AppAction {
     ToggleNotifications,
     ToggleCommandPalette,
     ToggleShortcutEditor,
+    OpenLibrarySwitcher,
+    OpenLibraryDialog,
+    CreateLibraryDialog,
+    OpenDeviceSync,
+    OpenManageTags,
+    OpenManageSeries,
+    OpenManageColumns,
+    OpenManageVirtualLibraries,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,6 +413,33 @@ impl CaliberateApp {
                     self.pending_action = Some(AppAction::OpenPreferences);
                     ui.close_menu();
                 }
+                ui.separator();
+                if ui.button("Open library…").clicked() {
+                    self.pending_action = Some(AppAction::OpenLibraryDialog);
+                    ui.close_menu();
+                }
+                if ui.button("Create library…").clicked() {
+                    self.pending_action = Some(AppAction::CreateLibraryDialog);
+                    ui.close_menu();
+                }
+                if ui.button("Switch library…").clicked() {
+                    self.pending_action = Some(AppAction::OpenLibrarySwitcher);
+                    ui.close_menu();
+                }
+                ui.menu_button("Recent libraries", |ui| {
+                    if self.recent_libraries.is_empty() {
+                        ui.label("No recent libraries");
+                    } else {
+                        for path in self.recent_libraries.clone() {
+                            if ui.button(path.clone()).clicked() {
+                                if let Err(err) = self.switch_library(path.clone()) {
+                                    self.preferences.set_error(err.to_string());
+                                }
+                                ui.close_menu();
+                            }
+                        }
+                    }
+                });
             });
             ui.menu_button("Library", |ui| {
                 if ui.button("Refresh").clicked() {
@@ -458,9 +531,46 @@ impl CaliberateApp {
                 self.shell_config_dirty |= ui
                     .checkbox(&mut self.drag_drop_hints_enabled, "Drag-drop hints")
                     .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.mouse_gestures_enabled, "Mouse gestures")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(
+                        &mut self.config.gui.window_restore,
+                        "Restore window on launch",
+                    )
+                    .changed();
+            });
+            ui.menu_button("Device", |ui| {
+                if ui.button("Send to device").clicked() {
+                    self.pending_action = Some(AppAction::OpenDeviceSync);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Tools", |ui| {
+                if ui.button("Manage tags").clicked() {
+                    self.pending_action = Some(AppAction::OpenManageTags);
+                    ui.close_menu();
+                }
+                if ui.button("Manage series").clicked() {
+                    self.pending_action = Some(AppAction::OpenManageSeries);
+                    ui.close_menu();
+                }
+                if ui.button("Manage custom columns").clicked() {
+                    self.pending_action = Some(AppAction::OpenManageColumns);
+                    ui.close_menu();
+                }
+                if ui.button("Virtual libraries").clicked() {
+                    self.pending_action = Some(AppAction::OpenManageVirtualLibraries);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("News", |ui| {
+                ui.label("News panel roadmap in progress");
             });
             ui.menu_button("Help", |ui| {
                 ui.label("Caliberate GUI");
+                ui.label("Ctrl+K for command palette");
             });
         });
     }
@@ -567,6 +677,12 @@ impl CaliberateApp {
         if ui.input_mut(|i| i.consume_shortcut(&self.shortcuts.command_palette)) {
             self.pending_action = Some(AppAction::ToggleCommandPalette);
         }
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft) && i.modifiers.alt) {
+            self.pending_action = Some(AppAction::Back);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight) && i.modifiers.alt) {
+            self.pending_action = Some(AppAction::Forward);
+        }
     }
 
     fn apply_action(&mut self, action: AppAction) {
@@ -627,6 +743,31 @@ impl CaliberateApp {
             }
             AppAction::ToggleShortcutEditor => {
                 self.shortcut_editor_open = !self.shortcut_editor_open;
+            }
+            AppAction::OpenLibrarySwitcher => {
+                self.library_switcher_open = true;
+            }
+            AppAction::OpenLibraryDialog => {
+                self.open_library_dialog_open = true;
+                self.open_library_input = self.config.db.sqlite_path.display().to_string();
+            }
+            AppAction::CreateLibraryDialog => {
+                self.create_library_dialog_open = true;
+            }
+            AppAction::OpenDeviceSync => {
+                self.library.open_device_sync(&self.config);
+            }
+            AppAction::OpenManageTags => {
+                self.library.open_manage_tags();
+            }
+            AppAction::OpenManageSeries => {
+                self.library.open_manage_series();
+            }
+            AppAction::OpenManageColumns => {
+                self.library.open_manage_custom_columns();
+            }
+            AppAction::OpenManageVirtualLibraries => {
+                self.library.open_manage_virtual_libraries();
             }
         }
     }
@@ -891,6 +1032,187 @@ impl CaliberateApp {
         }
     }
 
+    fn handle_dropped_files(&mut self, ui: &mut egui::Ui) {
+        let dropped = ui
+            .ctx()
+            .input(|i| i.raw.dropped_files.clone())
+            .into_iter()
+            .filter_map(|file| file.path)
+            .collect::<Vec<_>>();
+        if dropped.is_empty() {
+            return;
+        }
+        info!(
+            component = "gui_shell",
+            dropped_count = dropped.len(),
+            "received files via drag-and-drop ingest"
+        );
+        if let Err(err) = self.library.ingest_paths_now(&self.config, &dropped) {
+            warn!(
+                component = "gui_shell",
+                error = %err,
+                "drag-and-drop ingest failed"
+            );
+            self.preferences.set_error(err.to_string());
+        }
+    }
+
+    fn handle_mouse_gestures(&mut self, ui: &mut egui::Ui) {
+        if !self.mouse_gestures_enabled {
+            return;
+        }
+        ui.ctx().input(|i| {
+            if i.pointer.button_down(egui::PointerButton::Secondary) {
+                self.gesture_accum_x += i.pointer.delta().x;
+            } else if self.gesture_accum_x.abs() > 80.0 {
+                if self.gesture_accum_x > 0.0 {
+                    self.pending_action = Some(AppAction::Forward);
+                    debug!(component = "gui_shell", "mouse gesture navigation forward");
+                } else {
+                    self.pending_action = Some(AppAction::Back);
+                    debug!(component = "gui_shell", "mouse gesture navigation back");
+                }
+                self.gesture_accum_x = 0.0;
+            } else {
+                self.gesture_accum_x = 0.0;
+            }
+        });
+    }
+
+    fn capture_window_geometry(&mut self, ui: &mut egui::Ui) {
+        let outer = ui.ctx().input(|i| i.viewport().outer_rect);
+        if let Some(rect) = outer {
+            let size = rect.size();
+            let pos = rect.left_top();
+            if (self.config.gui.window_width - size.x).abs() > 0.5
+                || (self.config.gui.window_height - size.y).abs() > 0.5
+                || (self.config.gui.window_pos_x - pos.x).abs() > 0.5
+                || (self.config.gui.window_pos_y - pos.y).abs() > 0.5
+            {
+                self.config.gui.window_width = size.x.max(640.0);
+                self.config.gui.window_height = size.y.max(480.0);
+                self.config.gui.window_pos_x = pos.x;
+                self.config.gui.window_pos_y = pos.y;
+                self.shell_config_dirty = true;
+            }
+        }
+    }
+
+    fn library_switcher(&mut self, ui: &mut egui::Ui) {
+        if !self.library_switcher_open {
+            return;
+        }
+        let mut open = self.library_switcher_open;
+        egui::Window::new("Library Switcher")
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                if self.recent_libraries.is_empty() {
+                    ui.label("No recent libraries.");
+                } else {
+                    for path in self.recent_libraries.clone() {
+                        if ui.button(path.clone()).clicked() {
+                            if let Err(err) = self.switch_library(path) {
+                                self.preferences.set_error(err.to_string());
+                            }
+                        }
+                    }
+                }
+            });
+        self.library_switcher_open = open;
+    }
+
+    fn open_library_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.open_library_dialog_open {
+            return;
+        }
+        let mut open = self.open_library_dialog_open;
+        let mut confirmed = false;
+        egui::Window::new("Open Library")
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.label("SQLite path");
+                ui.text_edit_singleline(&mut self.open_library_input);
+                if ui.button("Open").clicked() {
+                    confirmed = true;
+                }
+            });
+        if confirmed {
+            if let Err(err) = self.switch_library(self.open_library_input.trim().to_string()) {
+                self.preferences.set_error(err.to_string());
+            } else {
+                open = false;
+            }
+        }
+        self.open_library_dialog_open = open;
+    }
+
+    fn create_library_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.create_library_dialog_open {
+            return;
+        }
+        let mut open = self.create_library_dialog_open;
+        let mut confirmed = false;
+        egui::Window::new("Create Library")
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.label("Library directory");
+                ui.text_edit_singleline(&mut self.create_library_dir_input);
+                if ui.button("Create").clicked() {
+                    confirmed = true;
+                }
+            });
+        if confirmed {
+            let dir = std::path::PathBuf::from(self.create_library_dir_input.trim());
+            let sqlite = dir.join("caliberate.db");
+            if let Some(parent) = sqlite.parent() {
+                if let Err(err) = std::fs::create_dir_all(parent) {
+                    self.preferences.set_error(err.to_string());
+                    self.create_library_dialog_open = open;
+                    return;
+                }
+            }
+            if let Err(err) = self.switch_library(sqlite.display().to_string()) {
+                self.preferences.set_error(err.to_string());
+            } else {
+                open = false;
+            }
+        }
+        self.create_library_dialog_open = open;
+    }
+
+    fn switch_library(&mut self, sqlite_path: String) -> CoreResult<()> {
+        if sqlite_path.trim().is_empty() {
+            return Ok(());
+        }
+        let sqlite_path_buf = std::path::PathBuf::from(&sqlite_path);
+        if let Some(parent) = sqlite_path_buf.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                caliberate_core::error::CoreError::Io(
+                    "create library database parent".to_string(),
+                    err,
+                )
+            })?;
+        }
+        info!(
+            component = "gui_shell",
+            sqlite_path = %sqlite_path_buf.display(),
+            "switching library"
+        );
+        self.config.db.sqlite_path = sqlite_path_buf;
+        self.library = LibraryView::new(&self.config)?;
+        self.active_library_label = std::path::Path::new(&sqlite_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Library")
+            .to_string();
+        self.recent_libraries.retain(|entry| entry != &sqlite_path);
+        self.recent_libraries.insert(0, sqlite_path);
+        self.recent_libraries
+            .truncate(self.recent_libraries_max.max(1));
+        self.shell_config_dirty = true;
+        Ok(())
+    }
+
     fn sync_shell_config(&mut self) {
         if !self.shell_config_dirty {
             return;
@@ -906,6 +1228,14 @@ impl CaliberateApp {
         self.config.gui.drag_drop_hints = self.drag_drop_hints_enabled;
         self.config.gui.command_palette_enabled = true;
         self.config.gui.notification_center_enabled = true;
+        self.config.gui.mouse_gestures = self.mouse_gestures_enabled;
+        self.config.gui.recent_libraries = self.recent_libraries.clone();
+        self.config.gui.recent_libraries_max = self.recent_libraries_max;
+        self.config.gui.active_library_label = self.active_library_label.clone();
+        if self.recent_libraries.is_empty() {
+            self.recent_libraries
+                .push(self.config.db.sqlite_path.display().to_string());
+        }
         if let Err(err) = self.config.save_to_path(&self.config_path) {
             self.library.request_refresh();
             self.preferences.set_error(err.to_string());

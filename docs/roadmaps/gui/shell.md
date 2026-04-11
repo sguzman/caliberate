@@ -12,14 +12,17 @@
 - [x] Track view history stack when switching Library/Preferences
 - [x] Add app-wide busy indicator and background task badge
 - [x] Show active background job count in top shell strip
-- [ ] Add recent libraries menu and library switcher dialog
-- [ ] Add create/open library workflows in UI
-- [ ] Persist window size/position and restore on launch
-- [ ] Add drag-and-drop file ingest target on main window
-- [ ] Add multi-library indicator in title bar/status
+- [x] Add recent libraries menu and library switcher dialog
+- [x] Add create/open library workflows in UI
+- [x] Persist window size/position and restore on launch
+- [x] Add drag-and-drop file ingest target on main window
+- [x] Add multi-library indicator in title bar/status
 
 ## Menus + Toolbars
 - [ ] Expand menu bar to full Calibre parity (all actions present)
+- [x] Add Device menu and wire Send to device action
+- [x] Add Tools menu entries for tag/series/custom-column/virtual-library management
+- [x] Add News menu section placeholder to anchor feed actions in shell
 - [x] Implement toolbar customization (show/hide actions)
 - [x] Add toolbar visibility toggles in View menu
 - [x] Add toolbar overflow handling for small windows
@@ -47,7 +50,8 @@
 - [x] Add keyboard shortcut presets (default + Calibre-like)
 - [x] Add shortcut preset actions and conflict status indicator
 - [x] Persist selected shortcut preset in control-plane config
-- [ ] Add mouse gesture support for navigation (back/forward)
+- [x] Add mouse gesture support for navigation (back/forward)
 - [x] Add drag target hints for drop zones (add books, covers)
 - [x] Add drag-hover overlay hint for ingest drop target
 - [x] Persist drag-drop hint enablement in control-plane config
+- [x] Persist mouse gesture and window restore toggles in control-plane config
