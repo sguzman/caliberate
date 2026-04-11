@@ -27,10 +27,15 @@
 - [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
 - [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`
 - [x] Define `[gui]` keys: `show_cover`, `width_cover`, `cover_thumb_size`, `cover_preview_size`
+- [x] Define `[gui]` keys: `show_date_added`, `show_date_modified`, `show_pubdate`
+- [x] Define `[gui]` keys: `width_date_added`, `width_date_modified`, `width_pubdate`
 - [x] Define `[gui]` keys: `cover_dir`, `cover_cache_dir`, `cover_max_bytes`
 - [x] Define `[gui]` keys: `reader_font_size`, `reader_line_spacing`, `reader_page_chars`, `reader_theme`
 - [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
 - [x] Define `[gui]` keys: `search_history_max`
 - [x] Define `[gui]` keys: `view_density`, `quick_details_panel`
 - [x] Define `[gui]` keys: `show_format_badges`, `show_language_badges`
+- [x] Define `[gui]` keys: `column_order`
+- [x] Define `[gui]` keys: `sort_presets`, `active_sort_preset`
+- [x] Define `[gui]` keys: `stats_top_n`
 - [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`

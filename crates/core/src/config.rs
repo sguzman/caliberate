@@ -179,6 +179,14 @@ impl ControlPlane {
                 "gui.cover_max_bytes must be greater than 0".to_string(),
             ));
         }
+        if self.gui.width_date_added <= 0.0
+            || self.gui.width_date_modified <= 0.0
+            || self.gui.width_pubdate <= 0.0
+        {
+            return Err(CoreError::ConfigValidate(
+                "gui date column widths must be greater than 0".to_string(),
+            ));
+        }
         if self.gui.reader_font_size <= 8.0 {
             return Err(CoreError::ConfigValidate(
                 "gui.reader_font_size must be greater than 8".to_string(),
@@ -214,10 +222,41 @@ impl ControlPlane {
                 "gui.search_history_max must be between 1 and 200".to_string(),
             ));
         }
+        if !(1..=100).contains(&self.gui.stats_top_n) {
+            return Err(CoreError::ConfigValidate(
+                "gui.stats_top_n must be between 1 and 100".to_string(),
+            ));
+        }
         if !matches!(self.gui.view_density.as_str(), "compact" | "comfortable") {
             return Err(CoreError::ConfigValidate(
                 "gui.view_density must be 'compact' or 'comfortable'".to_string(),
             ));
+        }
+        for column in &self.gui.column_order {
+            if column.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.column_order entries must not be empty".to_string(),
+                ));
+            }
+        }
+        for (name, preset) in &self.gui.sort_presets {
+            if name.trim().is_empty() || preset.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.sort_presets keys and values must not be empty".to_string(),
+                ));
+            }
+        }
+        if let Some(active) = &self.gui.active_sort_preset {
+            if active.trim().is_empty() {
+                return Err(CoreError::ConfigValidate(
+                    "gui.active_sort_preset must not be empty when set".to_string(),
+                ));
+            }
+            if !self.gui.sort_presets.contains_key(active) {
+                return Err(CoreError::ConfigValidate(
+                    "gui.active_sort_preset must reference gui.sort_presets".to_string(),
+                ));
+            }
         }
         if let Some(active) = &self.gui.active_virtual_library {
             if active.trim().is_empty() {
@@ -522,6 +561,12 @@ pub struct GuiConfig {
     pub show_languages: bool,
     #[serde(default = "default_gui_show_cover")]
     pub show_cover: bool,
+    #[serde(default = "default_gui_show_date_added")]
+    pub show_date_added: bool,
+    #[serde(default = "default_gui_show_date_modified")]
+    pub show_date_modified: bool,
+    #[serde(default = "default_gui_show_pubdate")]
+    pub show_pubdate: bool,
     #[serde(default = "default_gui_col_width_title")]
     pub width_title: f32,
     #[serde(default = "default_gui_col_width_authors")]
@@ -540,6 +585,12 @@ pub struct GuiConfig {
     pub width_languages: f32,
     #[serde(default = "default_gui_col_width_cover")]
     pub width_cover: f32,
+    #[serde(default = "default_gui_col_width_date_added")]
+    pub width_date_added: f32,
+    #[serde(default = "default_gui_col_width_date_modified")]
+    pub width_date_modified: f32,
+    #[serde(default = "default_gui_col_width_pubdate")]
+    pub width_pubdate: f32,
     #[serde(default = "default_gui_cover_thumb_size")]
     pub cover_thumb_size: f32,
     #[serde(default = "default_gui_cover_preview_size")]
@@ -572,6 +623,14 @@ pub struct GuiConfig {
     pub show_format_badges: bool,
     #[serde(default = "default_gui_show_language_badges")]
     pub show_language_badges: bool,
+    #[serde(default = "default_gui_column_order")]
+    pub column_order: Vec<String>,
+    #[serde(default)]
+    pub sort_presets: BTreeMap<String, String>,
+    #[serde(default)]
+    pub active_sort_preset: Option<String>,
+    #[serde(default = "default_gui_stats_top_n")]
+    pub stats_top_n: usize,
     #[serde(default)]
     pub active_virtual_library: Option<String>,
     #[serde(default)]
@@ -594,6 +653,9 @@ impl Default for GuiConfig {
             show_publisher: default_gui_show_publisher(),
             show_languages: default_gui_show_languages(),
             show_cover: default_gui_show_cover(),
+            show_date_added: default_gui_show_date_added(),
+            show_date_modified: default_gui_show_date_modified(),
+            show_pubdate: default_gui_show_pubdate(),
             width_title: default_gui_col_width_title(),
             width_authors: default_gui_col_width_authors(),
             width_series: default_gui_col_width_series(),
@@ -603,6 +665,9 @@ impl Default for GuiConfig {
             width_publisher: default_gui_col_width_publisher(),
             width_languages: default_gui_col_width_languages(),
             width_cover: default_gui_col_width_cover(),
+            width_date_added: default_gui_col_width_date_added(),
+            width_date_modified: default_gui_col_width_date_modified(),
+            width_pubdate: default_gui_col_width_pubdate(),
             cover_thumb_size: default_gui_cover_thumb_size(),
             cover_preview_size: default_gui_cover_preview_size(),
             cover_dir: default_gui_cover_dir(),
@@ -619,6 +684,10 @@ impl Default for GuiConfig {
             quick_details_panel: default_gui_quick_details_panel(),
             show_format_badges: default_gui_show_format_badges(),
             show_language_badges: default_gui_show_language_badges(),
+            column_order: default_gui_column_order(),
+            sort_presets: BTreeMap::new(),
+            active_sort_preset: None,
+            stats_top_n: default_gui_stats_top_n(),
             active_virtual_library: None,
             virtual_library_filters: BTreeMap::new(),
         }
@@ -737,6 +806,18 @@ fn default_gui_show_cover() -> bool {
     true
 }
 
+fn default_gui_show_date_added() -> bool {
+    true
+}
+
+fn default_gui_show_date_modified() -> bool {
+    true
+}
+
+fn default_gui_show_pubdate() -> bool {
+    true
+}
+
 fn default_gui_col_width_title() -> f32 {
     240.0
 }
@@ -771,6 +852,18 @@ fn default_gui_col_width_languages() -> f32 {
 
 fn default_gui_col_width_cover() -> f32 {
     72.0
+}
+
+fn default_gui_col_width_date_added() -> f32 {
+    140.0
+}
+
+fn default_gui_col_width_date_modified() -> f32 {
+    140.0
+}
+
+fn default_gui_col_width_pubdate() -> f32 {
+    140.0
 }
 
 fn default_gui_cover_thumb_size() -> f32 {
@@ -835,6 +928,27 @@ fn default_gui_show_format_badges() -> bool {
 
 fn default_gui_show_language_badges() -> bool {
     true
+}
+
+fn default_gui_column_order() -> Vec<String> {
+    vec![
+        "title".to_string(),
+        "cover".to_string(),
+        "authors".to_string(),
+        "series".to_string(),
+        "tags".to_string(),
+        "formats".to_string(),
+        "rating".to_string(),
+        "publisher".to_string(),
+        "languages".to_string(),
+        "date_added".to_string(),
+        "date_modified".to_string(),
+        "pubdate".to_string(),
+    ]
+}
+
+fn default_gui_stats_top_n() -> usize {
+    8
 }
 
 fn default_server_download_enabled() -> bool {

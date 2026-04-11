@@ -39,6 +39,9 @@ pub struct BookRow {
     pub publisher: String,
     pub languages: String,
     pub has_cover: bool,
+    pub date_added: String,
+    pub date_modified: String,
+    pub pubdate: String,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +79,9 @@ enum SortMode {
     Rating,
     Publisher,
     Languages,
+    DateAdded,
+    DateModified,
+    PubDate,
     Id,
 }
 
@@ -151,8 +157,48 @@ impl SortMode {
             SortMode::Rating => "Rating",
             SortMode::Publisher => "Publisher",
             SortMode::Languages => "Languages",
+            SortMode::DateAdded => "Added",
+            SortMode::DateModified => "Modified",
+            SortMode::PubDate => "Pubdate",
             SortMode::Id => "ID",
         }
+    }
+}
+
+impl SortMode {
+    fn key(self) -> &'static str {
+        match self {
+            SortMode::Title => "title",
+            SortMode::Authors => "authors",
+            SortMode::Series => "series",
+            SortMode::Tags => "tags",
+            SortMode::Formats => "formats",
+            SortMode::Rating => "rating",
+            SortMode::Publisher => "publisher",
+            SortMode::Languages => "languages",
+            SortMode::DateAdded => "date_added",
+            SortMode::DateModified => "date_modified",
+            SortMode::PubDate => "pubdate",
+            SortMode::Id => "id",
+        }
+    }
+}
+
+fn parse_sort_mode(value: &str) -> Option<SortMode> {
+    match value {
+        "title" => Some(SortMode::Title),
+        "authors" => Some(SortMode::Authors),
+        "series" => Some(SortMode::Series),
+        "tags" => Some(SortMode::Tags),
+        "formats" => Some(SortMode::Formats),
+        "rating" => Some(SortMode::Rating),
+        "publisher" => Some(SortMode::Publisher),
+        "languages" => Some(SortMode::Languages),
+        "date_added" => Some(SortMode::DateAdded),
+        "date_modified" => Some(SortMode::DateModified),
+        "pubdate" => Some(SortMode::PubDate),
+        "id" => Some(SortMode::Id),
+        _ => None,
     }
 }
 
@@ -167,6 +213,9 @@ struct ColumnVisibility {
     publisher: bool,
     languages: bool,
     cover: bool,
+    date_added: bool,
+    date_modified: bool,
+    pubdate: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +229,120 @@ struct ColumnWidths {
     publisher: f32,
     languages: f32,
     cover: f32,
+    date_added: f32,
+    date_modified: f32,
+    pubdate: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ColumnKey {
+    Title,
+    Cover,
+    Authors,
+    Series,
+    Tags,
+    Formats,
+    Rating,
+    Publisher,
+    Languages,
+    DateAdded,
+    DateModified,
+    PubDate,
+}
+
+impl ColumnKey {
+    fn label(self) -> &'static str {
+        match self {
+            ColumnKey::Title => "Title",
+            ColumnKey::Cover => "Cover",
+            ColumnKey::Authors => "Authors",
+            ColumnKey::Series => "Series",
+            ColumnKey::Tags => "Tags",
+            ColumnKey::Formats => "Formats",
+            ColumnKey::Rating => "Rating",
+            ColumnKey::Publisher => "Publisher",
+            ColumnKey::Languages => "Languages",
+            ColumnKey::DateAdded => "Added",
+            ColumnKey::DateModified => "Modified",
+            ColumnKey::PubDate => "Pubdate",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            ColumnKey::Title => "title",
+            ColumnKey::Cover => "cover",
+            ColumnKey::Authors => "authors",
+            ColumnKey::Series => "series",
+            ColumnKey::Tags => "tags",
+            ColumnKey::Formats => "formats",
+            ColumnKey::Rating => "rating",
+            ColumnKey::Publisher => "publisher",
+            ColumnKey::Languages => "languages",
+            ColumnKey::DateAdded => "date_added",
+            ColumnKey::DateModified => "date_modified",
+            ColumnKey::PubDate => "pubdate",
+        }
+    }
+
+    fn sort_mode(self) -> Option<SortMode> {
+        match self {
+            ColumnKey::Title => Some(SortMode::Title),
+            ColumnKey::Authors => Some(SortMode::Authors),
+            ColumnKey::Series => Some(SortMode::Series),
+            ColumnKey::Tags => Some(SortMode::Tags),
+            ColumnKey::Formats => Some(SortMode::Formats),
+            ColumnKey::Rating => Some(SortMode::Rating),
+            ColumnKey::Publisher => Some(SortMode::Publisher),
+            ColumnKey::Languages => Some(SortMode::Languages),
+            ColumnKey::DateAdded => Some(SortMode::DateAdded),
+            ColumnKey::DateModified => Some(SortMode::DateModified),
+            ColumnKey::PubDate => Some(SortMode::PubDate),
+            ColumnKey::Cover => None,
+        }
+    }
+}
+
+fn parse_column_key(value: &str) -> Option<ColumnKey> {
+    match value {
+        "title" => Some(ColumnKey::Title),
+        "cover" => Some(ColumnKey::Cover),
+        "authors" => Some(ColumnKey::Authors),
+        "series" => Some(ColumnKey::Series),
+        "tags" => Some(ColumnKey::Tags),
+        "formats" => Some(ColumnKey::Formats),
+        "rating" => Some(ColumnKey::Rating),
+        "publisher" => Some(ColumnKey::Publisher),
+        "languages" => Some(ColumnKey::Languages),
+        "date_added" => Some(ColumnKey::DateAdded),
+        "date_modified" => Some(ColumnKey::DateModified),
+        "pubdate" => Some(ColumnKey::PubDate),
+        _ => None,
+    }
+}
+
+fn default_column_order() -> Vec<ColumnKey> {
+    vec![
+        ColumnKey::Title,
+        ColumnKey::Cover,
+        ColumnKey::Authors,
+        ColumnKey::Series,
+        ColumnKey::Tags,
+        ColumnKey::Formats,
+        ColumnKey::Rating,
+        ColumnKey::Publisher,
+        ColumnKey::Languages,
+        ColumnKey::DateAdded,
+        ColumnKey::DateModified,
+        ColumnKey::PubDate,
+    ]
+}
+
+#[derive(Debug, Clone)]
+struct SortPreset {
+    primary: SortMode,
+    secondary: Option<SortMode>,
+    direction: SortDirection,
 }
 
 impl ColumnVisibility {
@@ -194,6 +357,9 @@ impl ColumnVisibility {
             publisher: gui.show_publisher,
             languages: gui.show_languages,
             cover: gui.show_cover,
+            date_added: gui.show_date_added,
+            date_modified: gui.show_date_modified,
+            pubdate: gui.show_pubdate,
         }
     }
 
@@ -207,6 +373,9 @@ impl ColumnVisibility {
         gui.show_publisher = self.publisher;
         gui.show_languages = self.languages;
         gui.show_cover = self.cover;
+        gui.show_date_added = self.date_added;
+        gui.show_date_modified = self.date_modified;
+        gui.show_pubdate = self.pubdate;
     }
 }
 
@@ -222,6 +391,9 @@ impl ColumnWidths {
             publisher: gui.width_publisher,
             languages: gui.width_languages,
             cover: gui.width_cover,
+            date_added: gui.width_date_added,
+            date_modified: gui.width_date_modified,
+            pubdate: gui.width_pubdate,
         }
     }
 
@@ -235,6 +407,9 @@ impl ColumnWidths {
         gui.width_publisher = self.publisher;
         gui.width_languages = self.languages;
         gui.width_cover = self.cover;
+        gui.width_date_added = self.date_added;
+        gui.width_date_modified = self.date_modified;
+        gui.width_pubdate = self.pubdate;
     }
 }
 
@@ -277,6 +452,9 @@ pub struct LibraryView {
     sort_mode: SortMode,
     sort_dir: SortDirection,
     secondary_sort: Option<SortMode>,
+    sort_presets: HashMap<String, SortPreset>,
+    sort_preset_name: String,
+    active_sort_preset: Option<String>,
     search_query: String,
     search_history: Vec<String>,
     search_history_max: usize,
@@ -290,6 +468,8 @@ pub struct LibraryView {
     quick_details_panel: bool,
     columns: ColumnVisibility,
     column_widths: ColumnWidths,
+    column_order: Vec<ColumnKey>,
+    column_search: String,
     layout_dirty: bool,
     config_dirty: bool,
     pending_save: bool,
@@ -308,6 +488,7 @@ pub struct LibraryView {
     table_row_height: f32,
     toast_duration_secs: f64,
     toast_max: usize,
+    stats_top_n: usize,
     toasts: Vec<Toast>,
     jobs: Vec<JobEntry>,
     next_job_id: u64,
@@ -389,6 +570,9 @@ impl LibraryView {
             sort_mode: SortMode::Title,
             sort_dir: SortDirection::Asc,
             secondary_sort: None,
+            sort_presets: decode_sort_presets(&config.gui.sort_presets),
+            sort_preset_name: String::new(),
+            active_sort_preset: config.gui.active_sort_preset.clone(),
             search_query: String::new(),
             search_history: Vec::new(),
             search_history_max: config.gui.search_history_max,
@@ -402,6 +586,8 @@ impl LibraryView {
             quick_details_panel: config.gui.quick_details_panel,
             columns: ColumnVisibility::from_config(&config.gui),
             column_widths: ColumnWidths::from_config(&config.gui),
+            column_order: decode_column_order(&config.gui.column_order),
+            column_search: String::new(),
             layout_dirty: false,
             config_dirty: false,
             pending_save: false,
@@ -420,6 +606,7 @@ impl LibraryView {
             table_row_height: config.gui.table_row_height,
             toast_duration_secs: config.gui.toast_duration_secs,
             toast_max: config.gui.toast_max,
+            stats_top_n: config.gui.stats_top_n,
             toasts: Vec::new(),
             jobs: Vec::new(),
             next_job_id: 1,
@@ -454,6 +641,9 @@ impl LibraryView {
                 .get(active)
                 .cloned()
                 .unwrap_or_default();
+        }
+        if let Some(name) = view.active_sort_preset.clone() {
+            view.apply_sort_preset(&name);
         }
         view.refresh_books()?;
         Ok(view)
@@ -763,6 +953,9 @@ impl LibraryView {
                     ui.selectable_value(&mut self.sort_mode, SortMode::Rating, "Rating");
                     ui.selectable_value(&mut self.sort_mode, SortMode::Publisher, "Publisher");
                     ui.selectable_value(&mut self.sort_mode, SortMode::Languages, "Languages");
+                    ui.selectable_value(&mut self.sort_mode, SortMode::DateAdded, "Added");
+                    ui.selectable_value(&mut self.sort_mode, SortMode::DateModified, "Modified");
+                    ui.selectable_value(&mut self.sort_mode, SortMode::PubDate, "Pubdate");
                     ui.selectable_value(&mut self.sort_mode, SortMode::Id, "ID");
                 });
             egui::ComboBox::from_id_salt("secondary_sort_mode")
@@ -820,6 +1013,21 @@ impl LibraryView {
                     );
                     ui.selectable_value(
                         &mut self.secondary_sort,
+                        Some(SortMode::DateAdded),
+                        "Secondary: Added",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::DateModified),
+                        "Secondary: Modified",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
+                        Some(SortMode::PubDate),
+                        "Secondary: Pubdate",
+                    );
+                    ui.selectable_value(
+                        &mut self.secondary_sort,
                         Some(SortMode::Id),
                         "Secondary: ID",
                     );
@@ -835,6 +1043,53 @@ impl LibraryView {
                 });
             if ui.button("Apply").clicked() {
                 self.apply_filters();
+            }
+        });
+        ui.horizontal(|ui| {
+            let selected = self
+                .active_sort_preset
+                .as_ref()
+                .map(|name| name.as_str())
+                .unwrap_or("Sort preset: none");
+            egui::ComboBox::from_id_salt("sort_preset")
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(self.active_sort_preset.is_none(), "Sort preset: none")
+                        .clicked()
+                    {
+                        self.active_sort_preset = None;
+                        self.config_dirty = true;
+                    }
+                    let mut names = self.sort_presets.keys().cloned().collect::<Vec<_>>();
+                    names.sort();
+                    for name in names {
+                        if ui
+                            .selectable_label(
+                                self.active_sort_preset.as_deref() == Some(name.as_str()),
+                                name.as_str(),
+                            )
+                            .clicked()
+                        {
+                            self.apply_sort_preset(&name);
+                            self.active_sort_preset = Some(name);
+                            self.config_dirty = true;
+                        }
+                    }
+                });
+            ui.label("Name");
+            ui.text_edit_singleline(&mut self.sort_preset_name);
+            if ui.button("Save preset").clicked() {
+                self.save_sort_preset();
+            }
+            if ui
+                .add_enabled(
+                    self.active_sort_preset.is_some(),
+                    egui::Button::new("Delete preset"),
+                )
+                .clicked()
+            {
+                self.delete_active_sort_preset();
             }
         });
     }
@@ -1154,6 +1409,26 @@ impl LibraryView {
         self.config_dirty = true;
     }
 
+    fn apply_stats_drilldown(&mut self, category: BrowserCategory, value: &str) {
+        self.browser_filters
+            .retain(|filter| filter.category != category);
+        self.browser_filters.push(BrowserFilter {
+            category,
+            value: value.to_string(),
+            mode: BrowserFilterMode::Include,
+        });
+        self.persist_active_virtual_filters();
+        self.apply_filters();
+        self.config_dirty = true;
+        self.push_toast("Applied stats drilldown filter", ToastLevel::Info);
+        info!(
+            component = "gui",
+            category = category.label(),
+            value = value,
+            "stats drilldown filter applied"
+        );
+    }
+
     fn set_active_virtual_library(&mut self, selected: Option<String>) {
         self.active_virtual_library = selected.clone();
         if let Some(name) = selected {
@@ -1239,7 +1514,14 @@ impl LibraryView {
         egui::CollapsingHeader::new("Library stats")
             .default_open(false)
             .show(ui, |ui| {
-                let stats = compute_library_stats(&self.all_books);
+                let stats = match compute_library_stats(&self.all_books, &self.db) {
+                    Ok(stats) => stats,
+                    Err(err) => {
+                        self.set_error(err);
+                        ui.label("Stats unavailable.");
+                        return;
+                    }
+                };
                 ui.label(format!("Formats: {}", stats.formats.len()));
                 ui.label(format!("Languages: {}", stats.languages.len()));
                 ui.label(format!("Tags: {}", stats.tags.len()));
@@ -1247,8 +1529,35 @@ impl LibraryView {
                 ui.label(format!("Series: {}", stats.series.len()));
                 ui.separator();
                 ui.label("Formats distribution");
-                for (format, count) in stats.formats.iter().take(8) {
+                for (format, count) in stats.formats.iter().take(self.stats_top_n) {
                     ui.label(format!("{format}: {count}"));
+                }
+                ui.separator();
+                ui.label("Format storage size (MiB)");
+                let top_size = stats
+                    .format_sizes
+                    .first()
+                    .map(|(_, size)| *size)
+                    .unwrap_or(1);
+                for (format, size) in stats.format_sizes.iter().take(self.stats_top_n) {
+                    let frac = (*size as f32) / (top_size as f32);
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{format}: {}", format_bytes(*size)));
+                        ui.add(egui::ProgressBar::new(frac).desired_width(120.0));
+                    });
+                }
+                ui.separator();
+                ui.label("Top authors");
+                for (author, count) in stats.authors.iter().take(self.stats_top_n) {
+                    if ui.button(format!("{author} ({count})")).clicked() {
+                        self.apply_stats_drilldown(BrowserCategory::Authors, author);
+                    }
+                }
+                ui.label("Top series");
+                for (series, count) in stats.series.iter().take(self.stats_top_n) {
+                    if ui.button(format!("{series} ({count})")).clicked() {
+                        self.apply_stats_drilldown(BrowserCategory::Series, series);
+                    }
                 }
                 ui.separator();
                 if ui.button("Refresh stats").clicked() {
@@ -1402,96 +1711,66 @@ impl LibraryView {
         egui::CollapsingHeader::new("Columns")
             .default_open(false)
             .show(ui, |ui| {
-                ui.label("Visible columns");
-                if ui.checkbox(&mut self.columns.title, "Title").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.authors, "Authors").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.series, "Series").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.tags, "Tags").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.formats, "Formats").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.rating, "Rating").changed() {
-                    self.layout_dirty = true;
-                }
-                if ui
-                    .checkbox(&mut self.columns.publisher, "Publisher")
-                    .changed()
-                {
-                    self.layout_dirty = true;
-                }
-                if ui
-                    .checkbox(&mut self.columns.languages, "Languages")
-                    .changed()
-                {
-                    self.layout_dirty = true;
-                }
-                if ui.checkbox(&mut self.columns.cover, "Cover").changed() {
-                    self.layout_dirty = true;
+                ui.horizontal(|ui| {
+                    ui.label("Search");
+                    ui.text_edit_singleline(&mut self.column_search);
+                    if ui.button("Reset order").clicked() {
+                        self.column_order = default_column_order();
+                        self.layout_dirty = true;
+                        info!(component = "gui", "column order reset");
+                    }
+                });
+                let filter = self.column_search.trim().to_lowercase();
+                let mut idx = 0;
+                while idx < self.column_order.len() {
+                    let key = self.column_order[idx];
+                    if !filter.is_empty() && !key.label().to_lowercase().contains(&filter) {
+                        idx += 1;
+                        continue;
+                    }
+                    ui.horizontal(|ui| {
+                        let mut visible = self.column_visible(key);
+                        if ui.checkbox(&mut visible, key.label()).changed() {
+                            self.set_column_visible(key, visible);
+                            self.layout_dirty = true;
+                        }
+                        if ui.small_button("↑").clicked() && idx > 0 {
+                            self.column_order.swap(idx, idx - 1);
+                            self.layout_dirty = true;
+                            info!(
+                                component = "gui",
+                                column = key.key(),
+                                from = idx,
+                                to = idx - 1,
+                                "column moved"
+                            );
+                        }
+                        if ui.small_button("↓").clicked() && idx + 1 < self.column_order.len() {
+                            self.column_order.swap(idx, idx + 1);
+                            self.layout_dirty = true;
+                            info!(
+                                component = "gui",
+                                column = key.key(),
+                                from = idx,
+                                to = idx + 1,
+                                "column moved"
+                            );
+                        }
+                    });
+                    idx += 1;
                 }
                 ui.separator();
                 ui.label("Column widths");
-                column_width_control(
-                    ui,
-                    "Title",
-                    &mut self.column_widths.title,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Authors",
-                    &mut self.column_widths.authors,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Series",
-                    &mut self.column_widths.series,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Tags",
-                    &mut self.column_widths.tags,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Formats",
-                    &mut self.column_widths.formats,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Rating",
-                    &mut self.column_widths.rating,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Publisher",
-                    &mut self.column_widths.publisher,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Languages",
-                    &mut self.column_widths.languages,
-                    &mut self.layout_dirty,
-                );
-                column_width_control(
-                    ui,
-                    "Cover",
-                    &mut self.column_widths.cover,
-                    &mut self.layout_dirty,
-                );
+                for key in &self.column_order.clone() {
+                    if !filter.is_empty() && !key.label().to_lowercase().contains(&filter) {
+                        continue;
+                    }
+                    if let Some(width) = self.column_width_mut(*key) {
+                        if column_width_control(ui, key.label(), width) {
+                            self.layout_dirty = true;
+                        }
+                    }
+                }
                 if ui.button("Save Layout").clicked() {
                     self.persist_layout(config, config_path);
                 }
@@ -1575,70 +1854,28 @@ impl LibraryView {
             ViewDensity::Comfortable => 1.0,
         };
         let row_height = (self.table_row_height * density_factor).max(30.0);
+        let visible_columns = self.visible_column_order();
         let mut table = TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .min_scrolled_height(0.0);
-
-        if self.columns.title {
-            table = table.column(column_with_width(self.column_widths.title));
-        }
-        if self.columns.cover {
-            table = table.column(column_with_width(self.column_widths.cover));
-        }
-        if self.columns.authors {
-            table = table.column(column_with_width(self.column_widths.authors));
-        }
-        if self.columns.series {
-            table = table.column(column_with_width(self.column_widths.series));
-        }
-        if self.columns.tags {
-            table = table.column(column_with_width(self.column_widths.tags));
-        }
-        if self.columns.formats {
-            table = table.column(column_with_width(self.column_widths.formats));
-        }
-        if self.columns.rating {
-            table = table.column(column_with_width(self.column_widths.rating));
-        }
-        if self.columns.publisher {
-            table = table.column(column_with_width(self.column_widths.publisher));
-        }
-        if self.columns.languages {
-            table = table.column(column_with_width(self.column_widths.languages));
+        for key in &visible_columns {
+            if let Some(width) = self.column_width(*key) {
+                table = table.column(column_with_width(width));
+            }
         }
 
         table
             .header(row_height, |mut header| {
-                if self.columns.title {
-                    header.col(|ui| self.sort_header(ui, "Title", SortMode::Title));
-                }
-                if self.columns.cover {
+                for key in &visible_columns {
                     header.col(|ui| {
-                        ui.label("Cover");
+                        if let Some(mode) = key.sort_mode() {
+                            self.sort_header(ui, key.label(), mode);
+                        } else {
+                            ui.label(key.label());
+                        }
                     });
-                }
-                if self.columns.authors {
-                    header.col(|ui| self.sort_header(ui, "Authors", SortMode::Authors));
-                }
-                if self.columns.series {
-                    header.col(|ui| self.sort_header(ui, "Series", SortMode::Series));
-                }
-                if self.columns.tags {
-                    header.col(|ui| self.sort_header(ui, "Tags", SortMode::Tags));
-                }
-                if self.columns.formats {
-                    header.col(|ui| self.sort_header(ui, "Formats", SortMode::Formats));
-                }
-                if self.columns.rating {
-                    header.col(|ui| self.sort_header(ui, "Rating", SortMode::Rating));
-                }
-                if self.columns.publisher {
-                    header.col(|ui| self.sort_header(ui, "Publisher", SortMode::Publisher));
-                }
-                if self.columns.languages {
-                    header.col(|ui| self.sort_header(ui, "Languages", SortMode::Languages));
                 }
             })
             .body(|body| {
@@ -1648,131 +1885,17 @@ impl LibraryView {
                     let selected = self.selected_ids.contains(&book.id);
                     let mut row_clicked = false;
                     let mut modifiers = egui::Modifiers::default();
-                    if self.columns.title {
+                    for key in &visible_columns {
                         row.col(|ui: &mut egui::Ui| {
-                            ui.horizontal(|ui| {
-                                let response = ui.selectable_label(
-                                    selected,
-                                    highlight_text(&book.title, &self.search_query),
-                                );
-                                if response.clicked() {
-                                    row_clicked = true;
-                                    modifiers = response.ctx.input(|i| i.modifiers);
-                                }
-                                response.context_menu(|ui| {
-                                    self.row_context_menu(ui, config, &book);
-                                });
-                                if ui
-                                    .small_button("E")
-                                    .on_hover_text("Edit metadata")
-                                    .clicked()
-                                {
-                                    self.select_book(book.id);
-                                    self.begin_edit();
-                                }
-                                if ui.small_button("R").on_hover_text("Remove book").clicked() {
-                                    self.selected_ids = vec![book.id];
-                                    self.open_remove_books(config);
-                                }
-                                if ui.small_button("C").on_hover_text("Convert book").clicked() {
-                                    self.selected_ids = vec![book.id];
-                                    self.open_convert_books(config);
-                                }
-                            });
-                        });
-                    }
-                    if self.columns.cover {
-                        row.col(|ui: &mut egui::Ui| {
-                            let texture =
-                                self.cover_thumb_texture(ui.ctx(), book.id, book.has_cover);
-                            render_cover_thumbnail(
+                            self.render_table_cell(
                                 ui,
-                                texture.as_ref(),
-                                book.has_cover,
-                                self.cover_thumb_size,
-                            );
-                        });
-                    }
-                    if self.columns.authors {
-                        row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(
+                                config,
+                                &book,
+                                *key,
                                 selected,
-                                highlight_text(&book.authors, &self.search_query),
+                                &mut row_clicked,
+                                &mut modifiers,
                             );
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.series {
-                        row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(
-                                selected,
-                                highlight_text(&book.series, &self.search_query),
-                            );
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.tags {
-                        row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(
-                                selected,
-                                highlight_text(&book.tags, &self.search_query),
-                            );
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.formats {
-                        row.col(|ui: &mut egui::Ui| {
-                            let text = if self.show_format_badges {
-                                format_badge_text(&book.format)
-                            } else {
-                                book.format.clone()
-                            };
-                            let response = ui.selectable_label(selected, text);
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.rating {
-                        row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, &book.rating);
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.publisher {
-                        row.col(|ui: &mut egui::Ui| {
-                            let response = ui.selectable_label(selected, &book.publisher);
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
-                        });
-                    }
-                    if self.columns.languages {
-                        row.col(|ui: &mut egui::Ui| {
-                            let text = if self.show_language_badges {
-                                language_badge_text(&book.languages)
-                            } else {
-                                book.languages.clone()
-                            };
-                            let response = ui.selectable_label(selected, text);
-                            if response.clicked() {
-                                row_clicked = true;
-                                modifiers = response.ctx.input(|i| i.modifiers);
-                            }
                         });
                     }
                     if row_clicked {
@@ -1811,6 +1934,200 @@ impl LibraryView {
                 ui.label("No books to display.");
             }
         });
+    }
+
+    fn visible_column_order(&self) -> Vec<ColumnKey> {
+        self.column_order
+            .iter()
+            .copied()
+            .filter(|key| self.column_visible(*key))
+            .collect()
+    }
+
+    fn column_visible(&self, key: ColumnKey) -> bool {
+        match key {
+            ColumnKey::Title => self.columns.title,
+            ColumnKey::Cover => self.columns.cover,
+            ColumnKey::Authors => self.columns.authors,
+            ColumnKey::Series => self.columns.series,
+            ColumnKey::Tags => self.columns.tags,
+            ColumnKey::Formats => self.columns.formats,
+            ColumnKey::Rating => self.columns.rating,
+            ColumnKey::Publisher => self.columns.publisher,
+            ColumnKey::Languages => self.columns.languages,
+            ColumnKey::DateAdded => self.columns.date_added,
+            ColumnKey::DateModified => self.columns.date_modified,
+            ColumnKey::PubDate => self.columns.pubdate,
+        }
+    }
+
+    fn set_column_visible(&mut self, key: ColumnKey, visible: bool) {
+        match key {
+            ColumnKey::Title => self.columns.title = visible,
+            ColumnKey::Cover => self.columns.cover = visible,
+            ColumnKey::Authors => self.columns.authors = visible,
+            ColumnKey::Series => self.columns.series = visible,
+            ColumnKey::Tags => self.columns.tags = visible,
+            ColumnKey::Formats => self.columns.formats = visible,
+            ColumnKey::Rating => self.columns.rating = visible,
+            ColumnKey::Publisher => self.columns.publisher = visible,
+            ColumnKey::Languages => self.columns.languages = visible,
+            ColumnKey::DateAdded => self.columns.date_added = visible,
+            ColumnKey::DateModified => self.columns.date_modified = visible,
+            ColumnKey::PubDate => self.columns.pubdate = visible,
+        }
+    }
+
+    fn column_width(&self, key: ColumnKey) -> Option<f32> {
+        let width = match key {
+            ColumnKey::Title => self.column_widths.title,
+            ColumnKey::Cover => self.column_widths.cover,
+            ColumnKey::Authors => self.column_widths.authors,
+            ColumnKey::Series => self.column_widths.series,
+            ColumnKey::Tags => self.column_widths.tags,
+            ColumnKey::Formats => self.column_widths.formats,
+            ColumnKey::Rating => self.column_widths.rating,
+            ColumnKey::Publisher => self.column_widths.publisher,
+            ColumnKey::Languages => self.column_widths.languages,
+            ColumnKey::DateAdded => self.column_widths.date_added,
+            ColumnKey::DateModified => self.column_widths.date_modified,
+            ColumnKey::PubDate => self.column_widths.pubdate,
+        };
+        Some(width)
+    }
+
+    fn column_width_mut(&mut self, key: ColumnKey) -> Option<&mut f32> {
+        let width = match key {
+            ColumnKey::Title => &mut self.column_widths.title,
+            ColumnKey::Cover => &mut self.column_widths.cover,
+            ColumnKey::Authors => &mut self.column_widths.authors,
+            ColumnKey::Series => &mut self.column_widths.series,
+            ColumnKey::Tags => &mut self.column_widths.tags,
+            ColumnKey::Formats => &mut self.column_widths.formats,
+            ColumnKey::Rating => &mut self.column_widths.rating,
+            ColumnKey::Publisher => &mut self.column_widths.publisher,
+            ColumnKey::Languages => &mut self.column_widths.languages,
+            ColumnKey::DateAdded => &mut self.column_widths.date_added,
+            ColumnKey::DateModified => &mut self.column_widths.date_modified,
+            ColumnKey::PubDate => &mut self.column_widths.pubdate,
+        };
+        Some(width)
+    }
+
+    fn render_table_cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        config: &ControlPlane,
+        book: &BookRow,
+        key: ColumnKey,
+        selected: bool,
+        row_clicked: &mut bool,
+        modifiers: &mut egui::Modifiers,
+    ) {
+        match key {
+            ColumnKey::Title => {
+                ui.horizontal(|ui| {
+                    let response = ui.selectable_label(
+                        selected,
+                        highlight_text(&book.title, &self.search_query),
+                    );
+                    if response.clicked() {
+                        *row_clicked = true;
+                        *modifiers = response.ctx.input(|i| i.modifiers);
+                    }
+                    response.context_menu(|ui| {
+                        self.row_context_menu(ui, config, book);
+                    });
+                    if ui
+                        .small_button("E")
+                        .on_hover_text("Edit metadata")
+                        .clicked()
+                    {
+                        self.select_book(book.id);
+                        self.begin_edit();
+                    }
+                    if ui.small_button("R").on_hover_text("Remove book").clicked() {
+                        self.selected_ids = vec![book.id];
+                        self.open_remove_books(config);
+                    }
+                    if ui.small_button("C").on_hover_text("Convert book").clicked() {
+                        self.selected_ids = vec![book.id];
+                        self.open_convert_books(config);
+                    }
+                });
+            }
+            ColumnKey::Cover => {
+                let texture = self.cover_thumb_texture(ui.ctx(), book.id, book.has_cover);
+                render_cover_thumbnail(ui, texture.as_ref(), book.has_cover, self.cover_thumb_size);
+            }
+            ColumnKey::Authors => {
+                self.selectable_cell(ui, selected, &book.authors, row_clicked, modifiers)
+            }
+            ColumnKey::Series => {
+                self.selectable_cell(ui, selected, &book.series, row_clicked, modifiers)
+            }
+            ColumnKey::Tags => {
+                self.selectable_cell(ui, selected, &book.tags, row_clicked, modifiers)
+            }
+            ColumnKey::Formats => {
+                let text = if self.show_format_badges {
+                    format_badge_text(&book.format)
+                } else {
+                    book.format.clone()
+                };
+                self.selectable_cell(ui, selected, &text, row_clicked, modifiers);
+            }
+            ColumnKey::Rating => {
+                self.selectable_cell(ui, selected, &book.rating, row_clicked, modifiers)
+            }
+            ColumnKey::Publisher => {
+                self.selectable_cell(ui, selected, &book.publisher, row_clicked, modifiers)
+            }
+            ColumnKey::Languages => {
+                let text = if self.show_language_badges {
+                    language_badge_text(&book.languages)
+                } else {
+                    book.languages.clone()
+                };
+                self.selectable_cell(ui, selected, &text, row_clicked, modifiers);
+            }
+            ColumnKey::DateAdded => self.selectable_cell(
+                ui,
+                selected,
+                &format_date_cell(&book.date_added),
+                row_clicked,
+                modifiers,
+            ),
+            ColumnKey::DateModified => self.selectable_cell(
+                ui,
+                selected,
+                &format_date_cell(&book.date_modified),
+                row_clicked,
+                modifiers,
+            ),
+            ColumnKey::PubDate => self.selectable_cell(
+                ui,
+                selected,
+                &format_date_cell(&book.pubdate),
+                row_clicked,
+                modifiers,
+            ),
+        }
+    }
+
+    fn selectable_cell(
+        &self,
+        ui: &mut egui::Ui,
+        selected: bool,
+        text: &str,
+        row_clicked: &mut bool,
+        modifiers: &mut egui::Modifiers,
+    ) {
+        let response = ui.selectable_label(selected, highlight_text(text, &self.search_query));
+        if response.clicked() {
+            *row_clicked = true;
+            *modifiers = response.ctx.input(|i| i.modifiers);
+        }
     }
 
     fn grid_cell(&mut self, ui: &mut egui::Ui, config: &ControlPlane, book: &BookRow) {
@@ -3856,35 +4173,51 @@ impl LibraryView {
 
     fn build_row(&mut self, book: &BookRecord) -> CoreResult<BookRow> {
         let details = self.cache.get_book_details(&self.db, book.id)?.cloned();
-        let (authors, tags, series, rating, publisher, languages, has_cover) =
-            if let Some(details) = details {
-                (
-                    details.authors.join(", "),
-                    details.tags.join(", "),
-                    details
-                        .series
-                        .map(|series| format!("{} ({})", series.name, series.index))
-                        .unwrap_or_default(),
-                    details
-                        .extras
-                        .rating
-                        .map(|rating| rating.to_string())
-                        .unwrap_or_default(),
-                    details.extras.publisher.unwrap_or_default(),
-                    details.extras.languages.join(", "),
-                    details.extras.has_cover,
-                )
-            } else {
-                (
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    false,
-                )
-            };
+        let (
+            authors,
+            tags,
+            series,
+            rating,
+            publisher,
+            languages,
+            has_cover,
+            date_added,
+            date_modified,
+            pubdate,
+        ) = if let Some(details) = details {
+            (
+                details.authors.join(", "),
+                details.tags.join(", "),
+                details
+                    .series
+                    .map(|series| format!("{} ({})", series.name, series.index))
+                    .unwrap_or_default(),
+                details
+                    .extras
+                    .rating
+                    .map(|rating| rating.to_string())
+                    .unwrap_or_default(),
+                details.extras.publisher.unwrap_or_default(),
+                details.extras.languages.join(", "),
+                details.extras.has_cover,
+                details.extras.timestamp.unwrap_or_default(),
+                details.extras.last_modified.unwrap_or_default(),
+                details.extras.pubdate.unwrap_or_default(),
+            )
+        } else {
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                false,
+                String::new(),
+                String::new(),
+                String::new(),
+            )
+        };
         Ok(BookRow {
             id: book.id,
             title: book.title.clone(),
@@ -3897,6 +4230,9 @@ impl LibraryView {
             publisher,
             languages,
             has_cover,
+            date_added,
+            date_modified,
+            pubdate,
         })
     }
 
@@ -4062,6 +4398,46 @@ impl LibraryView {
         }
     }
 
+    fn save_sort_preset(&mut self) {
+        let name = self.sort_preset_name.trim().to_string();
+        if name.is_empty() {
+            self.push_toast("Sort preset name is required", ToastLevel::Warn);
+            return;
+        }
+        let preset = SortPreset {
+            primary: self.sort_mode,
+            secondary: self.secondary_sort,
+            direction: self.sort_dir,
+        };
+        self.sort_presets.insert(name.clone(), preset);
+        self.active_sort_preset = Some(name.clone());
+        self.sort_preset_name.clear();
+        self.config_dirty = true;
+        info!(component = "gui", preset = name, "sort preset saved");
+        self.push_toast("Sort preset saved", ToastLevel::Info);
+    }
+
+    fn apply_sort_preset(&mut self, name: &str) {
+        if let Some(preset) = self.sort_presets.get(name).cloned() {
+            self.sort_mode = preset.primary;
+            self.secondary_sort = preset.secondary;
+            self.sort_dir = preset.direction;
+            self.apply_filters();
+            info!(component = "gui", preset = name, "sort preset applied");
+        }
+    }
+
+    fn delete_active_sort_preset(&mut self) {
+        let Some(name) = self.active_sort_preset.clone() else {
+            return;
+        };
+        self.sort_presets.remove(&name);
+        self.active_sort_preset = None;
+        self.config_dirty = true;
+        info!(component = "gui", preset = name, "sort preset deleted");
+        self.push_toast("Sort preset deleted", ToastLevel::Info);
+    }
+
     fn cancel_edit(&mut self) {
         if let Some(details) = &self.details {
             self.edit = EditState::from_details(details);
@@ -4148,6 +4524,11 @@ impl LibraryView {
             ViewDensity::Comfortable => "comfortable".to_string(),
         };
         config.gui.quick_details_panel = self.quick_details_panel;
+        config.gui.column_order = self
+            .column_order
+            .iter()
+            .map(|key| key.key().to_string())
+            .collect();
         if let Err(err) = config.save_to_path(config_path) {
             self.set_error(err);
         } else {
@@ -4167,6 +4548,13 @@ impl LibraryView {
             ViewDensity::Comfortable => "comfortable".to_string(),
         };
         config.gui.quick_details_panel = self.quick_details_panel;
+        config.gui.column_order = self
+            .column_order
+            .iter()
+            .map(|key| key.key().to_string())
+            .collect();
+        config.gui.sort_presets = encode_sort_presets(&self.sort_presets);
+        config.gui.active_sort_preset = self.active_sort_preset.clone();
     }
 
     fn push_toast(&mut self, message: &str, level: ToastLevel) {
@@ -4990,6 +5378,7 @@ struct JobEntry {
 #[derive(Debug, Clone)]
 struct LibraryStatsSummary {
     formats: Vec<(String, usize)>,
+    format_sizes: Vec<(String, u64)>,
     languages: Vec<(String, usize)>,
     tags: Vec<(String, usize)>,
     authors: Vec<(String, usize)>,
@@ -5299,12 +5688,17 @@ fn rating_stars(ui: &mut egui::Ui, rating: &mut i64) {
     });
 }
 
-fn compute_library_stats(rows: &[BookRow]) -> LibraryStatsSummary {
+fn compute_library_stats(rows: &[BookRow], db: &Database) -> CoreResult<LibraryStatsSummary> {
     let mut formats = HashMap::<String, usize>::new();
+    let mut format_sizes = HashMap::<String, u64>::new();
     let mut languages = HashMap::<String, usize>::new();
     let mut tags = HashMap::<String, usize>::new();
     let mut authors = HashMap::<String, usize>::new();
     let mut series = HashMap::<String, usize>::new();
+    let book_formats = rows
+        .iter()
+        .map(|row| (row.id, row.format.clone()))
+        .collect::<HashMap<_, _>>();
     for row in rows {
         *formats.entry(row.format.clone()).or_insert(0) += 1;
         for item in split_csv_field(&row.languages) {
@@ -5320,16 +5714,31 @@ fn compute_library_stats(rows: &[BookRow]) -> LibraryStatsSummary {
             *series.entry(row.series.clone()).or_insert(0) += 1;
         }
     }
-    LibraryStatsSummary {
+    for asset in db.list_assets()? {
+        let fallback = book_formats
+            .get(&asset.book_id)
+            .map(|value| value.as_str())
+            .unwrap_or("unknown");
+        let format = asset_format(&asset, fallback).unwrap_or_else(|| "unknown".to_string());
+        *format_sizes.entry(format).or_insert(0) += asset.stored_size_bytes;
+    }
+    Ok(LibraryStatsSummary {
         formats: sort_count_map(formats),
+        format_sizes: sort_size_map(format_sizes),
         languages: sort_count_map(languages),
         tags: sort_count_map(tags),
         authors: sort_count_map(authors),
         series: sort_count_map(series),
-    }
+    })
 }
 
 fn sort_count_map(map: HashMap<String, usize>) -> Vec<(String, usize)> {
+    let mut items = map.into_iter().collect::<Vec<_>>();
+    items.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    items
+}
+
+fn sort_size_map(map: HashMap<String, u64>) -> Vec<(String, u64)> {
     let mut items = map.into_iter().collect::<Vec<_>>();
     items.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     items
@@ -5354,9 +5763,16 @@ fn export_stats_csv(cache_dir: &Path, stats: &LibraryStatsSummary) -> CoreResult
     append_stat_lines(&mut lines, "tag", &stats.tags);
     append_stat_lines(&mut lines, "author", &stats.authors);
     append_stat_lines(&mut lines, "series", &stats.series);
+    append_size_stat_lines(&mut lines, "format_size_bytes", &stats.format_sizes);
     fs::write(&output, lines.join("\n"))
         .map_err(|err| CoreError::Io("write stats csv".to_string(), err))?;
     Ok(output)
+}
+
+fn append_size_stat_lines(lines: &mut Vec<String>, kind: &str, items: &[(String, u64)]) {
+    for (name, bytes) in items {
+        lines.push(format!("{kind},{},{}", escape_csv_cell(name), bytes));
+    }
 }
 
 fn append_stat_lines(lines: &mut Vec<String>, kind: &str, items: &[(String, usize)]) {
@@ -5371,6 +5787,11 @@ fn escape_csv_cell(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    let mib = bytes as f64 / (1024.0 * 1024.0);
+    format!("{mib:.1} MiB")
 }
 
 fn format_badge_text(format: &str) -> String {
@@ -5456,6 +5877,75 @@ fn decode_virtual_library_filters(
     out
 }
 
+fn encode_sort_presets(
+    source: &HashMap<String, SortPreset>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (name, preset) in source {
+        let secondary = preset
+            .secondary
+            .map(|mode| mode.key().to_string())
+            .unwrap_or_else(|| "none".to_string());
+        let direction = match preset.direction {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        };
+        let encoded = format!("{}|{}|{}", preset.primary.key(), secondary, direction);
+        out.insert(name.clone(), encoded);
+    }
+    out
+}
+
+fn decode_sort_presets(
+    source: &std::collections::BTreeMap<String, String>,
+) -> HashMap<String, SortPreset> {
+    let mut out = HashMap::new();
+    for (name, value) in source {
+        let mut parts = value.splitn(3, '|');
+        let primary = parts.next().and_then(parse_sort_mode);
+        let secondary = parts.next().and_then(|raw| {
+            if raw == "none" {
+                Some(None)
+            } else {
+                parse_sort_mode(raw).map(Some)
+            }
+        });
+        let direction = parts.next().and_then(parse_sort_direction);
+        if let (Some(primary), Some(secondary), Some(direction)) = (primary, secondary, direction) {
+            out.insert(
+                name.clone(),
+                SortPreset {
+                    primary,
+                    secondary,
+                    direction,
+                },
+            );
+        }
+    }
+    out
+}
+
+fn parse_sort_direction(value: &str) -> Option<SortDirection> {
+    match value {
+        "asc" => Some(SortDirection::Asc),
+        "desc" => Some(SortDirection::Desc),
+        _ => None,
+    }
+}
+
+fn decode_column_order(values: &[String]) -> Vec<ColumnKey> {
+    let mut out = values
+        .iter()
+        .filter_map(|value| parse_column_key(value))
+        .collect::<Vec<_>>();
+    for default in default_column_order() {
+        if !out.contains(&default) {
+            out.push(default);
+        }
+    }
+    out
+}
+
 fn parse_view_mode(value: &str) -> ViewMode {
     match value {
         "grid" => ViewMode::Grid,
@@ -5470,12 +5960,27 @@ fn parse_view_density(value: &str) -> ViewDensity {
     }
 }
 
-fn column_width_control(ui: &mut egui::Ui, label: &str, value: &mut f32, layout_dirty: &mut bool) {
+fn format_date_cell(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "-".to_string();
+    }
+    let date = trimmed.split('T').next().unwrap_or(trimmed);
+    date.to_string()
+}
+
+fn column_width_control(ui: &mut egui::Ui, label: &str, value: &mut f32) -> bool {
+    let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).range(60.0..=720.0).speed(1.0));
+        if ui
+            .add(egui::DragValue::new(value).range(60.0..=720.0).speed(1.0))
+            .changed()
+        {
+            changed = true;
+        }
     });
-    *layout_dirty = true;
+    changed
 }
 
 fn column_with_width(width: f32) -> Column {
@@ -5492,6 +5997,9 @@ fn compare_row(mode: SortMode, a: &BookRow, b: &BookRow) -> std::cmp::Ordering {
         SortMode::Rating => a.rating.cmp(&b.rating),
         SortMode::Publisher => a.publisher.cmp(&b.publisher),
         SortMode::Languages => a.languages.cmp(&b.languages),
+        SortMode::DateAdded => a.date_added.cmp(&b.date_added),
+        SortMode::DateModified => a.date_modified.cmp(&b.date_modified),
+        SortMode::PubDate => a.pubdate.cmp(&b.pubdate),
         SortMode::Id => a.id.cmp(&b.id),
     }
 }
