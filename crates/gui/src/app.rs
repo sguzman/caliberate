@@ -4,7 +4,7 @@ use caliberate_core::error::CoreResult;
 use eframe::egui;
 
 use crate::preferences::PreferencesView;
-use crate::views::LibraryView;
+use crate::views::{LibraryView, PaneSide, ShellPaneLayout};
 use tracing::{debug, info, warn};
 
 pub struct CaliberateApp {
@@ -37,6 +37,14 @@ pub struct CaliberateApp {
     open_library_input: String,
     create_library_dialog_open: bool,
     create_library_dir_input: String,
+    pane_browser_visible: bool,
+    pane_browser_side: PaneSide,
+    pane_details_visible: bool,
+    pane_details_side: PaneSide,
+    pane_jobs_visible: bool,
+    pane_left_width: f32,
+    pane_right_width: f32,
+    layout_preset: String,
 }
 
 impl CaliberateApp {
@@ -44,7 +52,17 @@ impl CaliberateApp {
         config: caliberate_core::config::ControlPlane,
         config_path: std::path::PathBuf,
     ) -> CoreResult<Self> {
-        let library = LibraryView::new(&config)?;
+        let pane_layout = ShellPaneLayout {
+            browser_visible: config.gui.pane_browser_visible,
+            browser_side: parse_pane_side(&config.gui.pane_browser_side),
+            details_visible: config.gui.pane_details_visible,
+            details_side: parse_pane_side(&config.gui.pane_details_side),
+            jobs_visible: config.gui.pane_jobs_visible,
+            left_width: config.gui.pane_left_width,
+            right_width: config.gui.pane_right_width,
+        };
+        let mut library = LibraryView::new(&config)?;
+        library.set_shell_layout(pane_layout);
         let preferences = PreferencesView::new(&config);
         let toolbar = ToolbarConfig::from_actions(
             config.gui.toolbar_icon_only,
@@ -64,6 +82,14 @@ impl CaliberateApp {
         let recent_libraries_max = config.gui.recent_libraries_max;
         let active_library_label = config.gui.active_library_label.clone();
         let mouse_gestures_enabled = config.gui.mouse_gestures;
+        let pane_browser_visible = config.gui.pane_browser_visible;
+        let pane_browser_side = parse_pane_side(&config.gui.pane_browser_side);
+        let pane_details_visible = config.gui.pane_details_visible;
+        let pane_details_side = parse_pane_side(&config.gui.pane_details_side);
+        let pane_jobs_visible = config.gui.pane_jobs_visible;
+        let pane_left_width = config.gui.pane_left_width;
+        let pane_right_width = config.gui.pane_right_width;
+        let layout_preset = config.gui.layout_preset.clone();
         Ok(Self {
             config,
             config_path,
@@ -94,6 +120,14 @@ impl CaliberateApp {
             open_library_input: String::new(),
             create_library_dialog_open: false,
             create_library_dir_input: String::new(),
+            pane_browser_visible,
+            pane_browser_side,
+            pane_details_visible,
+            pane_details_side,
+            pane_jobs_visible,
+            pane_left_width,
+            pane_right_width,
+            layout_preset,
         })
     }
 }
@@ -141,7 +175,9 @@ impl eframe::App for CaliberateApp {
 
         match self.active_view {
             AppView::Library => {
+                self.sync_library_layout();
                 self.library.ui(ui, &mut self.config, &self.config_path);
+                self.pull_layout_from_library();
             }
             AppView::Preferences => {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -214,6 +250,18 @@ enum AppAction {
     OpenManageSeries,
     OpenManageColumns,
     OpenManageVirtualLibraries,
+    OpenFetchMetadata,
+    OpenDownloadMetadata,
+    OpenDownloadCover,
+    OpenEditMetadataBulk,
+    OpenViewBook,
+    OpenRandomBook,
+    OpenPreferencesInterface,
+    OpenPreferencesBehavior,
+    OpenPreferencesAdvanced,
+    OpenHelpAbout,
+    OpenHelpUserManual,
+    OpenHelpKeyboardShortcuts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +292,20 @@ impl GlobalSearchScope {
             Self::Tags => "tags",
             Self::Series => "series",
         }
+    }
+}
+
+fn parse_pane_side(value: &str) -> PaneSide {
+    match value {
+        "right" => PaneSide::Right,
+        _ => PaneSide::Left,
+    }
+}
+
+fn pane_side_to_config(side: PaneSide) -> &'static str {
+    match side {
+        PaneSide::Left => "left",
+        PaneSide::Right => "right",
     }
 }
 
@@ -398,6 +460,76 @@ impl CaliberateApp {
             self.preferences.clear_error_message();
         }
     }
+
+    fn apply_layout_preset(&mut self, preset: &str) {
+        match preset {
+            "focus" => {
+                self.pane_browser_visible = false;
+                self.pane_details_visible = true;
+                self.pane_details_side = PaneSide::Right;
+                self.pane_jobs_visible = true;
+                self.pane_left_width = 760.0;
+                self.pane_right_width = 520.0;
+            }
+            "minimal" => {
+                self.pane_browser_visible = false;
+                self.pane_details_visible = false;
+                self.pane_jobs_visible = false;
+                self.pane_left_width = 920.0;
+                self.pane_right_width = 420.0;
+            }
+            "wide" => {
+                self.pane_browser_visible = true;
+                self.pane_browser_side = PaneSide::Left;
+                self.pane_details_visible = true;
+                self.pane_details_side = PaneSide::Right;
+                self.pane_jobs_visible = true;
+                self.pane_left_width = 680.0;
+                self.pane_right_width = 620.0;
+            }
+            _ => {
+                self.pane_browser_visible = true;
+                self.pane_browser_side = PaneSide::Left;
+                self.pane_details_visible = true;
+                self.pane_details_side = PaneSide::Right;
+                self.pane_jobs_visible = true;
+                self.pane_left_width = 560.0;
+                self.pane_right_width = 460.0;
+            }
+        }
+        self.layout_preset = preset.to_string();
+        self.shell_config_dirty = true;
+        self.sync_library_layout();
+    }
+
+    fn sync_library_layout(&mut self) {
+        self.library.set_shell_layout(ShellPaneLayout {
+            browser_visible: self.pane_browser_visible,
+            browser_side: self.pane_browser_side,
+            details_visible: self.pane_details_visible,
+            details_side: self.pane_details_side,
+            jobs_visible: self.pane_jobs_visible,
+            left_width: self.pane_left_width,
+            right_width: self.pane_right_width,
+        });
+    }
+
+    fn pull_layout_from_library(&mut self) {
+        let layout = self.library.shell_layout();
+        if (self.pane_left_width - layout.left_width).abs() > 0.5
+            || (self.pane_right_width - layout.right_width).abs() > 0.5
+        {
+            self.shell_config_dirty = true;
+        }
+        self.pane_browser_visible = layout.browser_visible;
+        self.pane_browser_side = layout.browser_side;
+        self.pane_details_visible = layout.details_visible;
+        self.pane_details_side = layout.details_side;
+        self.pane_jobs_visible = layout.jobs_visible;
+        self.pane_left_width = layout.left_width;
+        self.pane_right_width = layout.right_width;
+    }
+
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -407,6 +539,14 @@ impl CaliberateApp {
                 }
                 if ui.button("Save to disk").clicked() {
                     self.pending_action = Some(AppAction::SaveToDisk);
+                    ui.close_menu();
+                }
+                if ui.button("View book").clicked() {
+                    self.pending_action = Some(AppAction::OpenViewBook);
+                    ui.close_menu();
+                }
+                if ui.button("Pick random book").clicked() {
+                    self.pending_action = Some(AppAction::OpenRandomBook);
                     ui.close_menu();
                 }
                 if ui.button("Preferences").clicked() {
@@ -458,6 +598,24 @@ impl CaliberateApp {
                 }
                 if ui.button("Save metadata").clicked() {
                     self.pending_action = Some(AppAction::SaveEdit);
+                    ui.close_menu();
+                }
+                if ui.button("Edit metadata in bulk").clicked() {
+                    self.pending_action = Some(AppAction::OpenEditMetadataBulk);
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Metadata", |ui| {
+                if ui.button("Download metadata").clicked() {
+                    self.pending_action = Some(AppAction::OpenDownloadMetadata);
+                    ui.close_menu();
+                }
+                if ui.button("Fetch metadata by ID").clicked() {
+                    self.pending_action = Some(AppAction::OpenFetchMetadata);
+                    ui.close_menu();
+                }
+                if ui.button("Download cover").clicked() {
+                    self.pending_action = Some(AppAction::OpenDownloadCover);
                     ui.close_menu();
                 }
             });
@@ -540,6 +698,77 @@ impl CaliberateApp {
                         "Restore window on launch",
                     )
                     .changed();
+                ui.separator();
+                ui.label("Docked Panes");
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.pane_browser_visible, "Browser pane")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.pane_details_visible, "Details pane")
+                    .changed();
+                self.shell_config_dirty |= ui
+                    .checkbox(&mut self.pane_jobs_visible, "Jobs pane")
+                    .changed();
+                let before_browser_side = self.pane_browser_side;
+                egui::ComboBox::from_id_salt("pane_browser_side")
+                    .selected_text(match self.pane_browser_side {
+                        PaneSide::Left => "Browser Left",
+                        PaneSide::Right => "Browser Right",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.pane_browser_side,
+                            PaneSide::Left,
+                            "Browser Left",
+                        );
+                        ui.selectable_value(
+                            &mut self.pane_browser_side,
+                            PaneSide::Right,
+                            "Browser Right",
+                        );
+                    });
+                if before_browser_side != self.pane_browser_side {
+                    self.shell_config_dirty = true;
+                }
+                let before_details_side = self.pane_details_side;
+                egui::ComboBox::from_id_salt("pane_details_side")
+                    .selected_text(match self.pane_details_side {
+                        PaneSide::Left => "Details Left",
+                        PaneSide::Right => "Details Right",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.pane_details_side,
+                            PaneSide::Left,
+                            "Details Left",
+                        );
+                        ui.selectable_value(
+                            &mut self.pane_details_side,
+                            PaneSide::Right,
+                            "Details Right",
+                        );
+                    });
+                if before_details_side != self.pane_details_side {
+                    self.shell_config_dirty = true;
+                }
+                if ui.button("Apply pane layout").clicked() {
+                    self.sync_library_layout();
+                    self.shell_config_dirty = true;
+                }
+                ui.separator();
+                ui.label("Layout Presets");
+                if ui.button("Classic").clicked() {
+                    self.apply_layout_preset("classic");
+                }
+                if ui.button("Focus").clicked() {
+                    self.apply_layout_preset("focus");
+                }
+                if ui.button("Minimal").clicked() {
+                    self.apply_layout_preset("minimal");
+                }
+                if ui.button("Wide").clicked() {
+                    self.apply_layout_preset("wide");
+                }
             });
             ui.menu_button("Device", |ui| {
                 if ui.button("Send to device").clicked() {
@@ -568,9 +797,36 @@ impl CaliberateApp {
             ui.menu_button("News", |ui| {
                 ui.label("News panel roadmap in progress");
             });
+            ui.menu_button("Preferences", |ui| {
+                if ui.button("Interface").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferencesInterface);
+                    ui.close_menu();
+                }
+                if ui.button("Behavior").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferencesBehavior);
+                    ui.close_menu();
+                }
+                if ui.button("Advanced").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferencesAdvanced);
+                    ui.close_menu();
+                }
+            });
             ui.menu_button("Help", |ui| {
                 ui.label("Caliberate GUI");
                 ui.label("Ctrl+K for command palette");
+                ui.separator();
+                if ui.button("About").clicked() {
+                    self.pending_action = Some(AppAction::OpenHelpAbout);
+                    ui.close_menu();
+                }
+                if ui.button("User Manual").clicked() {
+                    self.pending_action = Some(AppAction::OpenHelpUserManual);
+                    ui.close_menu();
+                }
+                if ui.button("Keyboard Shortcuts").clicked() {
+                    self.pending_action = Some(AppAction::OpenHelpKeyboardShortcuts);
+                    ui.close_menu();
+                }
             });
         });
     }
@@ -769,6 +1025,73 @@ impl CaliberateApp {
             AppAction::OpenManageVirtualLibraries => {
                 self.library.open_manage_virtual_libraries();
             }
+            AppAction::OpenFetchMetadata => {
+                self.library
+                    .notify_unimplemented("Fetch metadata by ID is not implemented yet");
+                info!(
+                    component = "gui_shell",
+                    "triggered fetch metadata placeholder action"
+                );
+            }
+            AppAction::OpenDownloadMetadata => {
+                self.library
+                    .notify_unimplemented("Download metadata is not implemented yet");
+                info!(
+                    component = "gui_shell",
+                    "triggered download metadata placeholder action"
+                );
+            }
+            AppAction::OpenDownloadCover => {
+                self.library
+                    .notify_unimplemented("Download cover is not implemented yet");
+                info!(
+                    component = "gui_shell",
+                    "triggered download cover placeholder action"
+                );
+            }
+            AppAction::OpenEditMetadataBulk => {
+                self.library.open_bulk_edit();
+            }
+            AppAction::OpenViewBook => {
+                self.library.notify_unimplemented(
+                    "View book from shell menu is not implemented yet; use row context menu",
+                );
+            }
+            AppAction::OpenRandomBook => {
+                self.library.notify_unimplemented(
+                    "Random book selection from shell is not implemented yet",
+                );
+            }
+            AppAction::OpenPreferencesInterface => {
+                self.switch_view(AppView::Preferences);
+                self.library.notify_unimplemented(
+                    "Preferences subsection 'Interface' is a placeholder until full tree lands",
+                );
+            }
+            AppAction::OpenPreferencesBehavior => {
+                self.switch_view(AppView::Preferences);
+                self.library.notify_unimplemented(
+                    "Preferences subsection 'Behavior' is a placeholder until full tree lands",
+                );
+            }
+            AppAction::OpenPreferencesAdvanced => {
+                self.switch_view(AppView::Preferences);
+                self.library.notify_unimplemented(
+                    "Preferences subsection 'Advanced' is a placeholder until full tree lands",
+                );
+            }
+            AppAction::OpenHelpAbout => {
+                self.library
+                    .notify_unimplemented("About dialog is not implemented yet");
+            }
+            AppAction::OpenHelpUserManual => {
+                self.library
+                    .notify_unimplemented("User manual entry point is not implemented yet");
+            }
+            AppAction::OpenHelpKeyboardShortcuts => {
+                self.shortcut_editor_open = true;
+                self.notification_center_open = false;
+            }
         }
     }
 
@@ -877,6 +1200,8 @@ impl CaliberateApp {
                     ("Open Preferences", AppAction::OpenPreferences),
                     ("Refresh Library", AppAction::RefreshLibrary),
                     ("Add Books", AppAction::AddBooks),
+                    ("Download Metadata", AppAction::OpenDownloadMetadata),
+                    ("Download Cover", AppAction::OpenDownloadCover),
                     ("Remove Books", AppAction::RemoveBooks),
                     ("Convert Books", AppAction::ConvertBooks),
                     ("Save To Disk", AppAction::SaveToDisk),
@@ -1200,6 +1525,7 @@ impl CaliberateApp {
         );
         self.config.db.sqlite_path = sqlite_path_buf;
         self.library = LibraryView::new(&self.config)?;
+        self.sync_library_layout();
         self.active_library_label = std::path::Path::new(&sqlite_path)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -1232,6 +1558,14 @@ impl CaliberateApp {
         self.config.gui.recent_libraries = self.recent_libraries.clone();
         self.config.gui.recent_libraries_max = self.recent_libraries_max;
         self.config.gui.active_library_label = self.active_library_label.clone();
+        self.config.gui.pane_browser_visible = self.pane_browser_visible;
+        self.config.gui.pane_browser_side = pane_side_to_config(self.pane_browser_side).to_string();
+        self.config.gui.pane_details_visible = self.pane_details_visible;
+        self.config.gui.pane_details_side = pane_side_to_config(self.pane_details_side).to_string();
+        self.config.gui.pane_jobs_visible = self.pane_jobs_visible;
+        self.config.gui.pane_left_width = self.pane_left_width;
+        self.config.gui.pane_right_width = self.pane_right_width;
+        self.config.gui.layout_preset = self.layout_preset.clone();
         if self.recent_libraries.is_empty() {
             self.recent_libraries
                 .push(self.config.db.sqlite_path.display().to_string());

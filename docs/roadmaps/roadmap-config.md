@@ -52,4 +52,6 @@
 - [x] Define `[gui]` keys: `recent_libraries`, `recent_libraries_max`, `active_library_label`
 - [x] Define `[gui]` keys: `window_width`, `window_height`, `window_pos_x`, `window_pos_y`, `window_restore`
 - [x] Define `[gui]` key: `mouse_gestures`
+- [x] Define `[gui]` keys: `pane_browser_visible`, `pane_browser_side`, `pane_details_visible`, `pane_details_side`, `pane_jobs_visible`
+- [x] Define `[gui]` keys: `pane_left_width`, `pane_right_width`, `layout_preset`
 - [x] Define `[gui]` keys: `active_virtual_library`, `virtual_library_filters`

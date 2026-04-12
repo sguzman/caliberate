@@ -1,8 +1,8 @@
 # GUI Shell Roadmap
 
 ## Window + Shell
-- [ ] Implement dockable pane layout system (library list, details, browser, jobs)
-- [ ] Add split view presets and persist active layout preset
+- [x] Implement dockable pane layout system (library list, details, browser, jobs)
+- [x] Add split view presets and persist active layout preset
 - [x] Add global command palette / quick actions
 - [x] Add command palette modal with query filter input
 - [x] Add command palette action execution for core shell actions
@@ -19,7 +19,7 @@
 - [x] Add multi-library indicator in title bar/status
 
 ## Menus + Toolbars
-- [ ] Expand menu bar to full Calibre parity (all actions present)
+- [x] Expand menu bar to full Calibre parity (all actions present)
 - [x] Add Device menu and wire Send to device action
 - [x] Add Tools menu entries for tag/series/custom-column/virtual-library management
 - [x] Add News menu section placeholder to anchor feed actions in shell

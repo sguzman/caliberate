@@ -278,6 +278,34 @@ impl ControlPlane {
                 "gui.window_width/window_height are too small".to_string(),
             ));
         }
+        if !matches!(self.gui.pane_browser_side.as_str(), "left" | "right") {
+            return Err(CoreError::ConfigValidate(
+                "gui.pane_browser_side must be 'left' or 'right'".to_string(),
+            ));
+        }
+        if !matches!(self.gui.pane_details_side.as_str(), "left" | "right") {
+            return Err(CoreError::ConfigValidate(
+                "gui.pane_details_side must be 'left' or 'right'".to_string(),
+            ));
+        }
+        if !(320.0..=2400.0).contains(&self.gui.pane_left_width) {
+            return Err(CoreError::ConfigValidate(
+                "gui.pane_left_width must be between 320 and 2400".to_string(),
+            ));
+        }
+        if !(280.0..=2000.0).contains(&self.gui.pane_right_width) {
+            return Err(CoreError::ConfigValidate(
+                "gui.pane_right_width must be between 280 and 2000".to_string(),
+            ));
+        }
+        if !matches!(
+            self.gui.layout_preset.as_str(),
+            "classic" | "focus" | "minimal" | "wide"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.layout_preset must be one of classic/focus/minimal/wide".to_string(),
+            ));
+        }
         for path in &self.gui.recent_libraries {
             if path.trim().is_empty() {
                 return Err(CoreError::ConfigValidate(
@@ -755,6 +783,22 @@ pub struct GuiConfig {
     pub window_restore: bool,
     #[serde(default = "default_gui_mouse_gestures")]
     pub mouse_gestures: bool,
+    #[serde(default = "default_gui_pane_browser_visible")]
+    pub pane_browser_visible: bool,
+    #[serde(default = "default_gui_pane_browser_side")]
+    pub pane_browser_side: String,
+    #[serde(default = "default_gui_pane_details_visible")]
+    pub pane_details_visible: bool,
+    #[serde(default = "default_gui_pane_details_side")]
+    pub pane_details_side: String,
+    #[serde(default = "default_gui_pane_jobs_visible")]
+    pub pane_jobs_visible: bool,
+    #[serde(default = "default_gui_pane_left_width")]
+    pub pane_left_width: f32,
+    #[serde(default = "default_gui_pane_right_width")]
+    pub pane_right_width: f32,
+    #[serde(default = "default_gui_layout_preset")]
+    pub layout_preset: String,
     #[serde(default)]
     pub column_presets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -839,6 +883,14 @@ impl Default for GuiConfig {
             window_pos_y: default_gui_window_pos_y(),
             window_restore: default_gui_window_restore(),
             mouse_gestures: default_gui_mouse_gestures(),
+            pane_browser_visible: default_gui_pane_browser_visible(),
+            pane_browser_side: default_gui_pane_browser_side(),
+            pane_details_visible: default_gui_pane_details_visible(),
+            pane_details_side: default_gui_pane_details_side(),
+            pane_jobs_visible: default_gui_pane_jobs_visible(),
+            pane_left_width: default_gui_pane_left_width(),
+            pane_right_width: default_gui_pane_right_width(),
+            layout_preset: default_gui_layout_preset(),
             column_presets: BTreeMap::new(),
             active_column_preset: None,
             active_virtual_library: None,
@@ -1202,6 +1254,38 @@ fn default_gui_window_restore() -> bool {
 
 fn default_gui_mouse_gestures() -> bool {
     true
+}
+
+fn default_gui_pane_browser_visible() -> bool {
+    true
+}
+
+fn default_gui_pane_browser_side() -> String {
+    "left".to_string()
+}
+
+fn default_gui_pane_details_visible() -> bool {
+    true
+}
+
+fn default_gui_pane_details_side() -> String {
+    "right".to_string()
+}
+
+fn default_gui_pane_jobs_visible() -> bool {
+    true
+}
+
+fn default_gui_pane_left_width() -> f32 {
+    560.0
+}
+
+fn default_gui_pane_right_width() -> f32 {
+    460.0
+}
+
+fn default_gui_layout_preset() -> String {
+    "classic".to_string()
 }
 
 fn default_server_download_enabled() -> bool {

@@ -508,6 +508,13 @@ pub struct LibraryView {
     search_focus: bool,
     view_mode: ViewMode,
     view_density: ViewDensity,
+    browser_visible: bool,
+    browser_side: PaneSide,
+    details_visible: bool,
+    details_side: PaneSide,
+    jobs_visible: bool,
+    left_pane_width: f32,
+    right_pane_width: f32,
     group_mode: GroupMode,
     shelf_columns: usize,
     quick_details_panel: bool,
@@ -575,6 +582,39 @@ enum ViewDensity {
     Comfortable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneSide {
+    Left,
+    Right,
+}
+
+impl PaneSide {
+    fn as_config(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+}
+
+fn parse_pane_side(value: &str) -> PaneSide {
+    match value {
+        "right" => PaneSide::Right,
+        _ => PaneSide::Left,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ShellPaneLayout {
+    pub browser_visible: bool,
+    pub browser_side: PaneSide,
+    pub details_visible: bool,
+    pub details_side: PaneSide,
+    pub jobs_visible: bool,
+    pub left_width: f32,
+    pub right_width: f32,
+}
+
 impl LibraryView {
     pub fn new(config: &ControlPlane) -> CoreResult<Self> {
         let db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -638,6 +678,13 @@ impl LibraryView {
             search_focus: false,
             view_mode: parse_view_mode(&config.gui.list_view_mode),
             view_density: parse_view_density(&config.gui.view_density),
+            browser_visible: config.gui.pane_browser_visible,
+            browser_side: parse_pane_side(&config.gui.pane_browser_side),
+            details_visible: config.gui.pane_details_visible,
+            details_side: parse_pane_side(&config.gui.pane_details_side),
+            jobs_visible: config.gui.pane_jobs_visible,
+            left_pane_width: config.gui.pane_left_width,
+            right_pane_width: config.gui.pane_right_width,
             group_mode: parse_group_mode(&config.gui.group_mode),
             shelf_columns: config.gui.shelf_columns,
             quick_details_panel: config.gui.quick_details_panel,
@@ -777,6 +824,28 @@ impl LibraryView {
             .count()
     }
 
+    pub fn set_shell_layout(&mut self, layout: ShellPaneLayout) {
+        self.browser_visible = layout.browser_visible;
+        self.browser_side = layout.browser_side;
+        self.details_visible = layout.details_visible;
+        self.details_side = layout.details_side;
+        self.jobs_visible = layout.jobs_visible;
+        self.left_pane_width = layout.left_width.clamp(320.0, 2400.0);
+        self.right_pane_width = layout.right_width.clamp(280.0, 2000.0);
+    }
+
+    pub fn shell_layout(&self) -> ShellPaneLayout {
+        ShellPaneLayout {
+            browser_visible: self.browser_visible,
+            browser_side: self.browser_side,
+            details_visible: self.details_visible,
+            details_side: self.details_side,
+            jobs_visible: self.jobs_visible,
+            left_width: self.left_pane_width,
+            right_width: self.right_pane_width,
+        }
+    }
+
     pub fn recent_notifications(&self, limit: usize) -> Vec<String> {
         self.toasts
             .iter()
@@ -885,9 +954,33 @@ impl LibraryView {
         self.tick_jobs(now);
         self.prune_toasts(now);
         let available = ui.available_rect_before_wrap();
-        let left_width = (available.width() * 0.45).max(320.0);
+        let left_width = self
+            .left_pane_width
+            .clamp(320.0, (available.width() - 120.0).max(320.0));
+        if self.browser_visible && self.browser_side == PaneSide::Right {
+            let browser_panel = egui::Panel::right("browser_panel")
+                .resizable(true)
+                .default_size(self.right_pane_width.clamp(280.0, 1200.0))
+                .show_inside(ui, |ui| {
+                    ui.heading("Browser");
+                    ui.separator();
+                    self.browser_controls(ui);
+                });
+            self.right_pane_width = browser_panel.response.rect.width();
+        }
+        if self.details_visible && self.details_side == PaneSide::Right {
+            let details_panel = egui::Panel::right("details_panel")
+                .resizable(true)
+                .default_size(self.right_pane_width.clamp(280.0, 1200.0))
+                .show_inside(ui, |ui| {
+                    ui.heading("Details");
+                    ui.separator();
+                    self.details_view(ui, config);
+                });
+            self.right_pane_width = details_panel.response.rect.width();
+        }
 
-        egui::Panel::left("library_list")
+        let list_panel = egui::Panel::left("library_list")
             .resizable(true)
             .default_size(left_width)
             .show_inside(ui, |ui| {
@@ -906,8 +999,10 @@ impl LibraryView {
                 self.operations_controls(ui, config);
                 ui.separator();
                 self.management_controls(ui);
-                ui.separator();
-                self.browser_controls(ui);
+                if self.browser_visible && self.browser_side == PaneSide::Left {
+                    ui.separator();
+                    self.browser_controls(ui);
+                }
                 ui.separator();
                 if self.needs_refresh {
                     if let Err(err) = self.refresh_books() {
@@ -926,14 +1021,31 @@ impl LibraryView {
                     ui.separator();
                     self.quick_details_preview(ui);
                 }
+                if self.details_visible && self.details_side == PaneSide::Left {
+                    ui.separator();
+                    self.details_view(ui, config);
+                }
                 ui.separator();
                 self.library_stats_panel(ui, &config.paths.cache_dir);
                 ui.separator();
                 self.status_bar(ui);
             });
+        self.left_pane_width = list_panel.response.rect.width();
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.details_view(ui, config);
+            if !self.details_visible {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Details panel is hidden");
+                });
+            } else if self.details_side == PaneSide::Right {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Details docked in right pane");
+                });
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Details docked in left pane");
+                });
+            }
         });
 
         if let Some(book_id) = self.pending_convert_book.take() {
@@ -986,7 +1098,9 @@ impl LibraryView {
             }
         }
 
-        self.render_jobs(ui);
+        if self.jobs_visible {
+            self.render_jobs(ui);
+        }
         self.render_toasts(ui);
     }
 
@@ -5089,6 +5203,13 @@ impl LibraryView {
         };
         config.gui.shelf_columns = self.shelf_columns;
         config.gui.quick_details_panel = self.quick_details_panel;
+        config.gui.pane_browser_visible = self.browser_visible;
+        config.gui.pane_browser_side = self.browser_side.as_config().to_string();
+        config.gui.pane_details_visible = self.details_visible;
+        config.gui.pane_details_side = self.details_side.as_config().to_string();
+        config.gui.pane_jobs_visible = self.jobs_visible;
+        config.gui.pane_left_width = self.left_pane_width;
+        config.gui.pane_right_width = self.right_pane_width;
         config.gui.column_order = self
             .column_order
             .iter()
