@@ -18,6 +18,7 @@
 - [x] Define `[fts]` keys: `enabled`, `tokenizer`, `rebuild_on_migrate`, `min_query_len`, `result_limit`
 - [x] Define `[server]` keys: `host`, `port`, `scheme`, `url_prefix`, `enable_auth`
 - [x] Define `[server]` keys: `auth_mode`, `api_keys`
+- [x] Define `[server]` keys: `tls_enabled`, `tls_cert_path`, `tls_key_path`
 - [x] Define `[server]` keys: `download_enabled`, `download_max_bytes`, `download_allow_external`
 - [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`
 - [x] Define `[conversion]` keys: `enabled`, `allow_passthrough`, `max_input_bytes`
@@ -27,6 +28,7 @@
 - [x] Point `[device].mount_roots` project default to `./.cache/caliberate/devices`
 - [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
 - [x] Point `[plugins].plugins_dir` default to `./.cache/caliberate/plugins`
+- [x] Define `[network]` keys: `http_proxy`, `https_proxy`, `no_proxy`, `offline_mode`, `dns_mode`
 - [x] Define `[gui]` keys: `list_view_mode`, `table_row_height`, `table_column_min_width`, `table_column_max_width`
 - [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
 - [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`
@@ -35,6 +37,8 @@
 - [x] Define `[gui]` keys: `width_date_added`, `width_date_modified`, `width_pubdate`
 - [x] Define `[gui]` keys: `cover_dir`, `cover_cache_dir`, `cover_max_bytes`
 - [x] Define `[gui]` keys: `reader_font_size`, `reader_line_spacing`, `reader_page_chars`, `reader_theme`
+- [x] Define `[gui]` keys: `app_theme`, `icon_set`, `startup_open_last_library`, `startup_restore_tabs`
+- [x] Define `[gui]` keys: `last_active_view`, `system_tray_mode`, `confirm_exit_with_jobs`
 - [x] Define `[gui]` keys: `toast_duration_secs`, `toast_max`
 - [x] Define `[gui]` keys: `search_history_max`
 - [x] Define `[gui]` keys: `view_density`, `quick_details_panel`

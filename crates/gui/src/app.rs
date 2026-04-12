@@ -48,10 +48,28 @@ pub struct CaliberateApp {
 }
 
 impl CaliberateApp {
+    fn apply_theme(&self, ui: &mut egui::Ui) {
+        match self.config.gui.app_theme.as_str() {
+            "dark" => ui.ctx().set_visuals(egui::Visuals::dark()),
+            "light" => ui.ctx().set_visuals(egui::Visuals::light()),
+            _ => {}
+        }
+    }
+
     pub fn try_new(
-        config: caliberate_core::config::ControlPlane,
+        mut config: caliberate_core::config::ControlPlane,
         config_path: std::path::PathBuf,
     ) -> CoreResult<Self> {
+        if config.gui.startup_open_last_library {
+            if let Some(path) = config.gui.recent_libraries.first() {
+                if !path.trim().is_empty() {
+                    let candidate = std::path::PathBuf::from(path);
+                    if candidate.exists() {
+                        config.db.sqlite_path = candidate;
+                    }
+                }
+            }
+        }
         let pane_layout = ShellPaneLayout {
             browser_visible: config.gui.pane_browser_visible,
             browser_side: parse_pane_side(&config.gui.pane_browser_side),
@@ -90,12 +108,18 @@ impl CaliberateApp {
         let pane_left_width = config.gui.pane_left_width;
         let pane_right_width = config.gui.pane_right_width;
         let layout_preset = config.gui.layout_preset.clone();
+        let active_view =
+            if config.gui.startup_restore_tabs && config.gui.last_active_view == "preferences" {
+                AppView::Preferences
+            } else {
+                AppView::Library
+            };
         Ok(Self {
             config,
             config_path,
             library,
             preferences,
-            active_view: AppView::Library,
+            active_view,
             pending_action: None,
             nav_back: Vec::new(),
             nav_forward: Vec::new(),
@@ -134,6 +158,7 @@ impl CaliberateApp {
 
 impl eframe::App for CaliberateApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.apply_theme(ui);
         self.handle_shortcuts(ui);
         self.handle_mouse_gestures(ui);
         self.handle_dropped_files(ui);
@@ -259,6 +284,8 @@ enum AppAction {
     OpenPreferencesInterface,
     OpenPreferencesBehavior,
     OpenPreferencesAdvanced,
+    OpenPreferencesImportExport,
+    OpenPreferencesSystem,
     OpenHelpAbout,
     OpenHelpUserManual,
     OpenHelpKeyboardShortcuts,
@@ -810,6 +837,14 @@ impl CaliberateApp {
                     self.pending_action = Some(AppAction::OpenPreferencesAdvanced);
                     ui.close_menu();
                 }
+                if ui.button("Import/Export").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferencesImportExport);
+                    ui.close_menu();
+                }
+                if ui.button("System").clicked() {
+                    self.pending_action = Some(AppAction::OpenPreferencesSystem);
+                    ui.close_menu();
+                }
             });
             ui.menu_button("Help", |ui| {
                 ui.label("Caliberate GUI");
@@ -1064,21 +1099,23 @@ impl CaliberateApp {
             }
             AppAction::OpenPreferencesInterface => {
                 self.switch_view(AppView::Preferences);
-                self.library.notify_unimplemented(
-                    "Preferences subsection 'Interface' is a placeholder until full tree lands",
-                );
+                self.preferences.open_section_look_and_feel();
             }
             AppAction::OpenPreferencesBehavior => {
                 self.switch_view(AppView::Preferences);
-                self.library.notify_unimplemented(
-                    "Preferences subsection 'Behavior' is a placeholder until full tree lands",
-                );
+                self.preferences.open_section_behavior();
             }
             AppAction::OpenPreferencesAdvanced => {
                 self.switch_view(AppView::Preferences);
-                self.library.notify_unimplemented(
-                    "Preferences subsection 'Advanced' is a placeholder until full tree lands",
-                );
+                self.preferences.open_section_advanced();
+            }
+            AppAction::OpenPreferencesImportExport => {
+                self.switch_view(AppView::Preferences);
+                self.preferences.open_section_import_export();
+            }
+            AppAction::OpenPreferencesSystem => {
+                self.switch_view(AppView::Preferences);
+                self.preferences.open_section_system();
             }
             AppAction::OpenHelpAbout => {
                 self.library
@@ -1566,6 +1603,10 @@ impl CaliberateApp {
         self.config.gui.pane_left_width = self.pane_left_width;
         self.config.gui.pane_right_width = self.pane_right_width;
         self.config.gui.layout_preset = self.layout_preset.clone();
+        self.config.gui.last_active_view = match self.active_view {
+            AppView::Library => "library".to_string(),
+            AppView::Preferences => "preferences".to_string(),
+        };
         if self.recent_libraries.is_empty() {
             self.recent_libraries
                 .push(self.config.db.sqlite_path.display().to_string());

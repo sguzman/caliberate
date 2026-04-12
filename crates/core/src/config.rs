@@ -24,6 +24,8 @@ pub struct ControlPlane {
     pub device: DeviceConfig,
     pub plugins: PluginsConfig,
     #[serde(default)]
+    pub network: NetworkConfig,
+    #[serde(default)]
     pub gui: GuiConfig,
 }
 
@@ -71,6 +73,15 @@ impl ControlPlane {
         if self.server.port == 0 {
             return Err(CoreError::ConfigValidate(
                 "server.port must be greater than 0".to_string(),
+            ));
+        }
+        if self.server.tls_enabled
+            && (self.server.tls_cert_path.as_os_str().is_empty()
+                || self.server.tls_key_path.as_os_str().is_empty())
+        {
+            return Err(CoreError::ConfigValidate(
+                "server.tls_cert_path and server.tls_key_path must be set when tls_enabled"
+                    .to_string(),
             ));
         }
         if !self.server.url_prefix.is_empty() && !self.server.url_prefix.starts_with('/') {
@@ -148,6 +159,14 @@ impl ControlPlane {
                 "plugins.plugins_dir must not be empty".to_string(),
             ));
         }
+        if !matches!(
+            self.network.dns_mode.as_str(),
+            "system" | "doh_cloudflare" | "doh_google"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "network.dns_mode must be one of system/doh_cloudflare/doh_google".to_string(),
+            ));
+        }
         if !(40.0..=600.0).contains(&self.gui.table_row_height) {
             return Err(CoreError::ConfigValidate(
                 "gui.table_row_height must be between 40 and 600".to_string(),
@@ -205,6 +224,36 @@ impl ControlPlane {
         if !matches!(self.gui.reader_theme.as_str(), "light" | "dark" | "sepia") {
             return Err(CoreError::ConfigValidate(
                 "gui.reader_theme must be 'light', 'dark', or 'sepia'".to_string(),
+            ));
+        }
+        if !matches!(self.gui.app_theme.as_str(), "system" | "light" | "dark") {
+            return Err(CoreError::ConfigValidate(
+                "gui.app_theme must be 'system', 'light', or 'dark'".to_string(),
+            ));
+        }
+        if !matches!(
+            self.gui.icon_set.as_str(),
+            "calibre" | "outline" | "minimal"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.icon_set must be one of calibre/outline/minimal".to_string(),
+            ));
+        }
+        if !matches!(
+            self.gui.system_tray_mode.as_str(),
+            "disabled" | "minimize_to_tray" | "close_to_tray"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.system_tray_mode must be one of disabled/minimize_to_tray/close_to_tray"
+                    .to_string(),
+            ));
+        }
+        if !matches!(
+            self.gui.last_active_view.as_str(),
+            "library" | "preferences"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "gui.last_active_view must be 'library' or 'preferences'".to_string(),
             ));
         }
         if self.gui.toast_duration_secs <= 0.0 {
@@ -471,6 +520,12 @@ pub struct ServerConfig {
     pub auth_mode: ServerAuthMode,
     #[serde(default)]
     pub api_keys: Vec<String>,
+    #[serde(default)]
+    pub tls_enabled: bool,
+    #[serde(default)]
+    pub tls_cert_path: PathBuf,
+    #[serde(default)]
+    pub tls_key_path: PathBuf,
     #[serde(default = "default_server_download_enabled")]
     pub download_enabled: bool,
     #[serde(default = "default_server_download_max_bytes")]
@@ -640,6 +695,20 @@ pub struct PluginsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NetworkConfig {
+    #[serde(default)]
+    pub http_proxy: String,
+    #[serde(default)]
+    pub https_proxy: String,
+    #[serde(default)]
+    pub no_proxy: String,
+    #[serde(default)]
+    pub offline_mode: bool,
+    #[serde(default = "default_network_dns_mode")]
+    pub dns_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GuiConfig {
     #[serde(default = "default_gui_list_view_mode")]
     pub list_view_mode: String,
@@ -715,6 +784,20 @@ pub struct GuiConfig {
     pub reader_page_chars: usize,
     #[serde(default = "default_gui_reader_theme")]
     pub reader_theme: String,
+    #[serde(default = "default_gui_app_theme")]
+    pub app_theme: String,
+    #[serde(default = "default_gui_icon_set")]
+    pub icon_set: String,
+    #[serde(default = "default_gui_startup_open_last_library")]
+    pub startup_open_last_library: bool,
+    #[serde(default = "default_gui_startup_restore_tabs")]
+    pub startup_restore_tabs: bool,
+    #[serde(default = "default_gui_last_active_view")]
+    pub last_active_view: String,
+    #[serde(default = "default_gui_system_tray_mode")]
+    pub system_tray_mode: String,
+    #[serde(default = "default_gui_confirm_exit_with_jobs")]
+    pub confirm_exit_with_jobs: bool,
     #[serde(default = "default_gui_toast_duration_secs")]
     pub toast_duration_secs: f64,
     #[serde(default = "default_gui_toast_max")]
@@ -849,6 +932,13 @@ impl Default for GuiConfig {
             reader_line_spacing: default_gui_reader_line_spacing(),
             reader_page_chars: default_gui_reader_page_chars(),
             reader_theme: default_gui_reader_theme(),
+            app_theme: default_gui_app_theme(),
+            icon_set: default_gui_icon_set(),
+            startup_open_last_library: default_gui_startup_open_last_library(),
+            startup_restore_tabs: default_gui_startup_restore_tabs(),
+            last_active_view: default_gui_last_active_view(),
+            system_tray_mode: default_gui_system_tray_mode(),
+            confirm_exit_with_jobs: default_gui_confirm_exit_with_jobs(),
             toast_duration_secs: default_gui_toast_duration_secs(),
             toast_max: default_gui_toast_max(),
             search_history_max: default_gui_search_history_max(),
@@ -895,6 +985,18 @@ impl Default for GuiConfig {
             active_column_preset: None,
             active_virtual_library: None,
             virtual_library_filters: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            http_proxy: String::new(),
+            https_proxy: String::new(),
+            no_proxy: String::new(),
+            offline_mode: false,
+            dns_mode: default_network_dns_mode(),
         }
     }
 }
@@ -1105,6 +1207,34 @@ fn default_gui_reader_page_chars() -> usize {
 
 fn default_gui_reader_theme() -> String {
     "light".to_string()
+}
+
+fn default_gui_app_theme() -> String {
+    "system".to_string()
+}
+
+fn default_gui_icon_set() -> String {
+    "calibre".to_string()
+}
+
+fn default_gui_startup_open_last_library() -> bool {
+    true
+}
+
+fn default_gui_startup_restore_tabs() -> bool {
+    true
+}
+
+fn default_gui_last_active_view() -> String {
+    "library".to_string()
+}
+
+fn default_gui_system_tray_mode() -> String {
+    "disabled".to_string()
+}
+
+fn default_gui_confirm_exit_with_jobs() -> bool {
+    true
 }
 
 fn default_gui_toast_duration_secs() -> f64 {
@@ -1374,6 +1504,10 @@ fn default_plugins_enabled() -> bool {
 
 fn default_plugins_dir() -> PathBuf {
     PathBuf::from("./.cache/caliberate/plugins")
+}
+
+fn default_network_dns_mode() -> String {
+    "system".to_string()
 }
 
 fn default_server_host() -> String {

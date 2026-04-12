@@ -13,6 +13,9 @@ pub struct PreferencesView {
     last_error: Option<String>,
     restart_required: bool,
     active_section: PrefSection,
+    section_filter_query: String,
+    export_path_input: String,
+    import_path_input: String,
 }
 
 impl PreferencesView {
@@ -25,6 +28,19 @@ impl PreferencesView {
             last_error: None,
             restart_required: false,
             active_section: PrefSection::Behavior,
+            section_filter_query: String::new(),
+            export_path_input: config
+                .paths
+                .tmp_dir
+                .join("preferences-export.toml")
+                .display()
+                .to_string(),
+            import_path_input: config
+                .paths
+                .tmp_dir
+                .join("preferences-export.toml")
+                .display()
+                .to_string(),
         }
     }
 
@@ -106,6 +122,25 @@ impl PreferencesView {
         }
         ui.separator();
         self.section_tabs(ui);
+        ui.horizontal(|ui| {
+            ui.label("Search settings");
+            ui.text_edit_singleline(&mut self.section_filter_query);
+            if ui.button("Clear").clicked() {
+                self.section_filter_query.clear();
+            }
+            if ui
+                .add_enabled(self.edit_mode, egui::Button::new("Reset section"))
+                .clicked()
+            {
+                self.reset_active_section_to_defaults();
+                self.status = format!("Reset {} to defaults", self.active_section.label());
+                info!(
+                    component = "gui_preferences",
+                    section = self.active_section.label(),
+                    "reset preferences section to defaults"
+                );
+            }
+        });
         ui.separator();
         match self.active_section {
             PrefSection::Behavior => self.render_behavior_section(ui, config),
@@ -135,9 +170,33 @@ impl PreferencesView {
         self.status = "Error".to_string();
     }
 
+    pub fn open_section_behavior(&mut self) {
+        self.active_section = PrefSection::Behavior;
+    }
+
+    pub fn open_section_look_and_feel(&mut self) {
+        self.active_section = PrefSection::LookAndFeel;
+    }
+
+    pub fn open_section_import_export(&mut self) {
+        self.active_section = PrefSection::ImportExport;
+    }
+
+    pub fn open_section_advanced(&mut self) {
+        self.active_section = PrefSection::Advanced;
+    }
+
+    pub fn open_section_system(&mut self) {
+        self.active_section = PrefSection::System;
+    }
+
     fn section_tabs(&mut self, ui: &mut egui::Ui) {
+        let query = self.section_filter_query.trim().to_lowercase();
         ui.horizontal(|ui| {
             for section in PrefSection::all() {
+                if !query.is_empty() && !section.label().to_lowercase().contains(&query) {
+                    continue;
+                }
                 if ui
                     .selectable_label(self.active_section == section, section.label())
                     .clicked()
@@ -161,16 +220,52 @@ impl PreferencesView {
         egui::CollapsingHeader::new("Paths")
             .default_open(true)
             .show(ui, |ui| {
-                ui.label(format!("Data: {}", config.paths.data_dir.display()));
-                ui.label(format!("Cache: {}", config.paths.cache_dir.display()));
-                ui.label(format!("Logs: {}", config.paths.log_dir.display()));
-                ui.label(format!("Temp: {}", config.paths.tmp_dir.display()));
-                ui.label(format!("Library: {}", config.paths.library_dir.display()));
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("Data");
+                        ui.text_edit_singleline(&mut self.state.path_data_dir);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Cache");
+                        ui.text_edit_singleline(&mut self.state.path_cache_dir);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Logs");
+                        ui.text_edit_singleline(&mut self.state.path_log_dir);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Temp");
+                        ui.text_edit_singleline(&mut self.state.path_tmp_dir);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Library");
+                        ui.text_edit_singleline(&mut self.state.path_library_dir);
+                    });
+                } else {
+                    ui.label(format!("Data: {}", config.paths.data_dir.display()));
+                    ui.label(format!("Cache: {}", config.paths.cache_dir.display()));
+                    ui.label(format!("Logs: {}", config.paths.log_dir.display()));
+                    ui.label(format!("Temp: {}", config.paths.tmp_dir.display()));
+                    ui.label(format!("Library: {}", config.paths.library_dir.display()));
+                }
             });
 
         egui::CollapsingHeader::new("Logging").show(ui, |ui| {
             if self.edit_mode {
-                ui.text_edit_singleline(&mut self.state.logging_level);
+                ui.horizontal(|ui| {
+                    ui.label("Level");
+                    egui::ComboBox::from_id_salt("logging_level")
+                        .selected_text(self.state.logging_level.clone())
+                        .show_ui(ui, |ui| {
+                            for level in ["trace", "debug", "info", "warn", "error"] {
+                                ui.selectable_value(
+                                    &mut self.state.logging_level,
+                                    level.to_string(),
+                                    level,
+                                );
+                            }
+                        });
+                });
                 ui.checkbox(&mut self.state.logging_json, "JSON logging");
                 ui.checkbox(&mut self.state.logging_stdout, "Stdout");
                 ui.checkbox(&mut self.state.logging_file_enabled, "File enabled");
@@ -191,9 +286,64 @@ impl PreferencesView {
         });
 
         egui::CollapsingHeader::new("Database").show(ui, |ui| {
-            ui.label(format!("SQLite: {}", config.db.sqlite_path.display()));
-            ui.label(format!("Pool size: {}", config.db.pool_size));
-            ui.label(format!("Busy timeout (ms): {}", config.db.busy_timeout_ms));
+            if self.edit_mode {
+                ui.horizontal(|ui| {
+                    ui.label("SQLite");
+                    ui.text_edit_singleline(&mut self.state.db_sqlite_path);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Pool size");
+                    ui.add(egui::DragValue::new(&mut self.state.db_pool_size).range(1..=64));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Busy timeout (ms)");
+                    ui.add(
+                        egui::DragValue::new(&mut self.state.db_busy_timeout_ms).range(100..=60000),
+                    );
+                });
+            } else {
+                ui.label(format!("SQLite: {}", config.db.sqlite_path.display()));
+                ui.label(format!("Pool size: {}", config.db.pool_size));
+                ui.label(format!("Busy timeout (ms): {}", config.db.busy_timeout_ms));
+            }
+        });
+
+        egui::CollapsingHeader::new("Network").show(ui, |ui| {
+            if self.edit_mode {
+                ui.horizontal(|ui| {
+                    ui.label("HTTP proxy");
+                    ui.text_edit_singleline(&mut self.state.network_http_proxy);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("HTTPS proxy");
+                    ui.text_edit_singleline(&mut self.state.network_https_proxy);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("No proxy");
+                    ui.text_edit_singleline(&mut self.state.network_no_proxy);
+                });
+                ui.checkbox(&mut self.state.network_offline_mode, "Offline mode");
+                ui.horizontal(|ui| {
+                    ui.label("DNS mode");
+                    egui::ComboBox::from_id_salt("network_dns_mode")
+                        .selected_text(self.state.network_dns_mode.clone())
+                        .show_ui(ui, |ui| {
+                            for mode in ["system", "doh_cloudflare", "doh_google"] {
+                                ui.selectable_value(
+                                    &mut self.state.network_dns_mode,
+                                    mode.to_string(),
+                                    mode,
+                                );
+                            }
+                        });
+                });
+            } else {
+                ui.label(format!("HTTP proxy: {}", config.network.http_proxy));
+                ui.label(format!("HTTPS proxy: {}", config.network.https_proxy));
+                ui.label(format!("No proxy: {}", config.network.no_proxy));
+                ui.label(format!("Offline mode: {}", config.network.offline_mode));
+                ui.label(format!("DNS mode: {}", config.network.dns_mode));
+            }
         });
     }
 
@@ -336,28 +486,86 @@ impl PreferencesView {
 
     fn render_look_feel_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("GUI").show(ui, |ui| {
-            ui.label(format!("List view mode: {}", config.gui.list_view_mode));
-            ui.label(format!("Row height: {}", config.gui.table_row_height));
-            ui.label(format!("Columns visible:"));
-            ui.label(format!("Title: {}", config.gui.show_title));
-            ui.label(format!("Authors: {}", config.gui.show_authors));
-            ui.label(format!("Series: {}", config.gui.show_series));
-            ui.label(format!("Tags: {}", config.gui.show_tags));
-            ui.label(format!("Formats: {}", config.gui.show_formats));
-            ui.label(format!("Rating: {}", config.gui.show_rating));
-            ui.label(format!("Publisher: {}", config.gui.show_publisher));
-            ui.label(format!("Languages: {}", config.gui.show_languages));
-            ui.label(format!("Cover: {}", config.gui.show_cover));
-            ui.label(format!("Cover thumb size: {}", config.gui.cover_thumb_size));
-            ui.label(format!(
-                "Cover preview size: {}",
-                config.gui.cover_preview_size
-            ));
-            ui.label(format!(
-                "Toast duration: {}s",
-                config.gui.toast_duration_secs
-            ));
-            ui.label(format!("Toast max: {}", config.gui.toast_max));
+            if self.edit_mode {
+                ui.horizontal(|ui| {
+                    ui.label("App theme");
+                    egui::ComboBox::from_id_salt("gui_app_theme")
+                        .selected_text(self.state.gui_app_theme.clone())
+                        .show_ui(ui, |ui| {
+                            for value in ["system", "light", "dark"] {
+                                ui.selectable_value(
+                                    &mut self.state.gui_app_theme,
+                                    value.to_string(),
+                                    value,
+                                );
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Icon set");
+                    egui::ComboBox::from_id_salt("gui_icon_set")
+                        .selected_text(self.state.gui_icon_set.clone())
+                        .show_ui(ui, |ui| {
+                            for value in ["calibre", "outline", "minimal"] {
+                                ui.selectable_value(
+                                    &mut self.state.gui_icon_set,
+                                    value.to_string(),
+                                    value,
+                                );
+                            }
+                        });
+                });
+                ui.checkbox(
+                    &mut self.state.gui_startup_open_last_library,
+                    "Open last library on startup",
+                );
+                ui.checkbox(
+                    &mut self.state.gui_startup_restore_tabs,
+                    "Restore tabs on startup",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("System tray");
+                    egui::ComboBox::from_id_salt("gui_system_tray_mode")
+                        .selected_text(self.state.gui_system_tray_mode.clone())
+                        .show_ui(ui, |ui| {
+                            for value in ["disabled", "minimize_to_tray", "close_to_tray"] {
+                                ui.selectable_value(
+                                    &mut self.state.gui_system_tray_mode,
+                                    value.to_string(),
+                                    value,
+                                );
+                            }
+                        });
+                });
+                ui.checkbox(
+                    &mut self.state.gui_confirm_exit_with_jobs,
+                    "Confirm exit when jobs are running",
+                );
+            } else {
+                ui.label(format!("List view mode: {}", config.gui.list_view_mode));
+                ui.label(format!("Row height: {}", config.gui.table_row_height));
+                ui.label(format!("App theme: {}", config.gui.app_theme));
+                ui.label(format!("Icon set: {}", config.gui.icon_set));
+                ui.label(format!(
+                    "Open last library on startup: {}",
+                    config.gui.startup_open_last_library
+                ));
+                ui.label(format!(
+                    "Restore tabs on startup: {}",
+                    config.gui.startup_restore_tabs
+                ));
+                ui.label(format!("System tray mode: {}", config.gui.system_tray_mode));
+                ui.label(format!(
+                    "Confirm exit with jobs: {}",
+                    config.gui.confirm_exit_with_jobs
+                ));
+            }
+            let preview = match self.state.gui_app_theme.as_str() {
+                "dark" => egui::Color32::from_rgb(60, 60, 60),
+                "light" => egui::Color32::from_rgb(230, 230, 230),
+                _ => egui::Color32::from_rgb(130, 130, 130),
+            };
+            ui.colored_label(preview, "Theme preview swatch");
         });
         egui::CollapsingHeader::new("Reader").show(ui, |ui| {
             if self.edit_mode {
@@ -391,7 +599,43 @@ impl PreferencesView {
         });
     }
 
-    fn render_import_export_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+    fn render_import_export_section(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane) {
+        egui::CollapsingHeader::new("Preferences Import/Export")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Export path");
+                    ui.text_edit_singleline(&mut self.export_path_input);
+                    if ui.button("Export").clicked() {
+                        let path = std::path::PathBuf::from(self.export_path_input.trim());
+                        match self.export_preferences(config, &path) {
+                            Ok(()) => {
+                                self.status = format!("Preferences exported to {}", path.display())
+                            }
+                            Err(err) => self.last_error = Some(err.to_string()),
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Import path");
+                    ui.text_edit_singleline(&mut self.import_path_input);
+                    if ui
+                        .add_enabled(self.edit_mode, egui::Button::new("Import"))
+                        .clicked()
+                    {
+                        let path = std::path::PathBuf::from(self.import_path_input.trim());
+                        match self.import_preferences(config, &path) {
+                            Ok(()) => {
+                                self.state = PreferencesState::from_config(config);
+                                self.status =
+                                    format!("Preferences imported from {}", path.display());
+                            }
+                            Err(err) => self.last_error = Some(err.to_string()),
+                        }
+                    }
+                });
+            });
+
         egui::CollapsingHeader::new("Conversion").show(ui, |ui| {
             if self.edit_mode {
                 ui.checkbox(&mut self.state.conversion_enabled, "Enabled");
@@ -477,6 +721,15 @@ impl PreferencesView {
                 }
                 ui.text_edit_singleline(&mut self.state.server_url_prefix);
                 ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
+                ui.checkbox(&mut self.state.server_tls_enabled, "TLS enabled");
+                ui.horizontal(|ui| {
+                    ui.label("TLS cert path");
+                    ui.text_edit_singleline(&mut self.state.server_tls_cert_path);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("TLS key path");
+                    ui.text_edit_singleline(&mut self.state.server_tls_key_path);
+                });
                 ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
                 ui.horizontal(|ui| {
                     ui.label("Download max bytes");
@@ -495,6 +748,15 @@ impl PreferencesView {
                 ));
                 ui.label(format!("URL prefix: {}", config.server.url_prefix));
                 ui.label(format!("Auth enabled: {}", config.server.enable_auth));
+                ui.label(format!("TLS enabled: {}", config.server.tls_enabled));
+                ui.label(format!(
+                    "TLS cert path: {}",
+                    config.server.tls_cert_path.display()
+                ));
+                ui.label(format!(
+                    "TLS key path: {}",
+                    config.server.tls_key_path.display()
+                ));
                 ui.label(format!(
                     "Download enabled: {}",
                     config.server.download_enabled
@@ -582,16 +844,55 @@ impl PreferencesView {
                 "fts tokenizer cannot be empty".to_string(),
             ));
         }
+        if self.state.server_tls_enabled
+            && (self.state.server_tls_cert_path.trim().is_empty()
+                || self.state.server_tls_key_path.trim().is_empty())
+        {
+            return Err(CoreError::ConfigValidate(
+                "tls cert and key are required when TLS is enabled".to_string(),
+            ));
+        }
+        if self.state.db_sqlite_path.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "db sqlite path cannot be empty".to_string(),
+            ));
+        }
+        if self.state.path_data_dir.trim().is_empty()
+            || self.state.path_cache_dir.trim().is_empty()
+            || self.state.path_log_dir.trim().is_empty()
+            || self.state.path_tmp_dir.trim().is_empty()
+            || self.state.path_library_dir.trim().is_empty()
+        {
+            return Err(CoreError::ConfigValidate(
+                "path values cannot be empty".to_string(),
+            ));
+        }
 
         config.logging.level = self.state.logging_level.trim().to_string();
         config.logging.json = self.state.logging_json;
         config.logging.stdout = self.state.logging_stdout;
         config.logging.file_enabled = self.state.logging_file_enabled;
+        config.db.sqlite_path = self.state.db_sqlite_path.trim().into();
+        config.db.pool_size = self.state.db_pool_size;
+        config.db.busy_timeout_ms = self.state.db_busy_timeout_ms;
+        config.paths.data_dir = self.state.path_data_dir.trim().into();
+        config.paths.cache_dir = self.state.path_cache_dir.trim().into();
+        config.paths.log_dir = self.state.path_log_dir.trim().into();
+        config.paths.tmp_dir = self.state.path_tmp_dir.trim().into();
+        config.paths.library_dir = self.state.path_library_dir.trim().into();
+        config.network.http_proxy = self.state.network_http_proxy.trim().to_string();
+        config.network.https_proxy = self.state.network_https_proxy.trim().to_string();
+        config.network.no_proxy = self.state.network_no_proxy.trim().to_string();
+        config.network.offline_mode = self.state.network_offline_mode;
+        config.network.dns_mode = self.state.network_dns_mode.trim().to_string();
         config.server.host = self.state.server_host.trim().to_string();
         config.server.port = self.state.server_port;
         config.server.scheme = self.state.server_scheme.trim().to_string();
         config.server.url_prefix = self.state.server_url_prefix.trim().to_string();
         config.server.enable_auth = self.state.server_enable_auth;
+        config.server.tls_enabled = self.state.server_tls_enabled;
+        config.server.tls_cert_path = self.state.server_tls_cert_path.trim().into();
+        config.server.tls_key_path = self.state.server_tls_key_path.trim().into();
         config.server.download_enabled = self.state.server_download_enabled;
         config.server.download_max_bytes = self.state.server_download_max_bytes;
         config.server.download_allow_external = self.state.server_download_allow_external;
@@ -618,7 +919,35 @@ impl PreferencesView {
         config.gui.reader_line_spacing = self.state.reader_line_spacing;
         config.gui.reader_page_chars = self.state.reader_page_chars;
         config.gui.reader_theme = self.state.reader_theme.trim().to_string();
+        config.gui.app_theme = self.state.gui_app_theme.trim().to_string();
+        config.gui.icon_set = self.state.gui_icon_set.trim().to_string();
+        config.gui.startup_open_last_library = self.state.gui_startup_open_last_library;
+        config.gui.startup_restore_tabs = self.state.gui_startup_restore_tabs;
+        config.gui.system_tray_mode = self.state.gui_system_tray_mode.trim().to_string();
+        config.gui.confirm_exit_with_jobs = self.state.gui_confirm_exit_with_jobs;
 
+        Ok(())
+    }
+
+    fn export_preferences(&self, config: &ControlPlane, path: &std::path::Path) -> CoreResult<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                CoreError::Io("create preferences export parent".to_string(), err)
+            })?;
+        }
+        config.save_to_path(path)?;
+        info!(component = "gui_preferences", path = %path.display(), "exported preferences file");
+        Ok(())
+    }
+
+    fn import_preferences(
+        &self,
+        config: &mut ControlPlane,
+        path: &std::path::Path,
+    ) -> CoreResult<()> {
+        let imported = ControlPlane::load_from_path(path)?;
+        *config = imported;
+        info!(component = "gui_preferences", path = %path.display(), "imported preferences file");
         Ok(())
     }
 
@@ -637,6 +966,11 @@ impl PreferencesView {
         if self.state.server_scheme.trim().is_empty() {
             errors.push("server scheme must not be empty".to_string());
         }
+        if !self.state.server_url_prefix.trim().is_empty()
+            && !self.state.server_url_prefix.starts_with('/')
+        {
+            errors.push("server url prefix must start with '/'".to_string());
+        }
         if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
             errors.push("server scheme must be http or https".to_string());
         }
@@ -651,10 +985,117 @@ impl PreferencesView {
         if self.state.fts_tokenizer.trim().is_empty() {
             errors.push("fts tokenizer must not be empty".to_string());
         }
+        if self.state.db_sqlite_path.trim().is_empty() {
+            errors.push("db sqlite path must not be empty".to_string());
+        }
         if !matches!(self.state.reader_theme.as_str(), "light" | "dark" | "sepia") {
             errors.push("reader theme must be light, dark, or sepia".to_string());
         }
+        if !matches!(
+            self.state.gui_app_theme.as_str(),
+            "system" | "light" | "dark"
+        ) {
+            errors.push("app theme must be system, light, or dark".to_string());
+        }
+        if !matches!(
+            self.state.gui_icon_set.as_str(),
+            "calibre" | "outline" | "minimal"
+        ) {
+            errors.push("icon set must be calibre, outline, or minimal".to_string());
+        }
+        if !matches!(
+            self.state.gui_system_tray_mode.as_str(),
+            "disabled" | "minimize_to_tray" | "close_to_tray"
+        ) {
+            errors.push(
+                "system tray mode must be disabled, minimize_to_tray, or close_to_tray".to_string(),
+            );
+        }
+        if !matches!(
+            self.state.network_dns_mode.as_str(),
+            "system" | "doh_cloudflare" | "doh_google"
+        ) {
+            errors
+                .push("network dns mode must be system, doh_cloudflare, or doh_google".to_string());
+        }
+        if self.state.server_tls_enabled
+            && (self.state.server_tls_cert_path.trim().is_empty()
+                || self.state.server_tls_key_path.trim().is_empty())
+        {
+            errors.push("tls cert and key must be set when TLS is enabled".to_string());
+        }
         errors
+    }
+
+    fn reset_active_section_to_defaults(&mut self) {
+        let defaults = PreferencesState::defaults();
+        match self.active_section {
+            PrefSection::Behavior => {
+                self.state.assets_compress_raw = defaults.assets_compress_raw;
+                self.state.assets_compress_metadata = defaults.assets_compress_metadata;
+                self.state.ingest_default_mode = defaults.ingest_default_mode;
+                self.state.ingest_archive_reference_enabled =
+                    defaults.ingest_archive_reference_enabled;
+                self.state.ingest_duplicate_policy = defaults.ingest_duplicate_policy;
+                self.state.ingest_duplicate_compare = defaults.ingest_duplicate_compare;
+            }
+            PrefSection::LookAndFeel => {
+                self.state.reader_font_size = defaults.reader_font_size;
+                self.state.reader_line_spacing = defaults.reader_line_spacing;
+                self.state.reader_page_chars = defaults.reader_page_chars;
+                self.state.reader_theme = defaults.reader_theme;
+                self.state.gui_app_theme = defaults.gui_app_theme;
+                self.state.gui_icon_set = defaults.gui_icon_set;
+                self.state.gui_startup_open_last_library = defaults.gui_startup_open_last_library;
+                self.state.gui_startup_restore_tabs = defaults.gui_startup_restore_tabs;
+                self.state.gui_system_tray_mode = defaults.gui_system_tray_mode;
+                self.state.gui_confirm_exit_with_jobs = defaults.gui_confirm_exit_with_jobs;
+            }
+            PrefSection::ImportExport => {
+                self.state.conversion_enabled = defaults.conversion_enabled;
+                self.state.conversion_allow_passthrough = defaults.conversion_allow_passthrough;
+                self.state.conversion_max_input_bytes = defaults.conversion_max_input_bytes;
+                self.state.conversion_default_output_format =
+                    defaults.conversion_default_output_format;
+            }
+            PrefSection::Advanced => {
+                self.state.server_host = defaults.server_host;
+                self.state.server_port = defaults.server_port;
+                self.state.server_scheme = defaults.server_scheme;
+                self.state.server_url_prefix = defaults.server_url_prefix;
+                self.state.server_enable_auth = defaults.server_enable_auth;
+                self.state.server_tls_enabled = defaults.server_tls_enabled;
+                self.state.server_tls_cert_path = defaults.server_tls_cert_path;
+                self.state.server_tls_key_path = defaults.server_tls_key_path;
+                self.state.server_download_enabled = defaults.server_download_enabled;
+                self.state.server_download_max_bytes = defaults.server_download_max_bytes;
+                self.state.server_download_allow_external = defaults.server_download_allow_external;
+                self.state.fts_enabled = defaults.fts_enabled;
+                self.state.fts_tokenizer = defaults.fts_tokenizer;
+                self.state.fts_rebuild_on_migrate = defaults.fts_rebuild_on_migrate;
+                self.state.fts_min_query_len = defaults.fts_min_query_len;
+                self.state.fts_result_limit = defaults.fts_result_limit;
+            }
+            PrefSection::System => {
+                self.state.logging_level = defaults.logging_level;
+                self.state.logging_json = defaults.logging_json;
+                self.state.logging_stdout = defaults.logging_stdout;
+                self.state.logging_file_enabled = defaults.logging_file_enabled;
+                self.state.db_sqlite_path = defaults.db_sqlite_path;
+                self.state.db_pool_size = defaults.db_pool_size;
+                self.state.db_busy_timeout_ms = defaults.db_busy_timeout_ms;
+                self.state.path_data_dir = defaults.path_data_dir;
+                self.state.path_cache_dir = defaults.path_cache_dir;
+                self.state.path_log_dir = defaults.path_log_dir;
+                self.state.path_tmp_dir = defaults.path_tmp_dir;
+                self.state.path_library_dir = defaults.path_library_dir;
+                self.state.network_http_proxy = defaults.network_http_proxy;
+                self.state.network_https_proxy = defaults.network_https_proxy;
+                self.state.network_no_proxy = defaults.network_no_proxy;
+                self.state.network_offline_mode = defaults.network_offline_mode;
+                self.state.network_dns_mode = defaults.network_dns_mode;
+            }
+        }
     }
 }
 
@@ -664,11 +1105,27 @@ struct PreferencesState {
     logging_json: bool,
     logging_stdout: bool,
     logging_file_enabled: bool,
+    db_sqlite_path: String,
+    db_pool_size: u32,
+    db_busy_timeout_ms: u64,
+    path_data_dir: String,
+    path_cache_dir: String,
+    path_log_dir: String,
+    path_tmp_dir: String,
+    path_library_dir: String,
+    network_http_proxy: String,
+    network_https_proxy: String,
+    network_no_proxy: String,
+    network_offline_mode: bool,
+    network_dns_mode: String,
     server_host: String,
     server_port: u16,
     server_scheme: String,
     server_url_prefix: String,
     server_enable_auth: bool,
+    server_tls_enabled: bool,
+    server_tls_cert_path: String,
+    server_tls_key_path: String,
     server_download_enabled: bool,
     server_download_max_bytes: u64,
     server_download_allow_external: bool,
@@ -691,6 +1148,12 @@ struct PreferencesState {
     reader_line_spacing: f32,
     reader_page_chars: usize,
     reader_theme: String,
+    gui_app_theme: String,
+    gui_icon_set: String,
+    gui_startup_open_last_library: bool,
+    gui_startup_restore_tabs: bool,
+    gui_system_tray_mode: String,
+    gui_confirm_exit_with_jobs: bool,
 }
 
 impl PreferencesState {
@@ -700,11 +1163,27 @@ impl PreferencesState {
             logging_json: config.logging.json,
             logging_stdout: config.logging.stdout,
             logging_file_enabled: config.logging.file_enabled,
+            db_sqlite_path: config.db.sqlite_path.display().to_string(),
+            db_pool_size: config.db.pool_size,
+            db_busy_timeout_ms: config.db.busy_timeout_ms,
+            path_data_dir: config.paths.data_dir.display().to_string(),
+            path_cache_dir: config.paths.cache_dir.display().to_string(),
+            path_log_dir: config.paths.log_dir.display().to_string(),
+            path_tmp_dir: config.paths.tmp_dir.display().to_string(),
+            path_library_dir: config.paths.library_dir.display().to_string(),
+            network_http_proxy: config.network.http_proxy.clone(),
+            network_https_proxy: config.network.https_proxy.clone(),
+            network_no_proxy: config.network.no_proxy.clone(),
+            network_offline_mode: config.network.offline_mode,
+            network_dns_mode: config.network.dns_mode.clone(),
             server_host: config.server.host.clone(),
             server_port: config.server.port,
             server_scheme: config.server.scheme.clone(),
             server_url_prefix: config.server.url_prefix.clone(),
             server_enable_auth: config.server.enable_auth,
+            server_tls_enabled: config.server.tls_enabled,
+            server_tls_cert_path: config.server.tls_cert_path.display().to_string(),
+            server_tls_key_path: config.server.tls_key_path.display().to_string(),
             server_download_enabled: config.server.download_enabled,
             server_download_max_bytes: config.server.download_max_bytes,
             server_download_allow_external: config.server.download_allow_external,
@@ -727,6 +1206,70 @@ impl PreferencesState {
             reader_line_spacing: config.gui.reader_line_spacing,
             reader_page_chars: config.gui.reader_page_chars,
             reader_theme: config.gui.reader_theme.clone(),
+            gui_app_theme: config.gui.app_theme.clone(),
+            gui_icon_set: config.gui.icon_set.clone(),
+            gui_startup_open_last_library: config.gui.startup_open_last_library,
+            gui_startup_restore_tabs: config.gui.startup_restore_tabs,
+            gui_system_tray_mode: config.gui.system_tray_mode.clone(),
+            gui_confirm_exit_with_jobs: config.gui.confirm_exit_with_jobs,
+        }
+    }
+
+    fn defaults() -> Self {
+        Self {
+            logging_level: "info".to_string(),
+            logging_json: false,
+            logging_stdout: true,
+            logging_file_enabled: false,
+            db_sqlite_path: "./.cache/caliberate/data/caliberate.db".to_string(),
+            db_pool_size: 4,
+            db_busy_timeout_ms: 5000,
+            path_data_dir: "./.cache/caliberate/data".to_string(),
+            path_cache_dir: "./.cache/caliberate/cache".to_string(),
+            path_log_dir: "./.cache/caliberate/logs".to_string(),
+            path_tmp_dir: "./.cache/caliberate/tmp".to_string(),
+            path_library_dir: "./.cache/caliberate/library".to_string(),
+            network_http_proxy: String::new(),
+            network_https_proxy: String::new(),
+            network_no_proxy: String::new(),
+            network_offline_mode: false,
+            network_dns_mode: "system".to_string(),
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            server_scheme: "http".to_string(),
+            server_url_prefix: String::new(),
+            server_enable_auth: false,
+            server_tls_enabled: false,
+            server_tls_cert_path: String::new(),
+            server_tls_key_path: String::new(),
+            server_download_enabled: true,
+            server_download_max_bytes: 104_857_600,
+            server_download_allow_external: false,
+            assets_compress_raw: true,
+            assets_compress_metadata: false,
+            ingest_default_mode: IngestMode::Copy,
+            ingest_archive_reference_enabled: true,
+            ingest_duplicate_policy: DuplicatePolicy::Error,
+            ingest_duplicate_compare: DuplicateCompare::Checksum,
+            conversion_enabled: true,
+            conversion_allow_passthrough: true,
+            conversion_max_input_bytes: 104_857_600,
+            conversion_default_output_format: "epub".to_string(),
+            fts_enabled: false,
+            fts_tokenizer: "unicode61 remove_diacritics 2".to_string(),
+            fts_rebuild_on_migrate: true,
+            fts_min_query_len: 2,
+            fts_result_limit: 100,
+            reader_font_size: 16.0,
+            reader_line_spacing: 1.4,
+            reader_page_chars: 1800,
+            reader_theme: "light".to_string(),
+            gui_app_theme: "system".to_string(),
+            gui_icon_set: "calibre".to_string(),
+            gui_startup_open_last_library: true,
+            gui_startup_restore_tabs: true,
+            gui_system_tray_mode: "disabled".to_string(),
+            gui_confirm_exit_with_jobs: true,
         }
     }
 }

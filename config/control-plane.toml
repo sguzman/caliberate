@@ -37,6 +37,9 @@ url_prefix = ""
 enable_auth = false
 auth_mode = "bearer"
 api_keys = []
+tls_enabled = false
+tls_cert_path = ""
+tls_key_path = ""
 download_enabled = true
 download_max_bytes = 104857600
 download_allow_external = false
@@ -95,6 +98,13 @@ library_subdir = "Caliberate Library"
 enabled = true
 plugins_dir = "./.cache/caliberate/plugins"
 
+[network]
+http_proxy = ""
+https_proxy = ""
+no_proxy = ""
+offline_mode = false
+dns_mode = "system"
+
 [gui]
 list_view_mode = "table"
 table_row_height = 48.0
@@ -133,6 +143,13 @@ reader_font_size = 16.0
 reader_line_spacing = 1.4
 reader_page_chars = 1800
 reader_theme = "light"
+app_theme = "system"
+icon_set = "calibre"
+startup_open_last_library = true
+startup_restore_tabs = true
+last_active_view = "library"
+system_tray_mode = "disabled"
+confirm_exit_with_jobs = true
 toast_duration_secs = 6.0
 toast_max = 4
 search_history_max = 20
