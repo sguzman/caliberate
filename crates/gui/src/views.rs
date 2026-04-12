@@ -4,7 +4,7 @@ use caliberate_assets::compression::decompress_file;
 use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode};
 use caliberate_conversion::pipeline::convert_file;
 use caliberate_conversion::settings::ConversionSettings;
-use caliberate_core::config::{ControlPlane, GuiConfig, IngestMode};
+use caliberate_core::config::{ControlPlane, GuiConfig, IngestMode, MetadataDownloadConfig};
 use caliberate_core::error::{CoreError, CoreResult};
 use caliberate_db::cache::MetadataCache;
 use caliberate_db::database::{
@@ -14,6 +14,9 @@ use caliberate_db::database::{
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::send_to_device;
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
+use caliberate_metadata::online::{
+    DownloadedMetadata, MetadataQuery, ProviderConfig, fetch_cover, fetch_metadata,
+};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use image::{DynamicImage, ImageFormat};
@@ -578,6 +581,7 @@ pub struct LibraryView {
     manage_series: ManageSeriesDialogState,
     manage_custom_columns: ManageCustomColumnsDialogState,
     manage_virtual_libraries: ManageVirtualLibrariesDialogState,
+    metadata_download_config: MetadataDownloadConfig,
     metadata_download: MetadataDownloadDialogState,
     inline_edit: InlineEditState,
 }
@@ -754,7 +758,10 @@ impl LibraryView {
             manage_series: ManageSeriesDialogState::default(),
             manage_custom_columns: ManageCustomColumnsDialogState::default(),
             manage_virtual_libraries: ManageVirtualLibrariesDialogState::default(),
-            metadata_download: MetadataDownloadDialogState::default(),
+            metadata_download_config: config.metadata_download.clone(),
+            metadata_download: MetadataDownloadDialogState::default_from_config(
+                &config.metadata_download,
+            ),
             inline_edit: InlineEditState::default(),
         };
         if let Some(active) = &view.active_virtual_library {
@@ -943,6 +950,13 @@ impl LibraryView {
         self.metadata_download.cover_only = false;
         self.metadata_download.progress = 0.0;
         self.metadata_download.failed = false;
+        self.metadata_download.results.clear();
+        self.metadata_download.queue_rows.clear();
+        self.metadata_download.last_error = None;
+        self.metadata_download.selected_book_id = self.selected_ids.first().copied();
+        if let Some(source) = first_enabled_source(&self.metadata_download_config) {
+            self.metadata_download.source = source;
+        }
     }
 
     pub fn open_download_cover(&mut self) {
@@ -950,6 +964,13 @@ impl LibraryView {
         self.metadata_download.cover_only = true;
         self.metadata_download.progress = 0.0;
         self.metadata_download.failed = false;
+        self.metadata_download.results.clear();
+        self.metadata_download.queue_rows.clear();
+        self.metadata_download.last_error = None;
+        self.metadata_download.selected_book_id = self.selected_ids.first().copied();
+        if let Some(source) = first_enabled_source(&self.metadata_download_config) {
+            self.metadata_download.source = source;
+        }
     }
 
     pub fn notify_unimplemented(&mut self, message: &str) {
@@ -4077,6 +4098,12 @@ impl LibraryView {
         }
         let mut open = self.metadata_download.open;
         let mut close_requested = false;
+        let enabled_sources =
+            active_sources_for_dialog(&self.metadata_download_config, &self.metadata_download);
+        if enabled_sources.is_empty() {
+            self.metadata_download.last_error =
+                Some("No metadata providers enabled in config.".to_string());
+        }
         egui::Window::new(if self.metadata_download.cover_only {
             "Download Cover"
         } else {
@@ -4090,10 +4117,10 @@ impl LibraryView {
                 egui::ComboBox::from_id_salt("metadata_download_source")
                     .selected_text(self.metadata_download.source.clone())
                     .show_ui(ui, |ui| {
-                        for source in ["openlibrary", "googlebooks", "amazon", "isbndb"] {
+                        for source in &enabled_sources {
                             ui.selectable_value(
                                 &mut self.metadata_download.source,
-                                source.to_string(),
+                                source.clone(),
                                 source,
                             );
                         }
@@ -4112,46 +4139,90 @@ impl LibraryView {
                 ui.checkbox(&mut self.metadata_download.source_amazon, "Amazon");
                 ui.checkbox(&mut self.metadata_download.source_isbndb, "ISBNdb");
             });
-            if ui.button("Fetch").clicked() {
-                self.metadata_download.progress = 0.2;
-                self.metadata_download.failed = false;
-                self.metadata_download.results = vec![
-                    format!("{}: title suggestion", self.metadata_download.source),
-                    format!("{}: author suggestion", self.metadata_download.source),
-                    format!("{}: tag suggestion", self.metadata_download.source),
-                ];
-                self.metadata_download.progress = 1.0;
+            if !self.metadata_download.cover_only {
+                ui.horizontal(|ui| {
+                    if ui.button("Queue selected").clicked() {
+                        self.queue_selected_for_download();
+                    }
+                    if ui.button("Run queue").clicked() {
+                        self.run_metadata_download_queue();
+                    }
+                    if ui.button("Clear queue").clicked() {
+                        self.metadata_download.queue_rows.clear();
+                        self.metadata_download.progress = 0.0;
+                    }
+                });
+                ui.separator();
+                ui.label("Queue");
+                if self.metadata_download.queue_rows.is_empty() {
+                    ui.label("No queued books.");
+                } else {
+                    for row in &self.metadata_download.queue_rows {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("#{}", row.book_id));
+                            ui.label(row.title.clone());
+                            ui.monospace(row.status.label());
+                            if let Some(err) = &row.error {
+                                ui.colored_label(egui::Color32::from_rgb(190, 0, 0), err);
+                            }
+                            if ui.small_button("Select").clicked() {
+                                self.metadata_download.selected_book_id = Some(row.book_id);
+                            }
+                        });
+                    }
+                }
             }
             ui.add(
                 egui::ProgressBar::new(self.metadata_download.progress)
                     .show_percentage()
-                    .text("Per-book progress"),
+                    .text("Queue progress"),
             );
             if self.metadata_download.failed {
                 ui.colored_label(egui::Color32::from_rgb(190, 0, 0), "Last fetch failed");
             }
+            if let Some(message) = &self.metadata_download.last_error {
+                ui.colored_label(egui::Color32::from_rgb(190, 0, 0), message);
+            }
             ui.horizontal(|ui| {
                 if ui.button("Retry failed").clicked() {
-                    self.metadata_download.failed = false;
-                    self.metadata_download.progress = 1.0;
-                }
-                if ui.button("Mark failed").clicked() {
-                    self.metadata_download.failed = true;
-                    self.metadata_download.progress = 0.0;
+                    self.retry_failed_metadata_rows();
                 }
             });
             ui.separator();
             ui.label("Results comparison");
             for result in &self.metadata_download.results {
-                ui.label(format!("Candidate: {result}"));
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(
+                            self.metadata_download.selected_book_id == Some(result.book_id),
+                            format!("#{} {}", result.book_id, result.provider),
+                        )
+                        .clicked()
+                    {
+                        self.metadata_download.selected_book_id = Some(result.book_id);
+                    }
+                    ui.label(result.preview_line());
+                });
             }
             ui.separator();
             ui.label("Cover chooser");
             ui.horizontal_wrapped(|ui| {
-                for idx in 1..=6 {
-                    if ui.button(format!("Cover {}", idx)).clicked() {
-                        self.metadata_download.selected_cover = idx;
+                let mut count = 0usize;
+                for result in &self.metadata_download.results {
+                    if let Some(cover_url) = &result.metadata.cover_url {
+                        count += 1;
+                        if ui
+                            .button(format!("{} ({})", count, result.provider))
+                            .clicked()
+                        {
+                            self.metadata_download.selected_cover = count;
+                            self.metadata_download.selected_cover_url = Some(cover_url.clone());
+                            self.metadata_download.selected_book_id = Some(result.book_id);
+                        }
                     }
+                }
+                if count == 0 {
+                    ui.label("No downloaded covers.");
                 }
             });
             ui.label(format!(
@@ -4176,63 +4247,323 @@ impl LibraryView {
         self.metadata_download.open = open;
     }
 
+    fn queue_selected_for_download(&mut self) {
+        let selected = self.selected_ids.clone();
+        if selected.is_empty() {
+            self.push_toast(
+                "Select at least one book to queue metadata download",
+                ToastLevel::Warn,
+            );
+            return;
+        }
+        for book_id in selected
+            .iter()
+            .take(self.metadata_download_config.queue_batch_size)
+        {
+            if self
+                .metadata_download
+                .queue_rows
+                .iter()
+                .any(|row| row.book_id == *book_id)
+            {
+                continue;
+            }
+            let title = self
+                .all_books
+                .iter()
+                .find(|row| row.id == *book_id)
+                .map(|row| row.title.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
+            self.metadata_download.queue_rows.push(MetadataQueueRow {
+                book_id: *book_id,
+                title,
+                status: MetadataQueueStatus::Pending,
+                error: None,
+            });
+        }
+        self.metadata_download.selected_book_id = selected.first().copied();
+        self.metadata_download.progress = 0.0;
+        self.push_toast(
+            "Queued selected books for metadata download",
+            ToastLevel::Info,
+        );
+    }
+
+    fn run_metadata_download_queue(&mut self) {
+        if self.metadata_download.queue_rows.is_empty() {
+            self.push_toast("Queue is empty", ToastLevel::Warn);
+            return;
+        }
+        let total = self.metadata_download.queue_rows.len() as f32;
+        let mut completed = 0f32;
+        self.metadata_download.results.clear();
+        self.metadata_download.failed = false;
+        self.metadata_download.last_error = None;
+        for idx in 0..self.metadata_download.queue_rows.len() {
+            let book_id = self.metadata_download.queue_rows[idx].book_id;
+            self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Running;
+            match self.fetch_metadata_for_book(book_id) {
+                Ok(result) => {
+                    self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Success;
+                    self.metadata_download.queue_rows[idx].error = None;
+                    self.metadata_download.results.push(result);
+                }
+                Err(err) => {
+                    self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Failed;
+                    self.metadata_download.queue_rows[idx].error = Some(err.to_string());
+                    self.metadata_download.failed = true;
+                    self.metadata_download.last_error = Some(err.to_string());
+                    warn!(
+                        component = "gui",
+                        book_id,
+                        error = %err,
+                        "metadata download failed"
+                    );
+                }
+            }
+            completed += 1.0;
+            self.metadata_download.progress = completed / total;
+        }
+        if self.metadata_download.results.is_empty() {
+            self.push_toast("No metadata results downloaded", ToastLevel::Warn);
+        } else {
+            self.push_toast("Metadata download queue completed", ToastLevel::Info);
+        }
+    }
+
+    fn retry_failed_metadata_rows(&mut self) {
+        let mut retried = 0usize;
+        for idx in 0..self.metadata_download.queue_rows.len() {
+            if self.metadata_download.queue_rows[idx].status != MetadataQueueStatus::Failed {
+                continue;
+            }
+            let book_id = self.metadata_download.queue_rows[idx].book_id;
+            self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Running;
+            match self.fetch_metadata_for_book(book_id) {
+                Ok(result) => {
+                    self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Success;
+                    self.metadata_download.queue_rows[idx].error = None;
+                    self.metadata_download
+                        .results
+                        .retain(|entry| entry.book_id != book_id);
+                    self.metadata_download.results.push(result);
+                }
+                Err(err) => {
+                    self.metadata_download.queue_rows[idx].status = MetadataQueueStatus::Failed;
+                    self.metadata_download.queue_rows[idx].error = Some(err.to_string());
+                    self.metadata_download.last_error = Some(err.to_string());
+                }
+            }
+            retried += 1;
+        }
+        if retried > 0 {
+            self.push_toast("Retried failed metadata queue rows", ToastLevel::Info);
+        }
+        self.metadata_download.failed = self
+            .metadata_download
+            .queue_rows
+            .iter()
+            .any(|row| row.status == MetadataQueueStatus::Failed);
+    }
+
+    fn fetch_metadata_for_book(&mut self, book_id: i64) -> CoreResult<MetadataDownloadResult> {
+        let details = self.load_details_for_download(book_id)?;
+        let source = if self.metadata_download.source.trim().is_empty() {
+            first_enabled_source(&self.metadata_download_config)
+                .ok_or_else(|| CoreError::ConfigValidate("no provider configured".to_string()))?
+        } else {
+            self.metadata_download.source.clone()
+        };
+        let active_sources =
+            active_sources_for_dialog(&self.metadata_download_config, &self.metadata_download);
+        if !active_sources.iter().any(|entry| entry == &source) {
+            return Err(CoreError::ConfigValidate(format!(
+                "source '{source}' is disabled in dialog or config"
+            )));
+        }
+        let provider_config = to_provider_config(&self.metadata_download_config);
+        let query = MetadataQuery {
+            title: details.book.title.clone(),
+            authors: details.authors.clone(),
+            isbn: first_identifier_from_details(&details, "isbn"),
+        };
+        let metadata = fetch_metadata(&provider_config, &query, &source)?;
+        let provider_name = metadata.provider.clone();
+        Ok(MetadataDownloadResult {
+            book_id,
+            provider: provider_name,
+            metadata,
+        })
+    }
+
+    fn load_details_for_download(&mut self, book_id: i64) -> CoreResult<BookDetails> {
+        if self.details.as_ref().map(|details| details.book.id) == Some(book_id) {
+            if let Some(details) = &self.details {
+                return Ok(details.clone());
+            }
+        }
+        self.load_details(book_id)?;
+        self.details
+            .clone()
+            .ok_or_else(|| CoreError::ConfigValidate("book details missing after load".to_string()))
+    }
+
     fn apply_metadata_download_result(&mut self) {
-        if self.selected_ids.is_empty() {
+        let Some(book_id) = self.metadata_download_target_book() else {
             self.push_toast(
                 "Select a book before applying downloaded metadata",
                 ToastLevel::Warn,
             );
             return;
-        }
-        let Some(book_id) = self.selected_ids.first().copied() else {
+        };
+        let Some(result) = self
+            .metadata_download
+            .results
+            .iter()
+            .find(|entry| entry.book_id == book_id)
+            .cloned()
+        else {
+            self.push_toast(
+                "No downloaded metadata result for selected book",
+                ToastLevel::Warn,
+            );
             return;
         };
-        if self.details.as_ref().map(|d| d.book.id) != Some(book_id) {
-            let _ = self.load_details(book_id);
-        }
-        if let Some(details) = &self.details {
-            self.edit = EditState::from_details(details);
-            if self.metadata_download.merge_mode {
-                if self.edit.tags.trim().is_empty() {
-                    self.edit.tags = "metadata-download".to_string();
-                }
-            } else {
-                self.edit.title = format!("{} (fetched)", self.edit.title);
-                self.edit.tags = "metadata-download".to_string();
-            }
-            if let Err(err) = self.save_edit() {
-                self.set_error(err);
-            } else {
-                self.push_toast("Applied downloaded metadata", ToastLevel::Info);
-            }
+        if let Err(err) = self.apply_downloaded_metadata_to_book(book_id, &result.metadata) {
+            self.set_error(err);
+        } else {
+            self.push_toast("Applied downloaded metadata", ToastLevel::Info);
         }
     }
 
     fn apply_downloaded_cover(&mut self) {
-        let Some(book_id) = self.selected_ids.first().copied() else {
+        let Some(book_id) = self.metadata_download_target_book() else {
             self.push_toast(
                 "Select a book before applying downloaded cover",
                 ToastLevel::Warn,
             );
             return;
         };
-        let title = self
-            .details
-            .as_ref()
-            .map(|details| details.book.title.clone())
-            .unwrap_or_else(|| "Book".to_string());
-        if let Err(err) = self.generate_cover(book_id, &title) {
-            self.set_error(err);
-        } else {
+        let cover_url = self
+            .metadata_download
+            .selected_cover_url
+            .clone()
+            .or_else(|| {
+                self.metadata_download
+                    .results
+                    .iter()
+                    .find(|entry| entry.book_id == book_id)
+                    .and_then(|entry| entry.metadata.cover_url.clone())
+            });
+        let Some(cover_url) = cover_url else {
             self.push_toast(
-                &format!(
-                    "Applied downloaded cover candidate {}",
-                    self.metadata_download.selected_cover
-                ),
-                ToastLevel::Info,
+                "No downloaded cover available for selected book",
+                ToastLevel::Warn,
             );
-            let _ = self.load_details(book_id);
+            return;
+        };
+        let provider_config = to_provider_config(&self.metadata_download_config);
+        match fetch_cover(&provider_config, &cover_url) {
+            Ok(cover) => {
+                if let Err(err) = self.apply_cover_from_bytes(book_id, &cover.bytes) {
+                    self.set_error(err);
+                } else {
+                    self.push_toast("Applied downloaded cover", ToastLevel::Info);
+                    let _ = self.load_details(book_id);
+                }
+            }
+            Err(err) => self.set_error(err),
         }
+    }
+
+    fn metadata_download_target_book(&self) -> Option<i64> {
+        self.metadata_download
+            .selected_book_id
+            .or_else(|| self.selected_ids.first().copied())
+    }
+
+    fn apply_downloaded_metadata_to_book(
+        &mut self,
+        book_id: i64,
+        metadata: &DownloadedMetadata,
+    ) -> CoreResult<()> {
+        if self.details.as_ref().map(|d| d.book.id) != Some(book_id) {
+            let _ = self.load_details(book_id)?;
+        }
+        let Some(details) = &self.details else {
+            return Err(CoreError::ConfigValidate(
+                "book details unavailable for metadata apply".to_string(),
+            ));
+        };
+        self.edit = EditState::from_details(details);
+        if self.metadata_download.merge_mode {
+            if let Some(title) = &metadata.title {
+                if self.edit.title.trim().is_empty() {
+                    self.edit.title = title.clone();
+                }
+            }
+            if self.edit.authors.trim().is_empty() && !metadata.authors.is_empty() {
+                self.edit.authors = metadata.authors.join(", ");
+            }
+            if self.edit.publisher.trim().is_empty() {
+                if let Some(publisher) = &metadata.publisher {
+                    self.edit.publisher = publisher.clone();
+                }
+            }
+            if self.edit.languages.trim().is_empty() {
+                if let Some(language) = &metadata.language {
+                    self.edit.languages = language.clone();
+                }
+            }
+            if self.edit.pubdate.trim().is_empty() {
+                if let Some(pubdate) = &metadata.pubdate {
+                    self.edit.pubdate = pubdate.clone();
+                }
+            }
+            if self.edit.comment.trim().is_empty() {
+                if let Some(description) = &metadata.description {
+                    self.edit.comment = description.clone();
+                }
+            }
+        } else {
+            if let Some(title) = &metadata.title {
+                self.edit.title = title.clone();
+            }
+            self.edit.authors = metadata.authors.join(", ");
+            self.edit.publisher = metadata.publisher.clone().unwrap_or_default();
+            self.edit.languages = metadata.language.clone().unwrap_or_default();
+            self.edit.pubdate = metadata.pubdate.clone().unwrap_or_default();
+            self.edit.comment = metadata.description.clone().unwrap_or_default();
+            self.edit.tags.clear();
+        }
+        merge_tags_into_edit(
+            &mut self.edit,
+            &metadata.tags,
+            self.metadata_download.merge_mode,
+        );
+        merge_identifiers_into_edit(
+            &mut self.edit,
+            &metadata.identifiers,
+            self.metadata_download.merge_mode,
+        );
+        self.save_edit()?;
+        self.load_details(book_id)?;
+        Ok(())
+    }
+
+    fn apply_cover_from_bytes(&mut self, book_id: i64, bytes: &[u8]) -> CoreResult<()> {
+        let image = image::load_from_memory(bytes)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.ensure_cover_dirs()?;
+        let cover_path = self.cover_path(book_id);
+        image
+            .save_with_format(&cover_path, ImageFormat::Png)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        self.generate_cover_thumb_from_image(book_id, &image)?;
+        self.db.update_book_has_cover(book_id, true)?;
+        self.clear_cover_cache(book_id);
+        self.record_cover_history(cover_path.display().to_string());
+        Ok(())
     }
 
     fn reader_dialog(&mut self, ui: &mut egui::Ui) {
@@ -6461,29 +6792,95 @@ struct MetadataDownloadDialogState {
     merge_mode: bool,
     progress: f32,
     failed: bool,
-    results: Vec<String>,
+    results: Vec<MetadataDownloadResult>,
+    queue_rows: Vec<MetadataQueueRow>,
+    selected_book_id: Option<i64>,
     selected_cover: usize,
+    selected_cover_url: Option<String>,
+    last_error: Option<String>,
     source_openlibrary: bool,
     source_google: bool,
     source_amazon: bool,
     source_isbndb: bool,
 }
 
-impl Default for MetadataDownloadDialogState {
-    fn default() -> Self {
+impl MetadataDownloadDialogState {
+    fn default_from_config(config: &MetadataDownloadConfig) -> Self {
+        let source = first_enabled_source(config).unwrap_or_else(|| "openlibrary".to_string());
         Self {
             open: false,
             cover_only: false,
-            source: "openlibrary".to_string(),
+            source,
             merge_mode: true,
             progress: 0.0,
             failed: false,
             results: Vec::new(),
+            queue_rows: Vec::new(),
+            selected_book_id: None,
             selected_cover: 1,
-            source_openlibrary: true,
-            source_google: true,
+            selected_cover_url: None,
+            last_error: None,
+            source_openlibrary: config.openlibrary_enabled,
+            source_google: config.googlebooks_enabled,
             source_amazon: false,
             source_isbndb: false,
+        }
+    }
+}
+
+impl Default for MetadataDownloadDialogState {
+    fn default() -> Self {
+        Self::default_from_config(&MetadataDownloadConfig::default())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MetadataDownloadResult {
+    book_id: i64,
+    provider: String,
+    metadata: DownloadedMetadata,
+}
+
+impl MetadataDownloadResult {
+    fn preview_line(&self) -> String {
+        let title = self
+            .metadata
+            .title
+            .as_deref()
+            .unwrap_or("<untitled>")
+            .to_string();
+        let authors = if self.metadata.authors.is_empty() {
+            "<unknown author>".to_string()
+        } else {
+            self.metadata.authors.join(", ")
+        };
+        format!("{title} — {authors}")
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MetadataQueueRow {
+    book_id: i64,
+    title: String,
+    status: MetadataQueueStatus,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MetadataQueueStatus {
+    Pending,
+    Running,
+    Success,
+    Failed,
+}
+
+impl MetadataQueueStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Success => "success",
+            Self::Failed => "failed",
         }
     }
 }
@@ -6787,6 +7184,111 @@ fn find_identifier_value(text: &str, id_type: &str) -> Option<String> {
             None
         }
     })
+}
+
+fn first_identifier_from_details(details: &BookDetails, id_type: &str) -> Option<String> {
+    details
+        .identifiers
+        .iter()
+        .find(|entry| entry.id_type.eq_ignore_ascii_case(id_type))
+        .map(|entry| entry.value.clone())
+}
+
+fn merge_tags_into_edit(edit: &mut EditState, incoming_tags: &[String], merge_mode: bool) {
+    let mut tags: Vec<String> = if merge_mode {
+        parse_list(&edit.tags)
+    } else {
+        Vec::new()
+    };
+    for tag in incoming_tags {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !tags
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(trimmed))
+        {
+            tags.push(trimmed.to_string());
+        }
+    }
+    edit.tags = tags.join(", ");
+}
+
+fn merge_identifiers_into_edit(
+    edit: &mut EditState,
+    incoming_identifiers: &[(String, String)],
+    merge_mode: bool,
+) {
+    let mut identifiers = if merge_mode {
+        parse_identifiers(&edit.identifiers, &edit.isbn)
+    } else {
+        Vec::new()
+    };
+    for (id_type, value) in incoming_identifiers {
+        let normalized_type = id_type.trim();
+        let normalized_value = value.trim();
+        if normalized_type.is_empty() || normalized_value.is_empty() {
+            continue;
+        }
+        if !identifiers.iter().any(|(existing_type, existing_value)| {
+            existing_type.eq_ignore_ascii_case(normalized_type)
+                && existing_value.eq_ignore_ascii_case(normalized_value)
+        }) {
+            identifiers.push((normalized_type.to_string(), normalized_value.to_string()));
+        }
+    }
+    edit.identifiers = identifiers
+        .iter()
+        .map(|(id_type, value)| format!("{id_type}:{value}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+}
+
+fn enabled_sources(config: &MetadataDownloadConfig) -> Vec<String> {
+    let mut sources = Vec::new();
+    for provider in &config.providers {
+        match provider.as_str() {
+            "openlibrary" if config.openlibrary_enabled => sources.push(provider.clone()),
+            "googlebooks" if config.googlebooks_enabled => sources.push(provider.clone()),
+            _ => {}
+        }
+    }
+    sources
+}
+
+fn active_sources_for_dialog(
+    config: &MetadataDownloadConfig,
+    state: &MetadataDownloadDialogState,
+) -> Vec<String> {
+    enabled_sources(config)
+        .into_iter()
+        .filter(|provider| match provider.as_str() {
+            "openlibrary" => state.source_openlibrary,
+            "googlebooks" => state.source_google,
+            "amazon" => state.source_amazon,
+            "isbndb" => state.source_isbndb,
+            _ => false,
+        })
+        .collect()
+}
+
+fn first_enabled_source(config: &MetadataDownloadConfig) -> Option<String> {
+    enabled_sources(config).into_iter().next()
+}
+
+fn to_provider_config(config: &MetadataDownloadConfig) -> ProviderConfig {
+    ProviderConfig {
+        timeout_ms: config.timeout_ms,
+        user_agent: config.user_agent.clone(),
+        openlibrary_enabled: config.openlibrary_enabled,
+        openlibrary_base_url: config.openlibrary_base_url.clone(),
+        googlebooks_enabled: config.googlebooks_enabled,
+        googlebooks_base_url: config.googlebooks_base_url.clone(),
+        googlebooks_api_key: config.googlebooks_api_key.clone(),
+        googlebooks_max_results: config.max_results_per_provider,
+        cover_max_bytes: config.cover_max_bytes,
+    }
 }
 
 fn identifier_validation_badges(ui: &mut egui::Ui, identifiers: &str) {

@@ -20,12 +20,14 @@
 - [x] Add metadata download progress view per book
 - [x] Add metadata download source configuration UI
 - [x] Add metadata download retry for failed items
-- [ ] Wire metadata download dialog to real provider-backed fetch pipeline
-- [ ] Add queued multi-book metadata download execution with per-row statuses
+- [x] Wire metadata download dialog to real provider-backed fetch pipeline
+- [x] Add queued multi-book metadata download execution with per-row statuses
+- [x] Add failed-row retry workflow in metadata queue
+- [x] Add per-book apply target selection for downloaded metadata results
 
 ## Covers + Comments
 - [x] Add cover browser with history and favorites
-- [ ] Add cover download + replace workflow
+- [x] Add cover download + replace workflow
 - [x] Add comment markdown editor toolbar
 - [x] Add markdown/HTML preview toggle in editor
 - [ ] Add cover paste from clipboard

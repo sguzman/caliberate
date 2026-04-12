@@ -26,6 +26,8 @@ pub struct ControlPlane {
     #[serde(default)]
     pub network: NetworkConfig,
     #[serde(default)]
+    pub metadata_download: MetadataDownloadConfig,
+    #[serde(default)]
     pub gui: GuiConfig,
 }
 
@@ -166,6 +168,82 @@ impl ControlPlane {
             return Err(CoreError::ConfigValidate(
                 "network.dns_mode must be one of system/doh_cloudflare/doh_google".to_string(),
             ));
+        }
+        if self.metadata_download.timeout_ms < 100 {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.timeout_ms must be at least 100".to_string(),
+            ));
+        }
+        if self.metadata_download.cover_max_bytes == 0 {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.cover_max_bytes must be greater than 0".to_string(),
+            ));
+        }
+        if self.metadata_download.queue_batch_size == 0 {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.queue_batch_size must be greater than 0".to_string(),
+            ));
+        }
+        if self.metadata_download.max_results_per_provider == 0 {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.max_results_per_provider must be greater than 0".to_string(),
+            ));
+        }
+        if self.metadata_download.user_agent.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.user_agent must not be empty".to_string(),
+            ));
+        }
+        if self
+            .metadata_download
+            .openlibrary_base_url
+            .trim()
+            .is_empty()
+        {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.openlibrary_base_url must not be empty".to_string(),
+            ));
+        }
+        if self
+            .metadata_download
+            .googlebooks_base_url
+            .trim()
+            .is_empty()
+        {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.googlebooks_base_url must not be empty".to_string(),
+            ));
+        }
+        if !self
+            .metadata_download
+            .providers
+            .contains(&"openlibrary".to_string())
+            && !self
+                .metadata_download
+                .providers
+                .contains(&"googlebooks".to_string())
+            && !self
+                .metadata_download
+                .providers
+                .contains(&"amazon".to_string())
+            && !self
+                .metadata_download
+                .providers
+                .contains(&"isbndb".to_string())
+        {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download.providers must include at least one known provider".to_string(),
+            ));
+        }
+        for provider in &self.metadata_download.providers {
+            if !matches!(
+                provider.as_str(),
+                "openlibrary" | "googlebooks" | "amazon" | "isbndb"
+            ) {
+                return Err(CoreError::ConfigValidate(
+                    "metadata_download.providers includes an unknown provider".to_string(),
+                ));
+            }
         }
         if !(40.0..=600.0).contains(&self.gui.table_row_height) {
             return Err(CoreError::ConfigValidate(
@@ -709,6 +787,34 @@ pub struct NetworkConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetadataDownloadConfig {
+    #[serde(default = "default_metadata_download_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_metadata_download_user_agent")]
+    pub user_agent: String,
+    #[serde(default = "default_metadata_download_cover_max_bytes")]
+    pub cover_max_bytes: usize,
+    #[serde(default = "default_metadata_download_queue_batch_size")]
+    pub queue_batch_size: usize,
+    #[serde(default = "default_metadata_download_max_results_per_provider")]
+    pub max_results_per_provider: usize,
+    #[serde(default = "default_metadata_download_providers")]
+    pub providers: Vec<String>,
+    #[serde(default = "default_metadata_download_openlibrary_enabled")]
+    pub openlibrary_enabled: bool,
+    #[serde(default = "default_metadata_download_openlibrary_base_url")]
+    pub openlibrary_base_url: String,
+    #[serde(default = "default_metadata_download_googlebooks_enabled")]
+    pub googlebooks_enabled: bool,
+    #[serde(default = "default_metadata_download_googlebooks_base_url")]
+    pub googlebooks_base_url: String,
+    #[serde(default)]
+    pub googlebooks_api_key: String,
+    #[serde(default)]
+    pub prefer_isbn_lookup: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GuiConfig {
     #[serde(default = "default_gui_list_view_mode")]
     pub list_view_mode: String,
@@ -997,6 +1103,25 @@ impl Default for NetworkConfig {
             no_proxy: String::new(),
             offline_mode: false,
             dns_mode: default_network_dns_mode(),
+        }
+    }
+}
+
+impl Default for MetadataDownloadConfig {
+    fn default() -> Self {
+        Self {
+            timeout_ms: default_metadata_download_timeout_ms(),
+            user_agent: default_metadata_download_user_agent(),
+            cover_max_bytes: default_metadata_download_cover_max_bytes(),
+            queue_batch_size: default_metadata_download_queue_batch_size(),
+            max_results_per_provider: default_metadata_download_max_results_per_provider(),
+            providers: default_metadata_download_providers(),
+            openlibrary_enabled: default_metadata_download_openlibrary_enabled(),
+            openlibrary_base_url: default_metadata_download_openlibrary_base_url(),
+            googlebooks_enabled: default_metadata_download_googlebooks_enabled(),
+            googlebooks_base_url: default_metadata_download_googlebooks_base_url(),
+            googlebooks_api_key: String::new(),
+            prefer_isbn_lookup: false,
         }
     }
 }
@@ -1508,6 +1633,51 @@ fn default_plugins_dir() -> PathBuf {
 
 fn default_network_dns_mode() -> String {
     "system".to_string()
+}
+
+fn default_metadata_download_timeout_ms() -> u64 {
+    7000
+}
+
+fn default_metadata_download_user_agent() -> String {
+    "caliberate/0.1 (+https://example.invalid/caliberate)".to_string()
+}
+
+fn default_metadata_download_cover_max_bytes() -> usize {
+    10 * 1024 * 1024
+}
+
+fn default_metadata_download_queue_batch_size() -> usize {
+    32
+}
+
+fn default_metadata_download_max_results_per_provider() -> usize {
+    5
+}
+
+fn default_metadata_download_providers() -> Vec<String> {
+    vec![
+        "openlibrary".to_string(),
+        "googlebooks".to_string(),
+        "amazon".to_string(),
+        "isbndb".to_string(),
+    ]
+}
+
+fn default_metadata_download_openlibrary_enabled() -> bool {
+    true
+}
+
+fn default_metadata_download_openlibrary_base_url() -> String {
+    "https://openlibrary.org".to_string()
+}
+
+fn default_metadata_download_googlebooks_enabled() -> bool {
+    true
+}
+
+fn default_metadata_download_googlebooks_base_url() -> String {
+    "https://www.googleapis.com/books/v1".to_string()
 }
 
 fn default_server_host() -> String {

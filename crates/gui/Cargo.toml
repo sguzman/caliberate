@@ -10,6 +10,7 @@ caliberate-core = { path = "../core" }
 caliberate-db = { path = "../db" }
 caliberate-device = { path = "../device" }
 caliberate-library = { path = "../library" }
+caliberate-metadata = { path = "../metadata" }
 eframe = "0.34.1"
 egui_extras = "0.34.1"
 image = "0.25.5"

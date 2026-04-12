@@ -29,6 +29,9 @@
 - [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
 - [x] Point `[plugins].plugins_dir` default to `./.cache/caliberate/plugins`
 - [x] Define `[network]` keys: `http_proxy`, `https_proxy`, `no_proxy`, `offline_mode`, `dns_mode`
+- [x] Define `[metadata_download]` keys: `timeout_ms`, `user_agent`, `cover_max_bytes`, `queue_batch_size`, `max_results_per_provider`
+- [x] Define `[metadata_download]` keys: `providers`, `openlibrary_enabled`, `openlibrary_base_url`
+- [x] Define `[metadata_download]` keys: `googlebooks_enabled`, `googlebooks_base_url`, `googlebooks_api_key`, `prefer_isbn_lookup`
 - [x] Define `[gui]` keys: `list_view_mode`, `table_row_height`, `table_column_min_width`, `table_column_max_width`
 - [x] Define `[gui]` keys: `show_title`, `show_authors`, `show_series`, `show_tags`, `show_formats`, `show_rating`, `show_publisher`, `show_languages`
 - [x] Define `[gui]` keys: `width_title`, `width_authors`, `width_series`, `width_tags`, `width_formats`, `width_rating`, `width_publisher`, `width_languages`
