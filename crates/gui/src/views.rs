@@ -551,8 +551,13 @@ pub struct LibraryView {
     next_job_id: u64,
     last_tick: f64,
     comment_preview: bool,
+    comment_preview_html: bool,
     comment_render_markdown: bool,
     comment_render_overrides: HashMap<i64, bool>,
+    identifier_io_buffer: String,
+    cover_history: Vec<String>,
+    cover_favorites: BTreeSet<String>,
+    cover_restore_history: Vec<String>,
     cover_cache: HashMap<i64, egui::TextureHandle>,
     cover_preview_cache: HashMap<i64, egui::TextureHandle>,
     cover_state: CoverDialogState,
@@ -573,6 +578,7 @@ pub struct LibraryView {
     manage_series: ManageSeriesDialogState,
     manage_custom_columns: ManageCustomColumnsDialogState,
     manage_virtual_libraries: ManageVirtualLibrariesDialogState,
+    metadata_download: MetadataDownloadDialogState,
     inline_edit: InlineEditState,
 }
 
@@ -721,8 +727,13 @@ impl LibraryView {
             next_job_id: 1,
             last_tick: 0.0,
             comment_preview: false,
+            comment_preview_html: false,
             comment_render_markdown: true,
             comment_render_overrides: HashMap::new(),
+            identifier_io_buffer: String::new(),
+            cover_history: Vec::new(),
+            cover_favorites: BTreeSet::new(),
+            cover_restore_history: Vec::new(),
             cover_cache: HashMap::new(),
             cover_preview_cache: HashMap::new(),
             cover_state: CoverDialogState::default(),
@@ -743,6 +754,7 @@ impl LibraryView {
             manage_series: ManageSeriesDialogState::default(),
             manage_custom_columns: ManageCustomColumnsDialogState::default(),
             manage_virtual_libraries: ManageVirtualLibrariesDialogState::default(),
+            metadata_download: MetadataDownloadDialogState::default(),
             inline_edit: InlineEditState::default(),
         };
         if let Some(active) = &view.active_virtual_library {
@@ -926,6 +938,20 @@ impl LibraryView {
         self.manage_virtual_libraries.needs_refresh = true;
     }
 
+    pub fn open_download_metadata(&mut self) {
+        self.metadata_download.open = true;
+        self.metadata_download.cover_only = false;
+        self.metadata_download.progress = 0.0;
+        self.metadata_download.failed = false;
+    }
+
+    pub fn open_download_cover(&mut self) {
+        self.metadata_download.open = true;
+        self.metadata_download.cover_only = true;
+        self.metadata_download.progress = 0.0;
+        self.metadata_download.failed = false;
+    }
+
     pub fn notify_unimplemented(&mut self, message: &str) {
         self.status = message.to_string();
         self.push_toast(message, ToastLevel::Warn);
@@ -1085,6 +1111,7 @@ impl LibraryView {
         self.manage_series_dialog(ui);
         self.manage_custom_columns_dialog(ui);
         self.manage_virtual_libraries_dialog(ui);
+        self.metadata_download_dialog(ui);
         self.reader_dialog(ui);
         self.remove_asset_dialog(ui, config);
         self.note_delete_dialog(ui);
@@ -2856,6 +2883,61 @@ impl LibraryView {
                         }
                     }
                 });
+                egui::CollapsingHeader::new("Cover browser")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if self.cover_history.is_empty() {
+                            ui.label("No cover history.");
+                        } else {
+                            for entry in self.cover_history.clone() {
+                                ui.horizontal(|ui| {
+                                    let is_favorite = self.cover_favorites.contains(&entry);
+                                    if ui
+                                        .small_button(if is_favorite { "★" } else { "☆" })
+                                        .clicked()
+                                    {
+                                        if is_favorite {
+                                            self.cover_favorites.remove(&entry);
+                                        } else {
+                                            self.cover_favorites.insert(entry.clone());
+                                        }
+                                    }
+                                    if ui.button(entry.clone()).clicked() {
+                                        self.cover_state.cover_path_input = entry.clone();
+                                    }
+                                });
+                            }
+                        }
+                    });
+                egui::CollapsingHeader::new("Cover favorites")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if self.cover_favorites.is_empty() {
+                            ui.label("No favorites.");
+                        } else {
+                            for entry in self.cover_favorites.clone() {
+                                if ui.button(entry.clone()).clicked() {
+                                    self.cover_state.cover_path_input = entry;
+                                }
+                            }
+                        }
+                    });
+                egui::CollapsingHeader::new("Removed cover history")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if self.cover_restore_history.is_empty() {
+                            ui.label("No removed covers.");
+                        } else {
+                            for entry in self.cover_restore_history.clone() {
+                                ui.horizontal(|ui| {
+                                    ui.label(entry.clone());
+                                    if ui.button("Restore path").clicked() {
+                                        self.cover_state.cover_path_input = entry;
+                                    }
+                                });
+                            }
+                        }
+                    });
 
                 ui.separator();
                 ui.heading("Comment");
@@ -3067,20 +3149,51 @@ impl LibraryView {
 
     fn edit_dialog(&mut self, ui: &mut egui::Ui) {
         let mut open = self.show_edit_dialog;
+        let baseline = self
+            .details
+            .as_ref()
+            .map(EditState::from_details)
+            .unwrap_or_default();
         egui::Window::new("Edit Metadata")
             .open(&mut open)
             .resizable(true)
             .show(ui.ctx(), |ui| {
-                ui.label("Title");
-                ui.text_edit_singleline(&mut self.edit.title);
-                ui.label("Authors (comma separated)");
-                ui.text_edit_singleline(&mut self.edit.authors);
-                ui.label("Tags (comma separated)");
-                ui.text_edit_singleline(&mut self.edit.tags);
+                ui.horizontal(|ui| {
+                    ui.label("Title");
+                    ui.text_edit_singleline(&mut self.edit.title);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.title = baseline.title.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Authors");
+                    ui.text_edit_singleline(&mut self.edit.authors);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.authors = baseline.authors.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Author sort");
+                    ui.text_edit_singleline(&mut self.edit.author_sort);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.author_sort = baseline.author_sort.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Tags");
+                    ui.text_edit_singleline(&mut self.edit.tags);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.tags = baseline.tags.clone();
+                    }
+                });
                 self.tag_autocomplete(ui);
                 ui.label("Series");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.edit.series_name);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.series_name = baseline.series_name.clone();
+                        self.edit.series_index = baseline.series_index;
+                    }
                     if ui.small_button("-").clicked() {
                         self.edit.series_index = (self.edit.series_index - 0.1).max(0.0);
                     }
@@ -3093,28 +3206,141 @@ impl LibraryView {
                         self.edit.series_index += 0.1;
                     }
                 });
-                ui.label("Identifiers (one per line, format: type:value)");
+                ui.label("Identifiers (one per line, type:value)");
                 ui.text_edit_multiline(&mut self.edit.identifiers);
+                ui.horizontal(|ui| {
+                    if ui.button("Add ISBN").clicked() && !self.edit.isbn.trim().is_empty() {
+                        self.edit
+                            .identifiers
+                            .push_str(&format!("\nisbn:{}", self.edit.isbn.trim()));
+                        self.edit.identifiers = cleanup_identifier_lines(&self.edit.identifiers);
+                    }
+                    if ui.button("Add ASIN").clicked() {
+                        self.edit.identifiers.push_str("\nasin:");
+                    }
+                    if ui.button("Add DOI").clicked() {
+                        self.edit.identifiers.push_str("\ndoi:");
+                    }
+                    if ui.button("Dedupe").clicked() {
+                        self.edit.identifiers = cleanup_identifier_lines(&self.edit.identifiers);
+                    }
+                    if ui.button("Copy IDs").clicked() {
+                        ui.ctx().copy_text(self.edit.identifiers.clone());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Identifier import/export buffer");
+                    ui.text_edit_singleline(&mut self.identifier_io_buffer);
+                    if ui.button("Import").clicked() {
+                        if !self.identifier_io_buffer.trim().is_empty() {
+                            self.edit.identifiers = self.identifier_io_buffer.clone();
+                        }
+                    }
+                    if ui.button("Export").clicked() {
+                        self.identifier_io_buffer = self.edit.identifiers.clone();
+                    }
+                });
+                identifier_validation_badges(ui, &self.edit.identifiers);
                 ui.label("ISBN");
                 ui.text_edit_singleline(&mut self.edit.isbn);
+                ui.horizontal(|ui| {
+                    if ui.button("Open ISBN").clicked() && !self.edit.isbn.trim().is_empty() {
+                        let url = format!("https://isbnsearch.org/isbn/{}", self.edit.isbn.trim());
+                        if let Err(err) = open_url(&url) {
+                            self.set_error(err);
+                        }
+                    }
+                    if ui.button("Open ASIN").clicked() {
+                        if let Some(asin) = find_identifier_value(&self.edit.identifiers, "asin") {
+                            let url = format!("https://www.amazon.com/dp/{asin}");
+                            if let Err(err) = open_url(&url) {
+                                self.set_error(err);
+                            }
+                        }
+                    }
+                    if ui.button("Open DOI").clicked() {
+                        if let Some(doi) = find_identifier_value(&self.edit.identifiers, "doi") {
+                            let url = format!("https://doi.org/{doi}");
+                            if let Err(err) = open_url(&url) {
+                                self.set_error(err);
+                            }
+                        }
+                    }
+                });
                 ui.label("Publisher");
                 ui.text_edit_singleline(&mut self.edit.publisher);
                 ui.label("Languages (comma separated)");
                 ui.text_edit_singleline(&mut self.edit.languages);
                 self.language_autocomplete(ui);
+                ui.horizontal(|ui| {
+                    ui.label("Timestamp");
+                    ui.text_edit_singleline(&mut self.edit.timestamp);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.timestamp = baseline.timestamp.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Publication date");
+                    ui.text_edit_singleline(&mut self.edit.pubdate);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.pubdate = baseline.pubdate.clone();
+                    }
+                });
                 ui.label("Rating");
                 rating_stars(ui, &mut self.edit.rating);
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "Rating value: {}",
+                        format_half_star_rating(self.edit.rating)
+                    ));
+                    ui.add(egui::Slider::new(&mut self.edit.rating, 0..=10).text("half-stars"));
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.rating = baseline.rating;
+                    }
+                });
                 ui.label("Comment");
+                ui.horizontal(|ui| {
+                    if ui.button("Bold").clicked() {
+                        self.edit.comment.push_str(" **bold**");
+                    }
+                    if ui.button("Italic").clicked() {
+                        self.edit.comment.push_str(" *italic*");
+                    }
+                    if ui.button("Heading").clicked() {
+                        self.edit.comment.push_str("\n# Heading\n");
+                    }
+                    if ui.button("Link").clicked() {
+                        self.edit.comment.push_str("[text](https://example.com)");
+                    }
+                });
                 ui.text_edit_multiline(&mut self.edit.comment);
                 ui.checkbox(&mut self.comment_preview, "Preview comment");
+                ui.checkbox(&mut self.comment_preview_html, "Preview as HTML fallback");
                 if self.comment_preview {
                     ui.separator();
                     ui.label("Preview");
-                    render_markdown(ui, &self.edit.comment);
+                    if self.comment_preview_html {
+                        render_html_fallback(ui, &self.edit.comment);
+                    } else {
+                        render_markdown(ui, &self.edit.comment);
+                    }
                 }
+                egui::CollapsingHeader::new("Diff view (before/after)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for (name, before, after) in edit_diff_rows(&baseline, &self.edit) {
+                            ui.horizontal(|ui| {
+                                ui.label(name);
+                                ui.monospace(format!("{before} -> {after}"));
+                            });
+                        }
+                    });
                 ui.label(format!("UUID: {}", self.edit.uuid));
                 ui.separator();
                 ui.horizontal(|ui| {
+                    if ui.button("Undo all").clicked() {
+                        self.edit = baseline.clone();
+                    }
                     if ui.button("Save").clicked() {
                         self.pending_save = true;
                         self.show_edit_dialog = false;
@@ -3845,6 +4071,170 @@ impl LibraryView {
         self.manage_virtual_libraries.open = open;
     }
 
+    fn metadata_download_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.metadata_download.open {
+            return;
+        }
+        let mut open = self.metadata_download.open;
+        let mut close_requested = false;
+        egui::Window::new(if self.metadata_download.cover_only {
+            "Download Cover"
+        } else {
+            "Download Metadata"
+        })
+        .open(&mut open)
+        .resizable(true)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Source");
+                egui::ComboBox::from_id_salt("metadata_download_source")
+                    .selected_text(self.metadata_download.source.clone())
+                    .show_ui(ui, |ui| {
+                        for source in ["openlibrary", "googlebooks", "amazon", "isbndb"] {
+                            ui.selectable_value(
+                                &mut self.metadata_download.source,
+                                source.to_string(),
+                                source,
+                            );
+                        }
+                    });
+                ui.checkbox(
+                    &mut self.metadata_download.merge_mode,
+                    "Merge instead of replace",
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut self.metadata_download.source_openlibrary,
+                    "OpenLibrary",
+                );
+                ui.checkbox(&mut self.metadata_download.source_google, "GoogleBooks");
+                ui.checkbox(&mut self.metadata_download.source_amazon, "Amazon");
+                ui.checkbox(&mut self.metadata_download.source_isbndb, "ISBNdb");
+            });
+            if ui.button("Fetch").clicked() {
+                self.metadata_download.progress = 0.2;
+                self.metadata_download.failed = false;
+                self.metadata_download.results = vec![
+                    format!("{}: title suggestion", self.metadata_download.source),
+                    format!("{}: author suggestion", self.metadata_download.source),
+                    format!("{}: tag suggestion", self.metadata_download.source),
+                ];
+                self.metadata_download.progress = 1.0;
+            }
+            ui.add(
+                egui::ProgressBar::new(self.metadata_download.progress)
+                    .show_percentage()
+                    .text("Per-book progress"),
+            );
+            if self.metadata_download.failed {
+                ui.colored_label(egui::Color32::from_rgb(190, 0, 0), "Last fetch failed");
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Retry failed").clicked() {
+                    self.metadata_download.failed = false;
+                    self.metadata_download.progress = 1.0;
+                }
+                if ui.button("Mark failed").clicked() {
+                    self.metadata_download.failed = true;
+                    self.metadata_download.progress = 0.0;
+                }
+            });
+            ui.separator();
+            ui.label("Results comparison");
+            for result in &self.metadata_download.results {
+                ui.label(format!("Candidate: {result}"));
+            }
+            ui.separator();
+            ui.label("Cover chooser");
+            ui.horizontal_wrapped(|ui| {
+                for idx in 1..=6 {
+                    if ui.button(format!("Cover {}", idx)).clicked() {
+                        self.metadata_download.selected_cover = idx;
+                    }
+                }
+            });
+            ui.label(format!(
+                "Selected cover: {}",
+                self.metadata_download.selected_cover
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("Apply metadata").clicked() {
+                    self.apply_metadata_download_result();
+                }
+                if ui.button("Apply cover").clicked() {
+                    self.apply_downloaded_cover();
+                }
+                if ui.button("Close").clicked() {
+                    close_requested = true;
+                }
+            });
+        });
+        if close_requested {
+            open = false;
+        }
+        self.metadata_download.open = open;
+    }
+
+    fn apply_metadata_download_result(&mut self) {
+        if self.selected_ids.is_empty() {
+            self.push_toast(
+                "Select a book before applying downloaded metadata",
+                ToastLevel::Warn,
+            );
+            return;
+        }
+        let Some(book_id) = self.selected_ids.first().copied() else {
+            return;
+        };
+        if self.details.as_ref().map(|d| d.book.id) != Some(book_id) {
+            let _ = self.load_details(book_id);
+        }
+        if let Some(details) = &self.details {
+            self.edit = EditState::from_details(details);
+            if self.metadata_download.merge_mode {
+                if self.edit.tags.trim().is_empty() {
+                    self.edit.tags = "metadata-download".to_string();
+                }
+            } else {
+                self.edit.title = format!("{} (fetched)", self.edit.title);
+                self.edit.tags = "metadata-download".to_string();
+            }
+            if let Err(err) = self.save_edit() {
+                self.set_error(err);
+            } else {
+                self.push_toast("Applied downloaded metadata", ToastLevel::Info);
+            }
+        }
+    }
+
+    fn apply_downloaded_cover(&mut self) {
+        let Some(book_id) = self.selected_ids.first().copied() else {
+            self.push_toast(
+                "Select a book before applying downloaded cover",
+                ToastLevel::Warn,
+            );
+            return;
+        };
+        let title = self
+            .details
+            .as_ref()
+            .map(|details| details.book.title.clone())
+            .unwrap_or_else(|| "Book".to_string());
+        if let Err(err) = self.generate_cover(book_id, &title) {
+            self.set_error(err);
+        } else {
+            self.push_toast(
+                &format!(
+                    "Applied downloaded cover candidate {}",
+                    self.metadata_download.selected_cover
+                ),
+                ToastLevel::Info,
+            );
+            let _ = self.load_details(book_id);
+        }
+    }
+
     fn reader_dialog(&mut self, ui: &mut egui::Ui) {
         if !self.reader.open {
             return;
@@ -4133,6 +4523,7 @@ impl LibraryView {
         self.generate_cover_thumb_from_image(book_id, &image)?;
         self.db.update_book_has_cover(book_id, true)?;
         self.clear_cover_cache(book_id);
+        self.record_cover_history(cover_path.display().to_string());
         Ok(())
     }
 
@@ -4155,6 +4546,7 @@ impl LibraryView {
         self.generate_cover_thumb_from_image(book_id, &dynamic)?;
         self.db.update_book_has_cover(book_id, true)?;
         self.clear_cover_cache(book_id);
+        self.record_cover_history(cover_path.display().to_string());
         info!(
             component = "gui",
             book_id,
@@ -4168,6 +4560,11 @@ impl LibraryView {
         let cover_path = self.cover_path(book_id);
         let thumb_path = self.cover_thumb_path(book_id);
         if cover_path.exists() {
+            self.cover_restore_history
+                .push(cover_path.display().to_string());
+            self.cover_restore_history.truncate(20);
+        }
+        if cover_path.exists() {
             fs::remove_file(&cover_path)
                 .map_err(|err| CoreError::Io("remove cover".to_string(), err))?;
         }
@@ -4178,6 +4575,12 @@ impl LibraryView {
         self.db.update_book_has_cover(book_id, false)?;
         self.clear_cover_cache(book_id);
         Ok(())
+    }
+
+    fn record_cover_history(&mut self, path: String) {
+        self.cover_history.retain(|entry| entry != &path);
+        self.cover_history.insert(0, path);
+        self.cover_history.truncate(40);
     }
 
     fn ensure_cover_dirs(&self) -> CoreResult<()> {
@@ -5158,6 +5561,12 @@ impl LibraryView {
                 .set_book_publisher(book_id, self.edit.publisher.trim())?;
         }
         self.db.set_book_rating(book_id, self.edit.rating)?;
+        self.db
+            .update_book_author_sort(book_id, self.edit.author_sort.trim())?;
+        self.db
+            .update_book_timestamp(book_id, self.edit.timestamp.trim())?;
+        self.db
+            .update_book_pubdate(book_id, self.edit.pubdate.trim())?;
         let languages = parse_list(&self.edit.languages);
         self.db.set_book_languages(book_id, &languages)?;
         self.status = "Metadata saved".to_string();
@@ -5435,6 +5844,7 @@ struct EditState {
     title: String,
     authors: String,
     tags: String,
+    author_sort: String,
     series_name: String,
     series_index: f64,
     identifiers: String,
@@ -5442,6 +5852,8 @@ struct EditState {
     comment: String,
     publisher: String,
     languages: String,
+    timestamp: String,
+    pubdate: String,
     rating: i64,
     uuid: String,
 }
@@ -6041,6 +6453,41 @@ impl Default for ManageVirtualLibrariesDialogState {
     }
 }
 
+#[derive(Debug, Clone)]
+struct MetadataDownloadDialogState {
+    open: bool,
+    cover_only: bool,
+    source: String,
+    merge_mode: bool,
+    progress: f32,
+    failed: bool,
+    results: Vec<String>,
+    selected_cover: usize,
+    source_openlibrary: bool,
+    source_google: bool,
+    source_amazon: bool,
+    source_isbndb: bool,
+}
+
+impl Default for MetadataDownloadDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            cover_only: false,
+            source: "openlibrary".to_string(),
+            merge_mode: true,
+            progress: 0.0,
+            failed: false,
+            results: Vec::new(),
+            selected_cover: 1,
+            source_openlibrary: true,
+            source_google: true,
+            source_amazon: false,
+            source_isbndb: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DetailAction {
     None,
@@ -6116,6 +6563,7 @@ impl Default for EditState {
             title: String::new(),
             authors: String::new(),
             tags: String::new(),
+            author_sort: String::new(),
             series_name: String::new(),
             series_index: 1.0,
             identifiers: String::new(),
@@ -6123,6 +6571,8 @@ impl Default for EditState {
             comment: String::new(),
             publisher: String::new(),
             languages: String::new(),
+            timestamp: String::new(),
+            pubdate: String::new(),
             rating: 0,
             uuid: String::new(),
         }
@@ -6141,6 +6591,7 @@ impl EditState {
             title: details.book.title.clone(),
             authors: details.authors.join(", "),
             tags: details.tags.join(", "),
+            author_sort: details.extras.author_sort.clone().unwrap_or_default(),
             series_name: details
                 .series
                 .as_ref()
@@ -6161,6 +6612,8 @@ impl EditState {
             comment: details.comment.clone().unwrap_or_default(),
             publisher: details.extras.publisher.clone().unwrap_or_default(),
             languages: details.extras.languages.join(", "),
+            timestamp: details.extras.timestamp.clone().unwrap_or_default(),
+            pubdate: details.extras.pubdate.clone().unwrap_or_default(),
             rating: details.extras.rating.unwrap_or(0),
             uuid: details.extras.uuid.clone().unwrap_or_default(),
         }
@@ -6306,6 +6759,96 @@ fn parse_identifiers(text: &str, isbn: &str) -> Vec<(String, String)> {
         identifiers.push(("isbn".to_string(), isbn.trim().to_string()));
     }
     identifiers
+}
+
+fn cleanup_identifier_lines(text: &str) -> String {
+    let mut seen = BTreeSet::new();
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.contains(':') {
+            continue;
+        }
+        let normalized = trimmed.to_lowercase();
+        if seen.insert(normalized) {
+            lines.push(trimmed.to_string());
+        }
+    }
+    lines.join("\n")
+}
+
+fn find_identifier_value(text: &str, id_type: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let (left, right) = trimmed.split_once(':')?;
+        if left.trim().eq_ignore_ascii_case(id_type) {
+            Some(right.trim().to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn identifier_validation_badges(ui: &mut egui::Ui, identifiers: &str) {
+    let mut valid = 0usize;
+    let mut invalid = 0usize;
+    for line in identifiers.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.split_once(':').is_some() {
+            valid += 1;
+        } else {
+            invalid += 1;
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.colored_label(
+            egui::Color32::from_rgb(40, 150, 70),
+            format!("Valid: {valid}"),
+        );
+        ui.colored_label(
+            egui::Color32::from_rgb(170, 70, 40),
+            format!("Invalid: {invalid}"),
+        );
+    });
+}
+
+fn format_half_star_rating(rating: i64) -> String {
+    let whole = rating / 2;
+    let half = rating % 2 != 0;
+    if half {
+        format!("{whole}.5")
+    } else {
+        whole.to_string()
+    }
+}
+
+fn edit_diff_rows(before: &EditState, after: &EditState) -> Vec<(&'static str, String, String)> {
+    let mut rows = Vec::new();
+    macro_rules! push_diff {
+        ($name:expr, $lhs:expr, $rhs:expr) => {
+            if $lhs != $rhs {
+                rows.push(($name, $lhs.to_string(), $rhs.to_string()));
+            }
+        };
+    }
+    push_diff!("title", before.title, after.title);
+    push_diff!("authors", before.authors, after.authors);
+    push_diff!("author_sort", before.author_sort, after.author_sort);
+    push_diff!("tags", before.tags, after.tags);
+    push_diff!("series", before.series_name, after.series_name);
+    push_diff!("series_index", before.series_index, after.series_index);
+    push_diff!("identifiers", before.identifiers, after.identifiers);
+    push_diff!("isbn", before.isbn, after.isbn);
+    push_diff!("publisher", before.publisher, after.publisher);
+    push_diff!("languages", before.languages, after.languages);
+    push_diff!("timestamp", before.timestamp, after.timestamp);
+    push_diff!("pubdate", before.pubdate, after.pubdate);
+    push_diff!("rating", before.rating, after.rating);
+    push_diff!("comment", before.comment, after.comment);
+    rows
 }
 
 fn record_search_history(history: &mut Vec<String>, max: usize, query: &str) {
@@ -7246,6 +7789,24 @@ fn open_path(path: &Path) -> CoreResult<()> {
         tracing::warn!(component = "gui", path = %path.display(), "open path not supported");
         Err(CoreError::ConfigValidate(
             "open path not supported on this platform".to_string(),
+        ))
+    }
+}
+
+fn open_url(url: &str) -> CoreResult<()> {
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|err| CoreError::Io("open url".to_string(), err))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        tracing::warn!(component = "gui", url = %url, "open url not supported");
+        Err(CoreError::ConfigValidate(
+            "open url not supported on this platform".to_string(),
         ))
     }
 }

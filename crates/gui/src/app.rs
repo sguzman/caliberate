@@ -1069,20 +1069,10 @@ impl CaliberateApp {
                 );
             }
             AppAction::OpenDownloadMetadata => {
-                self.library
-                    .notify_unimplemented("Download metadata is not implemented yet");
-                info!(
-                    component = "gui_shell",
-                    "triggered download metadata placeholder action"
-                );
+                self.library.open_download_metadata();
             }
             AppAction::OpenDownloadCover => {
-                self.library
-                    .notify_unimplemented("Download cover is not implemented yet");
-                info!(
-                    component = "gui_shell",
-                    "triggered download cover placeholder action"
-                );
+                self.library.open_download_cover();
             }
             AppAction::OpenEditMetadataBulk => {
                 self.library.open_bulk_edit();
