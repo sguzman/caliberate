@@ -1784,15 +1784,15 @@ fn default_gui_layout_preset() -> String {
 }
 
 fn default_gui_user_manual_url() -> String {
-    "https://manual.calibre-ebook.com/".to_string()
+    "https://github.com/sguzman/caliberate".to_string()
 }
 
 fn default_gui_project_home_url() -> String {
-    "https://calibre-ebook.com/".to_string()
+    "https://github.com/sguzman/caliberate".to_string()
 }
 
 fn default_gui_report_issue_url() -> String {
-    "https://github.com/kovidgoyal/calibre/issues".to_string()
+    "https://github.com/sguzman/caliberate/issues".to_string()
 }
 
 fn default_server_download_enabled() -> bool {
