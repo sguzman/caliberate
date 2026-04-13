@@ -28,3 +28,13 @@
 - [x] Add reading mode presets
 - [x] Add text justification toggle
 - [x] Add hyphenation toggle
+
+## Parity Gap Backlog
+- [ ] Implement format-specific reader loaders for EPUB/PDF/MOBI with richer structured extraction
+- [ ] Replace heading-scan TOC generation with source-native TOC parsing (NCX/nav/PDF outline)
+- [ ] Add chapter navigation bound to parsed TOC hierarchy (parent/child entries)
+- [ ] Persist highlights/notes into database tables instead of in-memory reader state only
+- [ ] Add robust text selection anchors (offset/range) resilient to pagination/font-size changes
+- [ ] Add internal link/footnote navigation and back-stack inside reader view
+- [ ] Add per-book renderer profile selection (paged/flow, hyphenation, margins) persisted to config
+- [ ] Add search result snippets with nearby context and highlight jump synchronization

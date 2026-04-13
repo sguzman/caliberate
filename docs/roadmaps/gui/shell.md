@@ -91,3 +91,9 @@
 - [x] Refactor random-book selection to deterministic helper function with seed input
 - [x] Add unit test coverage for random index helper empty-input behavior
 - [x] Add unit test coverage for random index helper modulo behavior
+
+## Parity Gap Backlog
+- [ ] Expand command palette coverage to include every visible menu action (single action registry source)
+- [ ] Persist user-edited shortcut bindings (not only preset choice) in control-plane config
+- [ ] Implement full Jobs pane parity with queue filtering and per-job detail drill-down from shell
+- [ ] Add recent-action history panel with replay for deterministic shell workflow auditing

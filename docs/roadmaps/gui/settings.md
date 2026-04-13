@@ -49,3 +49,9 @@
 - [x] Keep pane-aware default-open behavior for behavior section subpanes
 - [x] Keep pane-aware default-open behavior for advanced/system subpanes
 - [x] Keep pane-aware default-open behavior for look-and-feel/import-export subpanes
+
+## Parity Gap Backlog
+- [ ] Add explicit preference schema versioning and migration status panel in GUI settings
+- [ ] Add config diff preview dialog before saving edited preferences
+- [ ] Add plugin-provided preference pane registration with typed setting schema rendering
+- [ ] Add per-device preferences management UI backed by persisted device profile entries

@@ -17,3 +17,11 @@
 - [x] Add open news in reader action
 - [x] Add news collection grouping in library view
 - [x] Add news auto-delete retention settings UI
+
+## Parity Gap Backlog
+- [ ] Replace generated placeholder digest writer with real article fetch pipeline per source
+- [ ] Implement recipe execution engine compatible with imported recipe definitions
+- [ ] Build real news issue packaging (HTML/EPUB) instead of plain `.txt` placeholder files
+- [ ] Add per-source fetch deduplication (source + publication date + article URL hash)
+- [ ] Persist per-source fetch cursor/checkpoint to avoid re-import loops after restart
+- [ ] Add article-level preview pane and link list in news manager dialog
