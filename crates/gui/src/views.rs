@@ -1094,6 +1094,9 @@ impl LibraryView {
             if let Err(err) = self.load_edit_custom_fields(book_id) {
                 self.set_error(err);
             }
+            if let Err(err) = self.load_publish_slots(book_id) {
+                self.set_error(err);
+            }
         }
     }
 
@@ -3340,6 +3343,8 @@ impl LibraryView {
         let mut request_undo = false;
         let mut request_generate_uuid = false;
         let mut request_copy_identifiers = false;
+        let mut request_normalize = false;
+        let mut request_resolve = false;
         egui::Window::new("Edit Metadata")
             .open(&mut open)
             .resizable(true)
@@ -3357,8 +3362,14 @@ impl LibraryView {
                 request_copy_identifiers = ui
                     .ctx()
                     .input(|i| i.modifiers.command && i.key_pressed(egui::Key::I));
+                request_normalize = ui.ctx().input(|i| {
+                    i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::N)
+                });
+                request_resolve = ui.ctx().input(|i| {
+                    i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::F)
+                });
                 ui.small(
-                    "Shortcuts: Ctrl/Cmd+S save, Esc cancel, Ctrl/Cmd+R undo, Ctrl/Cmd+G UUID, Ctrl/Cmd+I copy IDs",
+                    "Shortcuts: Ctrl/Cmd+S save, Esc cancel, Ctrl/Cmd+R undo, Ctrl/Cmd+G UUID, Ctrl/Cmd+I copy IDs, Ctrl/Cmd+Shift+N normalize, Ctrl/Cmd+Shift+F auto-fix",
                 );
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -3505,6 +3516,27 @@ impl LibraryView {
                 });
                 ui.label("Publisher");
                 ui.text_edit_singleline(&mut self.edit.publisher);
+                ui.horizontal(|ui| {
+                    ui.label("Imprint");
+                    ui.text_edit_singleline(&mut self.edit.imprint);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.imprint = baseline.imprint.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Edition");
+                    ui.text_edit_singleline(&mut self.edit.edition);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.edition = baseline.edition.clone();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rights");
+                    ui.text_edit_singleline(&mut self.edit.rights);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.rights = baseline.rights.clone();
+                    }
+                });
                 ui.label("Languages (comma separated)");
                 ui.text_edit_singleline(&mut self.edit.languages);
                 self.language_autocomplete(ui);
@@ -3661,6 +3693,37 @@ impl LibraryView {
                     .default_open(false)
                     .show(ui, |ui| {
                         let issues = collect_edit_validation_issues(&self.edit);
+                        ui.horizontal(|ui| {
+                            if ui.button("Normalize fields").clicked() {
+                                self.edit.authors = normalize_csv_list(&self.edit.authors, false);
+                                self.edit.tags = normalize_csv_list(&self.edit.tags, false);
+                                self.edit.languages = normalize_csv_list(&self.edit.languages, true);
+                                self.edit.identifiers = normalize_identifier_lines(&self.edit.identifiers);
+                                self.edit.publisher = self.edit.publisher.trim().to_string();
+                                self.edit.imprint = self.edit.imprint.trim().to_string();
+                                self.edit.edition = self.edit.edition.trim().to_string();
+                                self.edit.rights = self.edit.rights.trim().to_string();
+                            }
+                            if ui.button("Auto-fix conflicts").clicked() {
+                                self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
+                                if !is_loose_date_or_datetime(self.edit.pubdate.trim()) {
+                                    self.edit.pubdate = current_date_ymd();
+                                }
+                                if !is_loose_date_or_datetime(self.edit.timestamp.trim()) {
+                                    self.edit.timestamp = current_date_ymd();
+                                }
+                                if !is_loose_date_or_datetime(self.edit.last_modified.trim()) {
+                                    if let Ok(now) = now_timestamp() {
+                                        self.edit.last_modified = now;
+                                    } else {
+                                        self.edit.last_modified = current_date_ymd();
+                                    }
+                                }
+                                if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
+                                    self.edit.uuid = uuid::Uuid::new_v4().to_string();
+                                }
+                            }
+                        });
                         for issue in &issues {
                             ui.colored_label(egui::Color32::from_rgb(180, 40, 40), issue);
                         }
@@ -3683,8 +3746,11 @@ impl LibraryView {
                 ui.horizontal(|ui| {
                     if ui.button("Undo all").clicked() {
                         self.edit = baseline.clone();
-                        if let Some(details) = &self.details {
-                            if let Err(err) = self.load_edit_custom_fields(details.book.id) {
+                        if let Some(book_id) = self.details.as_ref().map(|details| details.book.id) {
+                            if let Err(err) = self.load_edit_custom_fields(book_id) {
+                                self.set_error(err);
+                            }
+                            if let Err(err) = self.load_publish_slots(book_id) {
                                 self.set_error(err);
                             }
                         }
@@ -3705,10 +3771,40 @@ impl LibraryView {
         if request_copy_identifiers {
             ui.ctx().copy_text(self.edit.identifiers.clone());
         }
+        if request_normalize {
+            self.edit.authors = normalize_csv_list(&self.edit.authors, false);
+            self.edit.tags = normalize_csv_list(&self.edit.tags, false);
+            self.edit.languages = normalize_csv_list(&self.edit.languages, true);
+            self.edit.identifiers = normalize_identifier_lines(&self.edit.identifiers);
+            self.edit.publisher = self.edit.publisher.trim().to_string();
+            self.edit.imprint = self.edit.imprint.trim().to_string();
+            self.edit.edition = self.edit.edition.trim().to_string();
+            self.edit.rights = self.edit.rights.trim().to_string();
+        }
+        if request_resolve {
+            self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
+            if !is_loose_date_or_datetime(self.edit.pubdate.trim()) {
+                self.edit.pubdate = current_date_ymd();
+            }
+            if !is_loose_date_or_datetime(self.edit.timestamp.trim()) {
+                self.edit.timestamp = current_date_ymd();
+            }
+            if !is_loose_date_or_datetime(self.edit.last_modified.trim()) {
+                if let Ok(now) = now_timestamp() {
+                    self.edit.last_modified = now;
+                }
+            }
+            if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
+                self.edit.uuid = uuid::Uuid::new_v4().to_string();
+            }
+        }
         if request_undo {
             self.edit = baseline.clone();
-            if let Some(details) = &self.details {
-                if let Err(err) = self.load_edit_custom_fields(details.book.id) {
+            if let Some(book_id) = self.details.as_ref().map(|details| details.book.id) {
+                if let Err(err) = self.load_edit_custom_fields(book_id) {
+                    self.set_error(err);
+                }
+                if let Err(err) = self.load_publish_slots(book_id) {
                     self.set_error(err);
                 }
             }
@@ -8195,6 +8291,7 @@ impl LibraryView {
         if let Some(details) = &self.details {
             self.edit = EditState::from_details(details);
             self.load_edit_custom_fields(id)?;
+            self.load_publish_slots(id)?;
         }
         self.edit_mode = false;
         self.note_input.clear();
@@ -8550,6 +8647,9 @@ impl LibraryView {
             if let Err(err) = self.load_edit_custom_fields(book_id) {
                 self.set_error(err);
             }
+            if let Err(err) = self.load_publish_slots(book_id) {
+                self.set_error(err);
+            }
         }
         self.edit_mode = false;
         self.status = "Edit cancelled".to_string();
@@ -8615,6 +8715,7 @@ impl LibraryView {
             self.db
                 .set_custom_value(book_id, field.label.as_str(), field.value.as_str())?;
         }
+        self.save_publish_slots(book_id)?;
         let languages = parse_list(&self.edit.languages);
         self.db.set_book_languages(book_id, &languages)?;
         self.status = "Metadata saved".to_string();
@@ -8644,6 +8745,52 @@ impl LibraryView {
             });
         }
         self.edit_custom_fields = fields;
+        Ok(())
+    }
+
+    fn ensure_publish_slot_columns(&self) -> CoreResult<()> {
+        let existing = self
+            .db
+            .list_custom_columns()?
+            .into_iter()
+            .map(|column| column.label)
+            .collect::<HashSet<_>>();
+        for (label, name) in [
+            ("imprint", "Imprint"),
+            ("edition", "Edition"),
+            ("rights", "Rights"),
+        ] {
+            if !existing.contains(label) {
+                let _ = self.db.create_custom_column(label, name, "text", "");
+            }
+        }
+        Ok(())
+    }
+
+    fn load_publish_slots(&mut self, book_id: i64) -> CoreResult<()> {
+        self.ensure_publish_slot_columns()?;
+        self.edit.imprint = self
+            .db
+            .get_custom_value(book_id, "imprint")?
+            .unwrap_or_default();
+        self.edit.edition = self
+            .db
+            .get_custom_value(book_id, "edition")?
+            .unwrap_or_default();
+        self.edit.rights = self
+            .db
+            .get_custom_value(book_id, "rights")?
+            .unwrap_or_default();
+        Ok(())
+    }
+
+    fn save_publish_slots(&self, book_id: i64) -> CoreResult<()> {
+        self.db
+            .set_custom_value(book_id, "imprint", self.edit.imprint.trim())?;
+        self.db
+            .set_custom_value(book_id, "edition", self.edit.edition.trim())?;
+        self.db
+            .set_custom_value(book_id, "rights", self.edit.rights.trim())?;
         Ok(())
     }
 
@@ -9269,6 +9416,9 @@ struct EditState {
     isbn: String,
     comment: String,
     publisher: String,
+    imprint: String,
+    edition: String,
+    rights: String,
     languages: String,
     timestamp: String,
     pubdate: String,
@@ -10851,6 +11001,9 @@ impl Default for EditState {
             isbn: String::new(),
             comment: String::new(),
             publisher: String::new(),
+            imprint: String::new(),
+            edition: String::new(),
+            rights: String::new(),
             languages: String::new(),
             timestamp: String::new(),
             pubdate: String::new(),
@@ -10900,6 +11053,9 @@ impl EditState {
             isbn,
             comment: details.comment.clone().unwrap_or_default(),
             publisher: details.extras.publisher.clone().unwrap_or_default(),
+            imprint: String::new(),
+            edition: String::new(),
+            rights: String::new(),
             languages: details.extras.languages.join(", "),
             timestamp: details.extras.timestamp.clone().unwrap_or_default(),
             pubdate: pubdate_text,
@@ -11392,6 +11548,10 @@ fn cleanup_identifier_lines(text: &str) -> String {
     lines.join("\n")
 }
 
+fn dedupe_identifier_lines(text: &str) -> String {
+    normalize_identifier_lines(text)
+}
+
 fn find_identifier_value(text: &str, id_type: &str) -> Option<String> {
     text.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -11582,6 +11742,9 @@ fn edit_diff_rows(before: &EditState, after: &EditState) -> Vec<(&'static str, S
     push_diff!("identifiers", before.identifiers, after.identifiers);
     push_diff!("isbn", before.isbn, after.isbn);
     push_diff!("publisher", before.publisher, after.publisher);
+    push_diff!("imprint", before.imprint, after.imprint);
+    push_diff!("edition", before.edition, after.edition);
+    push_diff!("rights", before.rights, after.rights);
     push_diff!("languages", before.languages, after.languages);
     push_diff!("timestamp", before.timestamp, after.timestamp);
     push_diff!("pubdate", before.pubdate, after.pubdate);

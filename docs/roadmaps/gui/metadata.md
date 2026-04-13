@@ -1,7 +1,7 @@
 # GUI Metadata Roadmap
 
 ## Metadata Editor
-- [ ] Implement full Calibre metadata editor field set
+- [x] Implement full Calibre metadata editor field set
 - [x] Add title-sort derive/reset controls in metadata editor
 - [x] Add UUID edit/regenerate/copy workflow with validation
 - [x] Add last-modified edit control with quick-set helper
@@ -11,9 +11,9 @@
 - [x] Add calibre-parity publish metadata fields beyond current core set
 - [x] Add metadata editor keyboard navigation parity and shortcut coverage
 - [x] Add metadata editor field-level help text and inline conflict hints
-- [ ] Add additional publish metadata slots (imprint/edition/rights) with persistence strategy
-- [ ] Expand shortcut map to full calibre-like edit workflow coverage
-- [ ] Add field-level conflict auto-resolution actions (not just warnings)
+- [x] Add additional publish metadata slots (imprint/edition/rights) with persistence strategy
+- [x] Expand shortcut map to full calibre-like edit workflow coverage
+- [x] Add field-level conflict auto-resolution actions (not just warnings)
 - [x] Add per-field reset controls for primary metadata fields
 - [x] Add global undo-all reset in metadata editor dialog
 - [x] Add metadata diff view (before/after)

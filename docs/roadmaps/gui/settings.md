@@ -1,7 +1,7 @@
 # GUI Settings Roadmap
 
 ## Preferences Parity
-- [ ] Add full Calibre preferences tree (all sections + subpanes)
+- [x] Add full Calibre preferences tree (all sections + subpanes)
 - [x] Add section tabs for `Behavior`, `Look & Feel`, `Import/Export`, `Advanced`, `System`
 - [x] Add search within preferences
 - [x] Add per-section reset to defaults

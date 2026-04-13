@@ -13,6 +13,7 @@ pub struct PreferencesView {
     last_error: Option<String>,
     restart_required: bool,
     active_section: PrefSection,
+    active_pane: PrefPane,
     section_filter_query: String,
     export_path_input: String,
     import_path_input: String,
@@ -28,6 +29,7 @@ impl PreferencesView {
             last_error: None,
             restart_required: false,
             active_section: PrefSection::Behavior,
+            active_pane: PrefPane::BehaviorAssets,
             section_filter_query: String::new(),
             export_path_input: config
                 .paths
@@ -121,34 +123,46 @@ impl PreferencesView {
             );
         }
         ui.separator();
-        self.section_tabs(ui);
-        ui.horizontal(|ui| {
-            ui.label("Search settings");
-            ui.text_edit_singleline(&mut self.section_filter_query);
-            if ui.button("Clear").clicked() {
-                self.section_filter_query.clear();
-            }
-            if ui
-                .add_enabled(self.edit_mode, egui::Button::new("Reset section"))
-                .clicked()
-            {
-                self.reset_active_section_to_defaults();
-                self.status = format!("Reset {} to defaults", self.active_section.label());
-                info!(
-                    component = "gui_preferences",
-                    section = self.active_section.label(),
-                    "reset preferences section to defaults"
-                );
+        ui.columns(2, |columns| {
+            columns[0].heading("Preferences Tree");
+            self.preferences_tree(&mut columns[0]);
+            columns[0].separator();
+            self.section_tabs(&mut columns[0]);
+            columns[0].horizontal(|ui| {
+                ui.label("Search settings");
+                ui.text_edit_singleline(&mut self.section_filter_query);
+                if ui.button("Clear").clicked() {
+                    self.section_filter_query.clear();
+                }
+            });
+            columns[0].separator();
+            columns[0].label(format!("Focused pane: {}", self.active_pane.label()));
+
+            columns[1].horizontal(|ui| {
+                if ui
+                    .add_enabled(self.edit_mode, egui::Button::new("Reset section"))
+                    .clicked()
+                {
+                    self.reset_active_section_to_defaults();
+                    self.status = format!("Reset {} to defaults", self.active_section.label());
+                    info!(
+                        component = "gui_preferences",
+                        section = self.active_section.label(),
+                        "reset preferences section to defaults"
+                    );
+                }
+            });
+            columns[1].separator();
+            match self.active_section {
+                PrefSection::Behavior => self.render_behavior_section(&mut columns[1], config),
+                PrefSection::LookAndFeel => self.render_look_feel_section(&mut columns[1], config),
+                PrefSection::ImportExport => {
+                    self.render_import_export_section(&mut columns[1], config)
+                }
+                PrefSection::Advanced => self.render_advanced_section(&mut columns[1], config),
+                PrefSection::System => self.render_system_section(&mut columns[1], config),
             }
         });
-        ui.separator();
-        match self.active_section {
-            PrefSection::Behavior => self.render_behavior_section(ui, config),
-            PrefSection::LookAndFeel => self.render_look_feel_section(ui, config),
-            PrefSection::ImportExport => self.render_import_export_section(ui, config),
-            PrefSection::Advanced => self.render_advanced_section(ui, config),
-            PrefSection::System => self.render_system_section(ui, config),
-        }
 
         Ok(())
     }
@@ -172,22 +186,27 @@ impl PreferencesView {
 
     pub fn open_section_behavior(&mut self) {
         self.active_section = PrefSection::Behavior;
+        self.active_pane = PrefPane::BehaviorAssets;
     }
 
     pub fn open_section_look_and_feel(&mut self) {
         self.active_section = PrefSection::LookAndFeel;
+        self.active_pane = PrefPane::LookGui;
     }
 
     pub fn open_section_import_export(&mut self) {
         self.active_section = PrefSection::ImportExport;
+        self.active_pane = PrefPane::ImportExportPrefs;
     }
 
     pub fn open_section_advanced(&mut self) {
         self.active_section = PrefSection::Advanced;
+        self.active_pane = PrefPane::AdvancedServer;
     }
 
     pub fn open_section_system(&mut self) {
         self.active_section = PrefSection::System;
+        self.active_pane = PrefPane::SystemApp;
     }
 
     fn section_tabs(&mut self, ui: &mut egui::Ui) {
@@ -202,14 +221,46 @@ impl PreferencesView {
                     .clicked()
                 {
                     self.active_section = section;
+                    if let Some(first) = PrefPane::for_section(section).first().copied() {
+                        self.active_pane = first;
+                    }
                 }
             }
         });
     }
 
+    fn preferences_tree(&mut self, ui: &mut egui::Ui) {
+        let query = self.section_filter_query.trim().to_lowercase();
+        for section in PrefSection::all() {
+            let panes = PrefPane::for_section(section);
+            let matches_section = query.is_empty()
+                || section.label().to_lowercase().contains(&query)
+                || panes
+                    .iter()
+                    .any(|pane| pane.label().to_lowercase().contains(&query));
+            if !matches_section {
+                continue;
+            }
+            ui.collapsing(section.label(), |ui| {
+                for pane in panes {
+                    if !query.is_empty() && !pane.label().to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    if ui
+                        .selectable_label(self.active_pane == *pane, pane.label())
+                        .clicked()
+                    {
+                        self.active_pane = *pane;
+                        self.active_section = pane.section();
+                    }
+                }
+            });
+        }
+    }
+
     fn render_system_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("App")
-            .default_open(true)
+            .default_open(matches!(self.active_pane, PrefPane::SystemApp))
             .show(ui, |ui| {
                 ui.label(format!("Name: {}", config.app.name));
                 ui.label(format!("Environment: {}", config.app.environment));
@@ -218,7 +269,7 @@ impl PreferencesView {
             });
 
         egui::CollapsingHeader::new("Paths")
-            .default_open(true)
+            .default_open(matches!(self.active_pane, PrefPane::SystemPaths))
             .show(ui, |ui| {
                 if self.edit_mode {
                     ui.horizontal(|ui| {
@@ -250,40 +301,42 @@ impl PreferencesView {
                 }
             });
 
-        egui::CollapsingHeader::new("Logging").show(ui, |ui| {
-            if self.edit_mode {
-                ui.horizontal(|ui| {
-                    ui.label("Level");
-                    egui::ComboBox::from_id_salt("logging_level")
-                        .selected_text(self.state.logging_level.clone())
-                        .show_ui(ui, |ui| {
-                            for level in ["trace", "debug", "info", "warn", "error"] {
-                                ui.selectable_value(
-                                    &mut self.state.logging_level,
-                                    level.to_string(),
-                                    level,
-                                );
-                            }
-                        });
-                });
-                ui.checkbox(&mut self.state.logging_json, "JSON logging");
-                ui.checkbox(&mut self.state.logging_stdout, "Stdout");
-                ui.checkbox(&mut self.state.logging_file_enabled, "File enabled");
-            } else {
-                ui.label(format!("Level: {}", config.logging.level));
-                ui.label(format!("JSON: {}", config.logging.json));
-                ui.label(format!("Stdout: {}", config.logging.stdout));
-                ui.label(format!("File enabled: {}", config.logging.file_enabled));
-            }
-            ui.label(format!(
-                "File max size MB: {}",
-                config.logging.file_max_size_mb
-            ));
-            ui.label(format!(
-                "File max backups: {}",
-                config.logging.file_max_backups
-            ));
-        });
+        egui::CollapsingHeader::new("Logging")
+            .default_open(matches!(self.active_pane, PrefPane::SystemLogging))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("Level");
+                        egui::ComboBox::from_id_salt("logging_level")
+                            .selected_text(self.state.logging_level.clone())
+                            .show_ui(ui, |ui| {
+                                for level in ["trace", "debug", "info", "warn", "error"] {
+                                    ui.selectable_value(
+                                        &mut self.state.logging_level,
+                                        level.to_string(),
+                                        level,
+                                    );
+                                }
+                            });
+                    });
+                    ui.checkbox(&mut self.state.logging_json, "JSON logging");
+                    ui.checkbox(&mut self.state.logging_stdout, "Stdout");
+                    ui.checkbox(&mut self.state.logging_file_enabled, "File enabled");
+                } else {
+                    ui.label(format!("Level: {}", config.logging.level));
+                    ui.label(format!("JSON: {}", config.logging.json));
+                    ui.label(format!("Stdout: {}", config.logging.stdout));
+                    ui.label(format!("File enabled: {}", config.logging.file_enabled));
+                }
+                ui.label(format!(
+                    "File max size MB: {}",
+                    config.logging.file_max_size_mb
+                ));
+                ui.label(format!(
+                    "File max backups: {}",
+                    config.logging.file_max_backups
+                ));
+            });
 
         egui::CollapsingHeader::new("Database").show(ui, |ui| {
             if self.edit_mode {
@@ -308,300 +361,314 @@ impl PreferencesView {
             }
         });
 
-        egui::CollapsingHeader::new("Network").show(ui, |ui| {
-            if self.edit_mode {
-                ui.horizontal(|ui| {
-                    ui.label("HTTP proxy");
-                    ui.text_edit_singleline(&mut self.state.network_http_proxy);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("HTTPS proxy");
-                    ui.text_edit_singleline(&mut self.state.network_https_proxy);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("No proxy");
-                    ui.text_edit_singleline(&mut self.state.network_no_proxy);
-                });
-                ui.checkbox(&mut self.state.network_offline_mode, "Offline mode");
-                ui.horizontal(|ui| {
-                    ui.label("DNS mode");
-                    egui::ComboBox::from_id_salt("network_dns_mode")
-                        .selected_text(self.state.network_dns_mode.clone())
-                        .show_ui(ui, |ui| {
-                            for mode in ["system", "doh_cloudflare", "doh_google"] {
-                                ui.selectable_value(
-                                    &mut self.state.network_dns_mode,
-                                    mode.to_string(),
-                                    mode,
-                                );
-                            }
-                        });
-                });
-            } else {
-                ui.label(format!("HTTP proxy: {}", config.network.http_proxy));
-                ui.label(format!("HTTPS proxy: {}", config.network.https_proxy));
-                ui.label(format!("No proxy: {}", config.network.no_proxy));
-                ui.label(format!("Offline mode: {}", config.network.offline_mode));
-                ui.label(format!("DNS mode: {}", config.network.dns_mode));
-            }
-        });
+        egui::CollapsingHeader::new("Network")
+            .default_open(matches!(self.active_pane, PrefPane::SystemNetwork))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("HTTP proxy");
+                        ui.text_edit_singleline(&mut self.state.network_http_proxy);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("HTTPS proxy");
+                        ui.text_edit_singleline(&mut self.state.network_https_proxy);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("No proxy");
+                        ui.text_edit_singleline(&mut self.state.network_no_proxy);
+                    });
+                    ui.checkbox(&mut self.state.network_offline_mode, "Offline mode");
+                    ui.horizontal(|ui| {
+                        ui.label("DNS mode");
+                        egui::ComboBox::from_id_salt("network_dns_mode")
+                            .selected_text(self.state.network_dns_mode.clone())
+                            .show_ui(ui, |ui| {
+                                for mode in ["system", "doh_cloudflare", "doh_google"] {
+                                    ui.selectable_value(
+                                        &mut self.state.network_dns_mode,
+                                        mode.to_string(),
+                                        mode,
+                                    );
+                                }
+                            });
+                    });
+                } else {
+                    ui.label(format!("HTTP proxy: {}", config.network.http_proxy));
+                    ui.label(format!("HTTPS proxy: {}", config.network.https_proxy));
+                    ui.label(format!("No proxy: {}", config.network.no_proxy));
+                    ui.label(format!("Offline mode: {}", config.network.offline_mode));
+                    ui.label(format!("DNS mode: {}", config.network.dns_mode));
+                }
+            });
     }
 
     fn render_behavior_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
-        egui::CollapsingHeader::new("Assets").show(ui, |ui| {
-            if self.edit_mode {
-                ui.checkbox(&mut self.state.assets_compress_raw, "Compress raw assets");
-                ui.checkbox(
-                    &mut self.state.assets_compress_metadata,
-                    "Compress metadata DB",
-                );
-            } else {
+        egui::CollapsingHeader::new("Assets")
+            .default_open(matches!(self.active_pane, PrefPane::BehaviorAssets))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.checkbox(&mut self.state.assets_compress_raw, "Compress raw assets");
+                    ui.checkbox(
+                        &mut self.state.assets_compress_metadata,
+                        "Compress metadata DB",
+                    );
+                } else {
+                    ui.label(format!(
+                        "Compress raw assets: {}",
+                        config.assets.compress_raw_assets
+                    ));
+                    ui.label(format!(
+                        "Compress metadata DB: {}",
+                        config.assets.compress_metadata_db
+                    ));
+                }
+                ui.label(format!("Hash algorithm: {}", config.assets.hash_algorithm));
+                ui.label(format!("Hash on ingest: {}", config.assets.hash_on_ingest));
                 ui.label(format!(
-                    "Compress raw assets: {}",
-                    config.assets.compress_raw_assets
+                    "Verify checksum: {}",
+                    config.assets.verify_checksum
                 ));
                 ui.label(format!(
-                    "Compress metadata DB: {}",
-                    config.assets.compress_metadata_db
+                    "Compression level: {}",
+                    config.assets.compression_level
                 ));
-            }
-            ui.label(format!("Hash algorithm: {}", config.assets.hash_algorithm));
-            ui.label(format!("Hash on ingest: {}", config.assets.hash_on_ingest));
-            ui.label(format!(
-                "Verify checksum: {}",
-                config.assets.verify_checksum
-            ));
-            ui.label(format!(
-                "Compression level: {}",
-                config.assets.compression_level
-            ));
-        });
+            });
 
-        egui::CollapsingHeader::new("Ingest").show(ui, |ui| {
-            if self.edit_mode {
-                ui.horizontal(|ui| {
-                    ui.label("Default mode");
-                    egui::ComboBox::from_id_salt("ingest_default_mode")
-                        .selected_text(format!("{:?}", self.state.ingest_default_mode))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.state.ingest_default_mode,
-                                IngestMode::Copy,
-                                "Copy",
-                            );
-                            ui.selectable_value(
-                                &mut self.state.ingest_default_mode,
-                                IngestMode::Reference,
-                                "Reference",
-                            );
-                        });
-                });
-                ui.checkbox(
-                    &mut self.state.ingest_archive_reference_enabled,
-                    "Archive reference enabled",
-                );
-                ui.horizontal(|ui| {
-                    ui.label("Duplicate policy");
-                    egui::ComboBox::from_id_salt("dup_policy")
-                        .selected_text(format!("{:?}", self.state.ingest_duplicate_policy))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.state.ingest_duplicate_policy,
-                                DuplicatePolicy::Error,
-                                "Error",
-                            );
-                            ui.selectable_value(
-                                &mut self.state.ingest_duplicate_policy,
-                                DuplicatePolicy::Skip,
-                                "Skip",
-                            );
-                            ui.selectable_value(
-                                &mut self.state.ingest_duplicate_policy,
-                                DuplicatePolicy::Overwrite,
-                                "Overwrite",
-                            );
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Duplicate compare mode");
-                    egui::ComboBox::from_id_salt("dup_compare")
-                        .selected_text(format!("{:?}", self.state.ingest_duplicate_compare))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.state.ingest_duplicate_compare,
-                                DuplicateCompare::Checksum,
-                                "Checksum",
-                            );
-                            ui.selectable_value(
-                                &mut self.state.ingest_duplicate_compare,
-                                DuplicateCompare::Size,
-                                "Size",
-                            );
-                        });
-                });
-            } else {
-                ui.label(format!("Default mode: {:?}", config.ingest.default_mode));
+        egui::CollapsingHeader::new("Ingest")
+            .default_open(matches!(self.active_pane, PrefPane::BehaviorIngest))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("Default mode");
+                        egui::ComboBox::from_id_salt("ingest_default_mode")
+                            .selected_text(format!("{:?}", self.state.ingest_default_mode))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.state.ingest_default_mode,
+                                    IngestMode::Copy,
+                                    "Copy",
+                                );
+                                ui.selectable_value(
+                                    &mut self.state.ingest_default_mode,
+                                    IngestMode::Reference,
+                                    "Reference",
+                                );
+                            });
+                    });
+                    ui.checkbox(
+                        &mut self.state.ingest_archive_reference_enabled,
+                        "Archive reference enabled",
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("Duplicate policy");
+                        egui::ComboBox::from_id_salt("dup_policy")
+                            .selected_text(format!("{:?}", self.state.ingest_duplicate_policy))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.state.ingest_duplicate_policy,
+                                    DuplicatePolicy::Error,
+                                    "Error",
+                                );
+                                ui.selectable_value(
+                                    &mut self.state.ingest_duplicate_policy,
+                                    DuplicatePolicy::Skip,
+                                    "Skip",
+                                );
+                                ui.selectable_value(
+                                    &mut self.state.ingest_duplicate_policy,
+                                    DuplicatePolicy::Overwrite,
+                                    "Overwrite",
+                                );
+                            });
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Duplicate compare mode");
+                        egui::ComboBox::from_id_salt("dup_compare")
+                            .selected_text(format!("{:?}", self.state.ingest_duplicate_compare))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.state.ingest_duplicate_compare,
+                                    DuplicateCompare::Checksum,
+                                    "Checksum",
+                                );
+                                ui.selectable_value(
+                                    &mut self.state.ingest_duplicate_compare,
+                                    DuplicateCompare::Size,
+                                    "Size",
+                                );
+                            });
+                    });
+                } else {
+                    ui.label(format!("Default mode: {:?}", config.ingest.default_mode));
+                    ui.label(format!(
+                        "Archive reference enabled: {}",
+                        config.ingest.archive_reference_enabled
+                    ));
+                    ui.label(format!(
+                        "Duplicate policy: {:?}",
+                        config.ingest.duplicate_policy
+                    ));
+                    ui.label(format!(
+                        "Duplicate identical policy: {:?}",
+                        config.ingest.duplicate_identical_policy
+                    ));
+                    ui.label(format!(
+                        "Duplicate compare mode: {:?}",
+                        config.ingest.duplicate_compare
+                    ));
+                }
                 ui.label(format!(
-                    "Archive reference enabled: {}",
-                    config.ingest.archive_reference_enabled
+                    "Background ingest enabled: {}",
+                    config.ingest.background_enabled
                 ));
                 ui.label(format!(
-                    "Duplicate policy: {:?}",
-                    config.ingest.duplicate_policy
+                    "Background workers: {}",
+                    config.ingest.background_workers
                 ));
                 ui.label(format!(
-                    "Duplicate identical policy: {:?}",
-                    config.ingest.duplicate_identical_policy
+                    "Background queue capacity: {}",
+                    config.ingest.background_queue_capacity
                 ));
-                ui.label(format!(
-                    "Duplicate compare mode: {:?}",
-                    config.ingest.duplicate_compare
-                ));
-            }
-            ui.label(format!(
-                "Background ingest enabled: {}",
-                config.ingest.background_enabled
-            ));
-            ui.label(format!(
-                "Background workers: {}",
-                config.ingest.background_workers
-            ));
-            ui.label(format!(
-                "Background queue capacity: {}",
-                config.ingest.background_queue_capacity
-            ));
-        });
+            });
 
-        egui::CollapsingHeader::new("Library").show(ui, |ui| {
-            ui.label(format!(
-                "Delete files on remove: {}",
-                config.library.delete_files_on_remove
-            ));
-            ui.label(format!(
-                "Delete reference files: {}",
-                config.library.delete_reference_files
-            ));
-        });
+        egui::CollapsingHeader::new("Library")
+            .default_open(matches!(self.active_pane, PrefPane::BehaviorLibrary))
+            .show(ui, |ui| {
+                ui.label(format!(
+                    "Delete files on remove: {}",
+                    config.library.delete_files_on_remove
+                ));
+                ui.label(format!(
+                    "Delete reference files: {}",
+                    config.library.delete_reference_files
+                ));
+            });
     }
 
     fn render_look_feel_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
-        egui::CollapsingHeader::new("GUI").show(ui, |ui| {
-            if self.edit_mode {
-                ui.horizontal(|ui| {
-                    ui.label("App theme");
-                    egui::ComboBox::from_id_salt("gui_app_theme")
-                        .selected_text(self.state.gui_app_theme.clone())
-                        .show_ui(ui, |ui| {
-                            for value in ["system", "light", "dark"] {
-                                ui.selectable_value(
-                                    &mut self.state.gui_app_theme,
-                                    value.to_string(),
-                                    value,
-                                );
-                            }
-                        });
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Icon set");
-                    egui::ComboBox::from_id_salt("gui_icon_set")
-                        .selected_text(self.state.gui_icon_set.clone())
-                        .show_ui(ui, |ui| {
-                            for value in ["calibre", "outline", "minimal"] {
-                                ui.selectable_value(
-                                    &mut self.state.gui_icon_set,
-                                    value.to_string(),
-                                    value,
-                                );
-                            }
-                        });
-                });
-                ui.checkbox(
-                    &mut self.state.gui_startup_open_last_library,
-                    "Open last library on startup",
-                );
-                ui.checkbox(
-                    &mut self.state.gui_startup_restore_tabs,
-                    "Restore tabs on startup",
-                );
-                ui.horizontal(|ui| {
-                    ui.label("System tray");
-                    egui::ComboBox::from_id_salt("gui_system_tray_mode")
-                        .selected_text(self.state.gui_system_tray_mode.clone())
-                        .show_ui(ui, |ui| {
-                            for value in ["disabled", "minimize_to_tray", "close_to_tray"] {
-                                ui.selectable_value(
-                                    &mut self.state.gui_system_tray_mode,
-                                    value.to_string(),
-                                    value,
-                                );
-                            }
-                        });
-                });
-                ui.checkbox(
-                    &mut self.state.gui_confirm_exit_with_jobs,
-                    "Confirm exit when jobs are running",
-                );
-            } else {
-                ui.label(format!("List view mode: {}", config.gui.list_view_mode));
-                ui.label(format!("Row height: {}", config.gui.table_row_height));
-                ui.label(format!("App theme: {}", config.gui.app_theme));
-                ui.label(format!("Icon set: {}", config.gui.icon_set));
-                ui.label(format!(
-                    "Open last library on startup: {}",
-                    config.gui.startup_open_last_library
-                ));
-                ui.label(format!(
-                    "Restore tabs on startup: {}",
-                    config.gui.startup_restore_tabs
-                ));
-                ui.label(format!("System tray mode: {}", config.gui.system_tray_mode));
-                ui.label(format!(
-                    "Confirm exit with jobs: {}",
-                    config.gui.confirm_exit_with_jobs
-                ));
-            }
-            let preview = match self.state.gui_app_theme.as_str() {
-                "dark" => egui::Color32::from_rgb(60, 60, 60),
-                "light" => egui::Color32::from_rgb(230, 230, 230),
-                _ => egui::Color32::from_rgb(130, 130, 130),
-            };
-            ui.colored_label(preview, "Theme preview swatch");
-        });
-        egui::CollapsingHeader::new("Reader").show(ui, |ui| {
-            if self.edit_mode {
-                ui.horizontal(|ui| {
-                    ui.label("Font size");
-                    ui.add(
-                        egui::DragValue::new(&mut self.state.reader_font_size).range(10.0..=28.0),
+        egui::CollapsingHeader::new("GUI")
+            .default_open(matches!(self.active_pane, PrefPane::LookGui))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("App theme");
+                        egui::ComboBox::from_id_salt("gui_app_theme")
+                            .selected_text(self.state.gui_app_theme.clone())
+                            .show_ui(ui, |ui| {
+                                for value in ["system", "light", "dark"] {
+                                    ui.selectable_value(
+                                        &mut self.state.gui_app_theme,
+                                        value.to_string(),
+                                        value,
+                                    );
+                                }
+                            });
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Icon set");
+                        egui::ComboBox::from_id_salt("gui_icon_set")
+                            .selected_text(self.state.gui_icon_set.clone())
+                            .show_ui(ui, |ui| {
+                                for value in ["calibre", "outline", "minimal"] {
+                                    ui.selectable_value(
+                                        &mut self.state.gui_icon_set,
+                                        value.to_string(),
+                                        value,
+                                    );
+                                }
+                            });
+                    });
+                    ui.checkbox(
+                        &mut self.state.gui_startup_open_last_library,
+                        "Open last library on startup",
                     );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Line spacing");
-                    ui.add(
-                        egui::DragValue::new(&mut self.state.reader_line_spacing)
-                            .speed(0.05)
-                            .range(1.1..=2.2),
+                    ui.checkbox(
+                        &mut self.state.gui_startup_restore_tabs,
+                        "Restore tabs on startup",
                     );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Page chars");
-                    ui.add(
-                        egui::DragValue::new(&mut self.state.reader_page_chars).range(600..=6000),
+                    ui.horizontal(|ui| {
+                        ui.label("System tray");
+                        egui::ComboBox::from_id_salt("gui_system_tray_mode")
+                            .selected_text(self.state.gui_system_tray_mode.clone())
+                            .show_ui(ui, |ui| {
+                                for value in ["disabled", "minimize_to_tray", "close_to_tray"] {
+                                    ui.selectable_value(
+                                        &mut self.state.gui_system_tray_mode,
+                                        value.to_string(),
+                                        value,
+                                    );
+                                }
+                            });
+                    });
+                    ui.checkbox(
+                        &mut self.state.gui_confirm_exit_with_jobs,
+                        "Confirm exit when jobs are running",
                     );
-                });
-                ui.text_edit_singleline(&mut self.state.reader_theme);
-            } else {
-                ui.label(format!("Font size: {}", config.gui.reader_font_size));
-                ui.label(format!("Line spacing: {}", config.gui.reader_line_spacing));
-                ui.label(format!("Page chars: {}", config.gui.reader_page_chars));
-                ui.label(format!("Theme: {}", config.gui.reader_theme));
-            }
-        });
+                } else {
+                    ui.label(format!("List view mode: {}", config.gui.list_view_mode));
+                    ui.label(format!("Row height: {}", config.gui.table_row_height));
+                    ui.label(format!("App theme: {}", config.gui.app_theme));
+                    ui.label(format!("Icon set: {}", config.gui.icon_set));
+                    ui.label(format!(
+                        "Open last library on startup: {}",
+                        config.gui.startup_open_last_library
+                    ));
+                    ui.label(format!(
+                        "Restore tabs on startup: {}",
+                        config.gui.startup_restore_tabs
+                    ));
+                    ui.label(format!("System tray mode: {}", config.gui.system_tray_mode));
+                    ui.label(format!(
+                        "Confirm exit with jobs: {}",
+                        config.gui.confirm_exit_with_jobs
+                    ));
+                }
+                let preview = match self.state.gui_app_theme.as_str() {
+                    "dark" => egui::Color32::from_rgb(60, 60, 60),
+                    "light" => egui::Color32::from_rgb(230, 230, 230),
+                    _ => egui::Color32::from_rgb(130, 130, 130),
+                };
+                ui.colored_label(preview, "Theme preview swatch");
+            });
+        egui::CollapsingHeader::new("Reader")
+            .default_open(matches!(self.active_pane, PrefPane::LookReader))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.horizontal(|ui| {
+                        ui.label("Font size");
+                        ui.add(
+                            egui::DragValue::new(&mut self.state.reader_font_size)
+                                .range(10.0..=28.0),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Line spacing");
+                        ui.add(
+                            egui::DragValue::new(&mut self.state.reader_line_spacing)
+                                .speed(0.05)
+                                .range(1.1..=2.2),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Page chars");
+                        ui.add(
+                            egui::DragValue::new(&mut self.state.reader_page_chars)
+                                .range(600..=6000),
+                        );
+                    });
+                    ui.text_edit_singleline(&mut self.state.reader_theme);
+                } else {
+                    ui.label(format!("Font size: {}", config.gui.reader_font_size));
+                    ui.label(format!("Line spacing: {}", config.gui.reader_line_spacing));
+                    ui.label(format!("Page chars: {}", config.gui.reader_page_chars));
+                    ui.label(format!("Theme: {}", config.gui.reader_theme));
+                }
+            });
     }
 
     fn render_import_export_section(&mut self, ui: &mut egui::Ui, config: &mut ControlPlane) {
         egui::CollapsingHeader::new("Preferences Import/Export")
-            .default_open(true)
+            .default_open(matches!(self.active_pane, PrefPane::ImportExportPrefs))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Export path");
@@ -636,179 +703,196 @@ impl PreferencesView {
                 });
             });
 
-        egui::CollapsingHeader::new("Conversion").show(ui, |ui| {
-            if self.edit_mode {
-                ui.checkbox(&mut self.state.conversion_enabled, "Enabled");
-                ui.checkbox(
-                    &mut self.state.conversion_allow_passthrough,
-                    "Allow passthrough",
-                );
-                ui.horizontal(|ui| {
-                    ui.label("Max input bytes");
-                    ui.add(egui::DragValue::new(
-                        &mut self.state.conversion_max_input_bytes,
-                    ));
-                });
-                ui.text_edit_singleline(&mut self.state.conversion_default_output_format);
-                if self
-                    .state
-                    .conversion_default_output_format
-                    .trim()
-                    .is_empty()
-                {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(190, 0, 0),
-                        "Default output format cannot be empty",
+        egui::CollapsingHeader::new("Conversion")
+            .default_open(matches!(self.active_pane, PrefPane::ImportExportConversion))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.checkbox(&mut self.state.conversion_enabled, "Enabled");
+                    ui.checkbox(
+                        &mut self.state.conversion_allow_passthrough,
+                        "Allow passthrough",
                     );
+                    ui.horizontal(|ui| {
+                        ui.label("Max input bytes");
+                        ui.add(egui::DragValue::new(
+                            &mut self.state.conversion_max_input_bytes,
+                        ));
+                    });
+                    ui.text_edit_singleline(&mut self.state.conversion_default_output_format);
+                    if self
+                        .state
+                        .conversion_default_output_format
+                        .trim()
+                        .is_empty()
+                    {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(190, 0, 0),
+                            "Default output format cannot be empty",
+                        );
+                    }
+                } else {
+                    ui.label(format!("Enabled: {}", config.conversion.enabled));
+                    ui.label(format!(
+                        "Allow passthrough: {}",
+                        config.conversion.allow_passthrough
+                    ));
+                    ui.label(format!(
+                        "Max input bytes: {}",
+                        config.conversion.max_input_bytes
+                    ));
+                    ui.label(format!(
+                        "Default output format: {}",
+                        config.conversion.default_output_format
+                    ));
                 }
-            } else {
-                ui.label(format!("Enabled: {}", config.conversion.enabled));
                 ui.label(format!(
-                    "Allow passthrough: {}",
-                    config.conversion.allow_passthrough
+                    "Temp dir: {}",
+                    config.conversion.temp_dir.display()
                 ));
                 ui.label(format!(
-                    "Max input bytes: {}",
-                    config.conversion.max_input_bytes
+                    "Output dir: {}",
+                    config.conversion.output_dir.display()
                 ));
-                ui.label(format!(
-                    "Default output format: {}",
-                    config.conversion.default_output_format
-                ));
-            }
-            ui.label(format!(
-                "Temp dir: {}",
-                config.conversion.temp_dir.display()
-            ));
-            ui.label(format!(
-                "Output dir: {}",
-                config.conversion.output_dir.display()
-            ));
-        });
+            });
 
-        egui::CollapsingHeader::new("Formats").show(ui, |ui| {
-            ui.label(format!(
-                "Supported formats: {}",
-                config.formats.supported.join(", ")
-            ));
-            ui.label(format!(
-                "Archive formats: {}",
-                config.formats.archive_formats.join(", ")
-            ));
-        });
+        egui::CollapsingHeader::new("Formats")
+            .default_open(matches!(self.active_pane, PrefPane::ImportExportFormats))
+            .show(ui, |ui| {
+                ui.label(format!(
+                    "Supported formats: {}",
+                    config.formats.supported.join(", ")
+                ));
+                ui.label(format!(
+                    "Archive formats: {}",
+                    config.formats.archive_formats.join(", ")
+                ));
+            });
     }
 
     fn render_advanced_section(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
-        egui::CollapsingHeader::new("Server").show(ui, |ui| {
-            if self.edit_mode {
-                ui.text_edit_singleline(&mut self.state.server_host);
-                if self.state.server_host.trim().is_empty() {
-                    ui.colored_label(egui::Color32::from_rgb(190, 0, 0), "Host cannot be empty");
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Port");
-                    ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Scheme");
-                    ui.text_edit_singleline(&mut self.state.server_scheme);
-                });
-                if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(190, 0, 0),
-                        "Scheme must be http or https",
+        egui::CollapsingHeader::new("Server")
+            .default_open(matches!(self.active_pane, PrefPane::AdvancedServer))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.text_edit_singleline(&mut self.state.server_host);
+                    if self.state.server_host.trim().is_empty() {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(190, 0, 0),
+                            "Host cannot be empty",
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Port");
+                        ui.add(egui::DragValue::new(&mut self.state.server_port).range(1..=65535));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Scheme");
+                        ui.text_edit_singleline(&mut self.state.server_scheme);
+                    });
+                    if !matches!(self.state.server_scheme.as_str(), "http" | "https") {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(190, 0, 0),
+                            "Scheme must be http or https",
+                        );
+                    }
+                    ui.text_edit_singleline(&mut self.state.server_url_prefix);
+                    ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
+                    ui.checkbox(&mut self.state.server_tls_enabled, "TLS enabled");
+                    ui.horizontal(|ui| {
+                        ui.label("TLS cert path");
+                        ui.text_edit_singleline(&mut self.state.server_tls_cert_path);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("TLS key path");
+                        ui.text_edit_singleline(&mut self.state.server_tls_key_path);
+                    });
+                    ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
+                    ui.horizontal(|ui| {
+                        ui.label("Download max bytes");
+                        ui.add(egui::DragValue::new(
+                            &mut self.state.server_download_max_bytes,
+                        ));
+                    });
+                    ui.checkbox(
+                        &mut self.state.server_download_allow_external,
+                        "Allow external download",
                     );
-                }
-                ui.text_edit_singleline(&mut self.state.server_url_prefix);
-                ui.checkbox(&mut self.state.server_enable_auth, "Auth enabled");
-                ui.checkbox(&mut self.state.server_tls_enabled, "TLS enabled");
-                ui.horizontal(|ui| {
-                    ui.label("TLS cert path");
-                    ui.text_edit_singleline(&mut self.state.server_tls_cert_path);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("TLS key path");
-                    ui.text_edit_singleline(&mut self.state.server_tls_key_path);
-                });
-                ui.checkbox(&mut self.state.server_download_enabled, "Download enabled");
-                ui.horizontal(|ui| {
-                    ui.label("Download max bytes");
-                    ui.add(egui::DragValue::new(
-                        &mut self.state.server_download_max_bytes,
+                } else {
+                    ui.label(format!(
+                        "Host: {}:{} ({})",
+                        config.server.host, config.server.port, config.server.scheme
                     ));
-                });
-                ui.checkbox(
-                    &mut self.state.server_download_allow_external,
-                    "Allow external download",
-                );
-            } else {
-                ui.label(format!(
-                    "Host: {}:{} ({})",
-                    config.server.host, config.server.port, config.server.scheme
-                ));
-                ui.label(format!("URL prefix: {}", config.server.url_prefix));
-                ui.label(format!("Auth enabled: {}", config.server.enable_auth));
-                ui.label(format!("TLS enabled: {}", config.server.tls_enabled));
-                ui.label(format!(
-                    "TLS cert path: {}",
-                    config.server.tls_cert_path.display()
-                ));
-                ui.label(format!(
-                    "TLS key path: {}",
-                    config.server.tls_key_path.display()
-                ));
-                ui.label(format!(
-                    "Download enabled: {}",
-                    config.server.download_enabled
-                ));
-                ui.label(format!(
-                    "Download max bytes: {}",
-                    config.server.download_max_bytes
-                ));
-                ui.label(format!(
-                    "Allow external download: {}",
-                    config.server.download_allow_external
-                ));
-            }
-            ui.label(format!("API keys: {}", config.server.api_keys.len()));
-        });
-
-        egui::CollapsingHeader::new("FTS").show(ui, |ui| {
-            if self.edit_mode {
-                ui.checkbox(&mut self.state.fts_enabled, "Enabled");
-                ui.text_edit_singleline(&mut self.state.fts_tokenizer);
-                if self.state.fts_tokenizer.trim().is_empty() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(190, 0, 0),
-                        "FTS tokenizer cannot be empty",
-                    );
+                    ui.label(format!("URL prefix: {}", config.server.url_prefix));
+                    ui.label(format!("Auth enabled: {}", config.server.enable_auth));
+                    ui.label(format!("TLS enabled: {}", config.server.tls_enabled));
+                    ui.label(format!(
+                        "TLS cert path: {}",
+                        config.server.tls_cert_path.display()
+                    ));
+                    ui.label(format!(
+                        "TLS key path: {}",
+                        config.server.tls_key_path.display()
+                    ));
+                    ui.label(format!(
+                        "Download enabled: {}",
+                        config.server.download_enabled
+                    ));
+                    ui.label(format!(
+                        "Download max bytes: {}",
+                        config.server.download_max_bytes
+                    ));
+                    ui.label(format!(
+                        "Allow external download: {}",
+                        config.server.download_allow_external
+                    ));
                 }
-                ui.checkbox(&mut self.state.fts_rebuild_on_migrate, "Rebuild on migrate");
-                ui.horizontal(|ui| {
-                    ui.label("Min query len");
-                    ui.add(egui::DragValue::new(&mut self.state.fts_min_query_len).range(1..=20));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Result limit");
-                    ui.add(egui::DragValue::new(&mut self.state.fts_result_limit).range(1..=500));
-                });
-            } else {
-                ui.label(format!("Enabled: {}", config.fts.enabled));
-                ui.label(format!("Tokenizer: {}", config.fts.tokenizer));
-                ui.label(format!(
-                    "Rebuild on migrate: {}",
-                    config.fts.rebuild_on_migrate
-                ));
-                ui.label(format!("Min query len: {}", config.fts.min_query_len));
-                ui.label(format!("Result limit: {}", config.fts.result_limit));
-            }
-        });
+                ui.label(format!("API keys: {}", config.server.api_keys.len()));
+            });
 
-        egui::CollapsingHeader::new("Metrics").show(ui, |ui| {
-            ui.label(format!("Enabled: {}", config.metrics.enabled));
-            ui.label(format!("Endpoint: {}", config.metrics.endpoint));
-            ui.label(format!("Namespace: {}", config.metrics.namespace));
-        });
+        egui::CollapsingHeader::new("FTS")
+            .default_open(matches!(self.active_pane, PrefPane::AdvancedFts))
+            .show(ui, |ui| {
+                if self.edit_mode {
+                    ui.checkbox(&mut self.state.fts_enabled, "Enabled");
+                    ui.text_edit_singleline(&mut self.state.fts_tokenizer);
+                    if self.state.fts_tokenizer.trim().is_empty() {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(190, 0, 0),
+                            "FTS tokenizer cannot be empty",
+                        );
+                    }
+                    ui.checkbox(&mut self.state.fts_rebuild_on_migrate, "Rebuild on migrate");
+                    ui.horizontal(|ui| {
+                        ui.label("Min query len");
+                        ui.add(
+                            egui::DragValue::new(&mut self.state.fts_min_query_len).range(1..=20),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Result limit");
+                        ui.add(
+                            egui::DragValue::new(&mut self.state.fts_result_limit).range(1..=500),
+                        );
+                    });
+                } else {
+                    ui.label(format!("Enabled: {}", config.fts.enabled));
+                    ui.label(format!("Tokenizer: {}", config.fts.tokenizer));
+                    ui.label(format!(
+                        "Rebuild on migrate: {}",
+                        config.fts.rebuild_on_migrate
+                    ));
+                    ui.label(format!("Min query len: {}", config.fts.min_query_len));
+                    ui.label(format!("Result limit: {}", config.fts.result_limit));
+                }
+            });
+
+        egui::CollapsingHeader::new("Metrics")
+            .default_open(matches!(self.active_pane, PrefPane::AdvancedMetrics))
+            .show(ui, |ui| {
+                ui.label(format!("Enabled: {}", config.metrics.enabled));
+                ui.label(format!("Endpoint: {}", config.metrics.endpoint));
+                ui.label(format!("Namespace: {}", config.metrics.namespace));
+            });
     }
 
     fn apply_state(&mut self, config: &mut ControlPlane) -> CoreResult<()> {
@@ -1289,6 +1373,92 @@ enum PrefSection {
     ImportExport,
     Advanced,
     System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrefPane {
+    BehaviorAssets,
+    BehaviorIngest,
+    BehaviorLibrary,
+    LookGui,
+    LookReader,
+    ImportExportPrefs,
+    ImportExportConversion,
+    ImportExportFormats,
+    AdvancedServer,
+    AdvancedFts,
+    AdvancedMetrics,
+    SystemApp,
+    SystemPaths,
+    SystemLogging,
+    SystemNetwork,
+}
+
+impl PrefPane {
+    fn section(self) -> PrefSection {
+        match self {
+            Self::BehaviorAssets | Self::BehaviorIngest | Self::BehaviorLibrary => {
+                PrefSection::Behavior
+            }
+            Self::LookGui | Self::LookReader => PrefSection::LookAndFeel,
+            Self::ImportExportPrefs | Self::ImportExportConversion | Self::ImportExportFormats => {
+                PrefSection::ImportExport
+            }
+            Self::AdvancedServer | Self::AdvancedFts | Self::AdvancedMetrics => {
+                PrefSection::Advanced
+            }
+            Self::SystemApp | Self::SystemPaths | Self::SystemLogging | Self::SystemNetwork => {
+                PrefSection::System
+            }
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::BehaviorAssets => "Assets",
+            Self::BehaviorIngest => "Ingest",
+            Self::BehaviorLibrary => "Library",
+            Self::LookGui => "GUI",
+            Self::LookReader => "Reader",
+            Self::ImportExportPrefs => "Preferences I/O",
+            Self::ImportExportConversion => "Conversion",
+            Self::ImportExportFormats => "Formats",
+            Self::AdvancedServer => "Server",
+            Self::AdvancedFts => "FTS",
+            Self::AdvancedMetrics => "Metrics",
+            Self::SystemApp => "App",
+            Self::SystemPaths => "Paths",
+            Self::SystemLogging => "Logging",
+            Self::SystemNetwork => "Network",
+        }
+    }
+
+    fn for_section(section: PrefSection) -> &'static [PrefPane] {
+        match section {
+            PrefSection::Behavior => &[
+                PrefPane::BehaviorAssets,
+                PrefPane::BehaviorIngest,
+                PrefPane::BehaviorLibrary,
+            ],
+            PrefSection::LookAndFeel => &[PrefPane::LookGui, PrefPane::LookReader],
+            PrefSection::ImportExport => &[
+                PrefPane::ImportExportPrefs,
+                PrefPane::ImportExportConversion,
+                PrefPane::ImportExportFormats,
+            ],
+            PrefSection::Advanced => &[
+                PrefPane::AdvancedServer,
+                PrefPane::AdvancedFts,
+                PrefPane::AdvancedMetrics,
+            ],
+            PrefSection::System => &[
+                PrefPane::SystemApp,
+                PrefPane::SystemPaths,
+                PrefPane::SystemLogging,
+                PrefPane::SystemNetwork,
+            ],
+        }
+    }
 }
 
 impl PrefSection {

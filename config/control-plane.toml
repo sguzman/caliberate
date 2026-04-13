@@ -50,8 +50,20 @@ endpoint = ""
 namespace = "caliberate"
 
 [formats]
-supported = ["epub", "mobi", "azw", "azw3", "pdf", "docx"]
-archive_formats = ["zip", "rar", "7z", "zpaq"]
+supported = [
+    "epub",
+    "mobi",
+    "azw",
+    "azw3",
+    "pdf",
+    "docx",
+]
+archive_formats = [
+    "zip",
+    "rar",
+    "7z",
+    "zpaq",
+]
 
 [ingest]
 default_mode = "copy"
@@ -80,8 +92,18 @@ enabled = true
 allow_passthrough = true
 max_input_bytes = 104857600
 default_output_format = "epub"
-input_profiles = ["default", "tablet", "phone", "kindle"]
-output_profiles = ["default", "tablet", "phone", "kindle"]
+input_profiles = [
+    "default",
+    "tablet",
+    "phone",
+    "kindle",
+]
+output_profiles = [
+    "default",
+    "tablet",
+    "phone",
+    "kindle",
+]
 default_input_profile = "default"
 default_output_profile = "default"
 heuristic_enable = true
@@ -97,12 +119,13 @@ cover_policy = "keep"
 warn_unsupported_options = true
 save_to_disk_template = "{title}-{id}.{format}"
 save_to_disk_conflict_policy = "rename"
-save_to_disk_presets = {}
 temp_dir = "./.cache/caliberate/tmp/conversion"
 output_dir = "./.cache/caliberate/output/conversion"
 job_history_path = "./.cache/caliberate/data/conversion-jobs.log"
 job_logs_dir = "./.cache/caliberate/logs/jobs"
 max_job_history = 500
+
+[conversion.save_to_disk_presets]
 
 [fts]
 enabled = false
@@ -112,7 +135,11 @@ min_query_len = 2
 result_limit = 100
 
 [device]
-mount_roots = ["./.cache/caliberate/devices", "/media", "/run/media"]
+mount_roots = [
+    "./.cache/caliberate/devices",
+    "/media",
+    "/run/media",
+]
 library_subdir = "Caliberate Library"
 send_auto_convert = false
 send_overwrite = false
@@ -121,17 +148,6 @@ sync_cover = true
 scan_recursive = true
 driver_backend = "auto"
 connection_timeout_ms = 5000
-
-[news]
-enabled = true
-recipes_dir = "./.cache/caliberate/news/recipes"
-downloads_dir = "./.cache/caliberate/news/downloads"
-history_path = "./.cache/caliberate/news/history.log"
-retention_days = 30
-auto_delete = true
-fetch_limit = 20
-source_enabled = { hacker-news = true, lobsters = true, project-gutenberg = false }
-source_schedule = { hacker-news = "hourly", lobsters = "daily@06:00", project-gutenberg = "weekly@sun-06:00" }
 
 [plugins]
 enabled = true
@@ -150,7 +166,12 @@ user_agent = "caliberate/0.1 (+https://example.invalid/caliberate)"
 cover_max_bytes = 10485760
 queue_batch_size = 32
 max_results_per_provider = 5
-providers = ["openlibrary", "googlebooks", "amazon", "isbndb"]
+providers = [
+    "openlibrary",
+    "googlebooks",
+    "amazon",
+    "isbndb",
+]
 openlibrary_enabled = true
 openlibrary_base_url = "https://openlibrary.org"
 googlebooks_enabled = true
@@ -165,6 +186,25 @@ overwrite_publisher_default = false
 overwrite_language_default = false
 overwrite_pubdate_default = false
 overwrite_comment_default = false
+
+[news]
+enabled = true
+recipes_dir = "./.cache/caliberate/news/recipes"
+downloads_dir = "./.cache/caliberate/news/downloads"
+history_path = "./.cache/caliberate/news/history.log"
+retention_days = 30
+auto_delete = true
+fetch_limit = 20
+
+[news.source_enabled]
+hacker-news = true
+lobsters = true
+project-gutenberg = false
+
+[news.source_schedule]
+hacker-news = "hourly"
+lobsters = "daily@06:00"
+project-gutenberg = "weekly@sun-06:00"
 
 [gui]
 list_view_mode = "table"
@@ -218,8 +258,20 @@ view_density = "comfortable"
 quick_details_panel = true
 show_format_badges = true
 show_language_badges = true
-column_order = ["title", "cover", "authors", "series", "tags", "formats", "rating", "publisher", "languages", "date_added", "date_modified", "pubdate"]
-sort_presets = {}
+column_order = [
+    "title",
+    "cover",
+    "authors",
+    "series",
+    "tags",
+    "formats",
+    "rating",
+    "publisher",
+    "languages",
+    "date_added",
+    "date_modified",
+    "pubdate",
+]
 stats_top_n = 8
 group_mode = "none"
 shelf_columns = 4
@@ -229,7 +281,14 @@ low_rating_threshold = 4
 color_missing_cover = "#d4a017"
 color_low_rating = "#cc4444"
 toolbar_icon_only = false
-toolbar_visible_actions = ["add", "remove", "convert", "save_to_disk", "refresh", "preferences", "open_logs"]
+toolbar_visible_actions = [
+    "add",
+    "remove",
+    "save_to_disk",
+    "refresh",
+    "preferences",
+    "open_logs",
+]
 global_search_scope = "all"
 shortcut_preset = "default"
 command_palette_enabled = true
@@ -244,12 +303,17 @@ window_pos_x = 40.0
 window_pos_y = 40.0
 window_restore = true
 mouse_gestures = true
-pane_browser_visible = true
+pane_browser_visible = false
 pane_browser_side = "left"
 pane_details_visible = true
 pane_details_side = "right"
 pane_jobs_visible = true
-pane_left_width = 560.0
-pane_right_width = 460.0
+pane_left_width = 1864.4375
+pane_right_width = 900.71875
 layout_preset = "classic"
-column_presets = {}
+
+[gui.sort_presets]
+
+[gui.column_presets]
+
+[gui.virtual_library_filters]
