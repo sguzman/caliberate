@@ -4731,7 +4731,10 @@ impl LibraryView {
         }
         let mut open = self.manage_tags.open;
         let mut rename = false;
+        let mut merge = false;
         let mut delete = false;
+        let mut bulk_assign = false;
+        let mut bulk_remove = false;
         egui::Window::new("Manage tags")
             .open(&mut open)
             .resizable(true)
@@ -4740,8 +4743,13 @@ impl LibraryView {
                 egui::ScrollArea::vertical()
                     .max_height(220.0)
                     .show(ui, |ui| {
-                        for tag in &self.manage_tags.tags {
-                            ui.label(format!("{} ({})", tag.name, tag.count));
+                        let grouped = group_hierarchical_categories(&self.manage_tags.tags, '/');
+                        for (root, entries) in grouped {
+                            ui.collapsing(root, |ui| {
+                                for entry in entries {
+                                    ui.label(format!("{} ({})", entry.name, entry.count));
+                                }
+                            });
                         }
                     });
                 ui.separator();
@@ -4755,11 +4763,32 @@ impl LibraryView {
                     rename = true;
                 }
                 ui.separator();
+                ui.label("Merge tags");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.manage_tags.merge_from);
+                    ui.label("→");
+                    ui.text_edit_singleline(&mut self.manage_tags.merge_to);
+                });
+                if ui.button("Merge").clicked() {
+                    merge = true;
+                }
+                ui.separator();
                 ui.label("Delete tag");
                 ui.text_edit_singleline(&mut self.manage_tags.delete_name);
                 if ui.button("Delete").clicked() {
                     delete = true;
                 }
+                ui.separator();
+                ui.label("Bulk assign/remove on selected books");
+                ui.text_edit_singleline(&mut self.manage_tags.bulk_tag);
+                ui.horizontal(|ui| {
+                    if ui.button("Assign to selected").clicked() {
+                        bulk_assign = true;
+                    }
+                    if ui.button("Remove from selected").clicked() {
+                        bulk_remove = true;
+                    }
+                });
             });
         if rename {
             if let Err(err) = self
@@ -4780,6 +4809,29 @@ impl LibraryView {
                 self.needs_refresh = true;
             }
         }
+        if merge {
+            if let Err(err) = self
+                .db
+                .rename_tag(&self.manage_tags.merge_from, &self.manage_tags.merge_to)
+            {
+                self.set_error(err);
+            } else {
+                self.manage_tags.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        if bulk_assign {
+            let tag = self.manage_tags.bulk_tag.clone();
+            if let Err(err) = self.bulk_assign_tag(tag.trim()) {
+                self.set_error(err);
+            }
+        }
+        if bulk_remove {
+            let tag = self.manage_tags.bulk_tag.clone();
+            if let Err(err) = self.bulk_remove_tag(tag.trim()) {
+                self.set_error(err);
+            }
+        }
         self.manage_tags.open = open;
     }
 
@@ -4794,7 +4846,9 @@ impl LibraryView {
         }
         let mut open = self.manage_series.open;
         let mut rename = false;
+        let mut merge = false;
         let mut delete = false;
+        let mut renumber = false;
         egui::Window::new("Manage series")
             .open(&mut open)
             .resizable(true)
@@ -4818,10 +4872,35 @@ impl LibraryView {
                     rename = true;
                 }
                 ui.separator();
+                ui.label("Merge series");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.manage_series.merge_from);
+                    ui.label("→");
+                    ui.text_edit_singleline(&mut self.manage_series.merge_to);
+                });
+                if ui.button("Merge").clicked() {
+                    merge = true;
+                }
+                ui.separator();
                 ui.label("Delete series");
                 ui.text_edit_singleline(&mut self.manage_series.delete_name);
                 if ui.button("Delete").clicked() {
                     delete = true;
+                }
+                ui.separator();
+                ui.label("Renumber selected books in series");
+                ui.horizontal(|ui| {
+                    ui.label("Series");
+                    ui.text_edit_singleline(&mut self.manage_series.renumber_name);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Start");
+                    ui.add(egui::DragValue::new(&mut self.manage_series.renumber_start).speed(0.1));
+                    ui.label("Step");
+                    ui.add(egui::DragValue::new(&mut self.manage_series.renumber_step).speed(0.1));
+                });
+                if ui.button("Renumber selected").clicked() {
+                    renumber = true;
                 }
             });
         if rename {
@@ -4843,6 +4922,25 @@ impl LibraryView {
                 self.needs_refresh = true;
             }
         }
+        if merge {
+            if let Err(err) = self
+                .db
+                .rename_series(&self.manage_series.merge_from, &self.manage_series.merge_to)
+            {
+                self.set_error(err);
+            } else {
+                self.manage_series.needs_refresh = true;
+                self.needs_refresh = true;
+            }
+        }
+        if renumber {
+            let series_name = self.manage_series.renumber_name.clone();
+            let start = self.manage_series.renumber_start;
+            let step = self.manage_series.renumber_step;
+            if let Err(err) = self.renumber_selected_series(series_name.trim(), start, step) {
+                self.set_error(err);
+            }
+        }
         self.manage_series.open = open;
     }
 
@@ -4858,6 +4956,8 @@ impl LibraryView {
         let mut open = self.manage_custom_columns.open;
         let mut create = false;
         let mut delete = false;
+        let mut export = false;
+        let mut import = false;
         egui::Window::new("Manage custom columns")
             .open(&mut open)
             .resizable(true)
@@ -4898,6 +4998,16 @@ impl LibraryView {
                 if ui.button("Delete").clicked() {
                     delete = true;
                 }
+                ui.separator();
+                ui.label("Import/Export custom columns");
+                ui.text_edit_singleline(&mut self.manage_custom_columns.import_path);
+                if ui.button("Import columns").clicked() {
+                    import = true;
+                }
+                ui.text_edit_singleline(&mut self.manage_custom_columns.export_path);
+                if ui.button("Export columns").clicked() {
+                    export = true;
+                }
             });
         if create {
             if let Err(err) = self.db.create_custom_column(
@@ -4921,6 +5031,22 @@ impl LibraryView {
                 self.manage_custom_columns.needs_refresh = true;
             }
         }
+        if export {
+            if let Err(err) =
+                self.export_custom_columns(Path::new(self.manage_custom_columns.export_path.trim()))
+            {
+                self.set_error(err);
+            }
+        }
+        if import {
+            if let Err(err) =
+                self.import_custom_columns(Path::new(self.manage_custom_columns.import_path.trim()))
+            {
+                self.set_error(err);
+            } else {
+                self.manage_custom_columns.needs_refresh = true;
+            }
+        }
         self.manage_custom_columns.open = open;
     }
 
@@ -4936,6 +5062,11 @@ impl LibraryView {
         let mut open = self.manage_virtual_libraries.open;
         let mut add = false;
         let mut delete = false;
+        let mut build_query = false;
+        let mut export = false;
+        let mut import = false;
+        let mut assign = false;
+        let mut unassign = false;
         egui::Window::new("Manage virtual libraries")
             .open(&mut open)
             .resizable(true)
@@ -4944,29 +5075,98 @@ impl LibraryView {
                 egui::ScrollArea::vertical()
                     .max_height(200.0)
                     .show(ui, |ui| {
-                        for (name, query) in &self.manage_virtual_libraries.searches {
-                            ui.label(format!("{name}: {query}"));
+                        let grouped = self.build_saved_search_groups();
+                        for (folder, entries) in grouped {
+                            ui.collapsing(folder, |ui| {
+                                for (name, query) in entries {
+                                    ui.label(format!("{name}: {query}"));
+                                }
+                            });
                         }
                     });
                 ui.separator();
                 ui.label("Add saved search");
                 ui.text_edit_singleline(&mut self.manage_virtual_libraries.new_name);
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.new_folder);
                 ui.text_edit_singleline(&mut self.manage_virtual_libraries.new_query);
                 if ui.button("Add").clicked() {
                     add = true;
                 }
+                ui.horizontal(|ui| {
+                    ui.label("Builder");
+                    egui::ComboBox::from_id_salt("vl_query_field")
+                        .selected_text(self.manage_virtual_libraries.builder_field.as_str())
+                        .show_ui(ui, |ui| {
+                            for field in [
+                                "title",
+                                "authors",
+                                "tags",
+                                "series",
+                                "publisher",
+                                "languages",
+                            ] {
+                                ui.selectable_value(
+                                    &mut self.manage_virtual_libraries.builder_field,
+                                    field.to_string(),
+                                    field,
+                                );
+                            }
+                        });
+                    egui::ComboBox::from_id_salt("vl_query_op")
+                        .selected_text(self.manage_virtual_libraries.builder_op.as_str())
+                        .show_ui(ui, |ui| {
+                            for op in ["contains", "is", "not"] {
+                                ui.selectable_value(
+                                    &mut self.manage_virtual_libraries.builder_op,
+                                    op.to_string(),
+                                    op,
+                                );
+                            }
+                        });
+                    ui.text_edit_singleline(&mut self.manage_virtual_libraries.builder_value);
+                    if ui.button("Append").clicked() {
+                        build_query = true;
+                    }
+                });
                 ui.separator();
                 ui.label("Remove saved search");
                 ui.text_edit_singleline(&mut self.manage_virtual_libraries.delete_name);
                 if ui.button("Remove").clicked() {
                     delete = true;
                 }
+                ui.separator();
+                ui.label("Import/Export saved searches");
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.import_path);
+                if ui.button("Import").clicked() {
+                    import = true;
+                }
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.export_path);
+                if ui.button("Export").clicked() {
+                    export = true;
+                }
+                ui.separator();
+                ui.label("Assign/Unassign virtual library tag on selected books");
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.assign_name);
+                if ui.button("Assign").clicked() {
+                    assign = true;
+                }
+                ui.text_edit_singleline(&mut self.manage_virtual_libraries.unassign_name);
+                if ui.button("Unassign").clicked() {
+                    unassign = true;
+                }
             });
         if add {
-            if let Err(err) = self.db.add_saved_search(
-                &self.manage_virtual_libraries.new_name,
-                &self.manage_virtual_libraries.new_query,
-            ) {
+            let folder = self.manage_virtual_libraries.new_folder.trim();
+            let name = self.manage_virtual_libraries.new_name.trim();
+            let full_name = if folder.is_empty() {
+                name.to_string()
+            } else {
+                format!("{folder}/{name}")
+            };
+            if let Err(err) = self
+                .db
+                .add_saved_search(&full_name, &self.manage_virtual_libraries.new_query)
+            {
                 self.set_error(err);
             } else {
                 self.manage_virtual_libraries.needs_refresh = true;
@@ -4980,6 +5180,37 @@ impl LibraryView {
                 self.set_error(err);
             } else {
                 self.manage_virtual_libraries.needs_refresh = true;
+            }
+        }
+        if build_query {
+            self.append_query_builder_clause();
+        }
+        if export {
+            if let Err(err) = self
+                .export_saved_searches(Path::new(self.manage_virtual_libraries.export_path.trim()))
+            {
+                self.set_error(err);
+            }
+        }
+        if import {
+            if let Err(err) = self
+                .import_saved_searches(Path::new(self.manage_virtual_libraries.import_path.trim()))
+            {
+                self.set_error(err);
+            } else {
+                self.manage_virtual_libraries.needs_refresh = true;
+            }
+        }
+        if assign {
+            let name = self.manage_virtual_libraries.assign_name.clone();
+            if let Err(err) = self.assign_virtual_library_tag(name.trim()) {
+                self.set_error(err);
+            }
+        }
+        if unassign {
+            let name = self.manage_virtual_libraries.unassign_name.clone();
+            if let Err(err) = self.unassign_virtual_library_tag(name.trim()) {
+                self.set_error(err);
             }
         }
         self.manage_virtual_libraries.open = open;
@@ -6892,7 +7123,237 @@ impl LibraryView {
     fn refresh_manage_virtual_libraries(&mut self) -> CoreResult<()> {
         let searches = self.db.list_saved_searches()?;
         self.manage_virtual_libraries.searches = searches.into_iter().collect();
+        let mut folders: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for (name, query) in &self.manage_virtual_libraries.searches {
+            let (folder, leaf) = split_saved_search_name(name);
+            folders
+                .entry(folder.to_string())
+                .or_default()
+                .push((leaf.to_string(), query.clone()));
+        }
+        self.manage_virtual_libraries.folders = folders;
         self.manage_virtual_libraries.needs_refresh = false;
+        Ok(())
+    }
+
+    fn build_saved_search_groups(&self) -> Vec<(String, Vec<(String, String)>)> {
+        let mut grouped = self
+            .manage_virtual_libraries
+            .folders
+            .iter()
+            .map(|(folder, entries)| {
+                let mut rows = entries.clone();
+                rows.sort_by(|a, b| a.0.cmp(&b.0));
+                (folder.clone(), rows)
+            })
+            .collect::<Vec<_>>();
+        grouped.sort_by(|a, b| a.0.cmp(&b.0));
+        grouped
+    }
+
+    fn append_query_builder_clause(&mut self) {
+        let field = self.manage_virtual_libraries.builder_field.trim();
+        let op = self.manage_virtual_libraries.builder_op.trim();
+        let value = self.manage_virtual_libraries.builder_value.trim();
+        if field.is_empty() || op.is_empty() || value.is_empty() {
+            return;
+        }
+        let clause = match op {
+            "is" => format!("{field}:\"{value}\""),
+            "not" => format!("not {field}:\"{value}\""),
+            _ => format!("{field}:{value}"),
+        };
+        if self.manage_virtual_libraries.new_query.trim().is_empty() {
+            self.manage_virtual_libraries.new_query = clause;
+        } else {
+            self.manage_virtual_libraries.new_query =
+                format!("{} and {clause}", self.manage_virtual_libraries.new_query);
+        }
+    }
+
+    fn export_saved_searches(&self, path: &Path) -> CoreResult<()> {
+        let output = path;
+        if output.as_os_str().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "saved-search export path cannot be empty".to_string(),
+            ));
+        }
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                CoreError::Io("create saved-search export parent".to_string(), err)
+            })?;
+        }
+        let map = self.db.list_saved_searches()?;
+        let json = serde_json::to_string_pretty(&map)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        fs::write(output, json)
+            .map_err(|err| CoreError::Io("write saved-search export".to_string(), err))?;
+        Ok(())
+    }
+
+    fn import_saved_searches(&self, path: &Path) -> CoreResult<()> {
+        if path.as_os_str().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "saved-search import path cannot be empty".to_string(),
+            ));
+        }
+        let content = fs::read_to_string(path)
+            .map_err(|err| CoreError::Io("read saved-search import".to_string(), err))?;
+        let map = serde_json::from_str::<HashMap<String, String>>(&content)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        for (name, query) in map {
+            self.db.add_saved_search(&name, &query)?;
+        }
+        Ok(())
+    }
+
+    fn assign_virtual_library_tag(&mut self, name: &str) -> CoreResult<()> {
+        if name.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "virtual library name cannot be empty".to_string(),
+            ));
+        }
+        let tag = format!("vl:{name}");
+        for book_id in self.selected_ids.clone() {
+            self.db.add_book_tags(book_id, std::slice::from_ref(&tag))?;
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn unassign_virtual_library_tag(&mut self, name: &str) -> CoreResult<()> {
+        if name.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "virtual library name cannot be empty".to_string(),
+            ));
+        }
+        let tag = format!("vl:{name}");
+        for book_id in self.selected_ids.clone() {
+            let mut tags = self.db.list_book_tags(book_id)?;
+            tags.retain(|value| !value.eq_ignore_ascii_case(&tag));
+            self.db.replace_book_tags(book_id, &tags)?;
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn bulk_assign_tag(&mut self, tag: &str) -> CoreResult<()> {
+        if tag.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "tag cannot be empty for assign".to_string(),
+            ));
+        }
+        let tag_value = tag.to_string();
+        for book_id in self.selected_ids.clone() {
+            self.db
+                .add_book_tags(book_id, std::slice::from_ref(&tag_value))?;
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn bulk_remove_tag(&mut self, tag: &str) -> CoreResult<()> {
+        if tag.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "tag cannot be empty for remove".to_string(),
+            ));
+        }
+        for book_id in self.selected_ids.clone() {
+            let mut tags = self.db.list_book_tags(book_id)?;
+            tags.retain(|value| !value.eq_ignore_ascii_case(tag));
+            self.db.replace_book_tags(book_id, &tags)?;
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn renumber_selected_series(&mut self, series: &str, start: f64, step: f64) -> CoreResult<()> {
+        if series.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "series cannot be empty for renumber".to_string(),
+            ));
+        }
+        if step <= 0.0 {
+            return Err(CoreError::ConfigValidate(
+                "series renumber step must be > 0".to_string(),
+            ));
+        }
+        let mut next_index = start;
+        for book_id in self.selected_ids.clone() {
+            self.db.set_book_series(book_id, series, next_index)?;
+            next_index += step;
+        }
+        self.needs_refresh = true;
+        Ok(())
+    }
+
+    fn export_custom_columns(&self, path: &Path) -> CoreResult<()> {
+        if path.as_os_str().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "custom-column export path cannot be empty".to_string(),
+            ));
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| CoreError::Io("create custom export parent".to_string(), err))?;
+        }
+        let columns = self.db.list_custom_columns()?;
+        let export_rows = columns
+            .into_iter()
+            .map(|col| {
+                serde_json::json!({
+                    "label": col.label,
+                    "name": col.name,
+                    "datatype": col.datatype,
+                    "display": col.display
+                })
+            })
+            .collect::<Vec<_>>();
+        let json = serde_json::to_string_pretty(&export_rows)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        fs::write(path, json)
+            .map_err(|err| CoreError::Io("write custom columns export".to_string(), err))?;
+        Ok(())
+    }
+
+    fn import_custom_columns(&self, path: &Path) -> CoreResult<()> {
+        if path.as_os_str().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "custom-column import path cannot be empty".to_string(),
+            ));
+        }
+        let content = fs::read_to_string(path)
+            .map_err(|err| CoreError::Io("read custom column import".to_string(), err))?;
+        let columns = serde_json::from_str::<Vec<serde_json::Value>>(&content)
+            .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+        for col in columns {
+            let label = col
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let name = col
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let datatype = col
+                .get("datatype")
+                .and_then(|v| v.as_str())
+                .unwrap_or("text")
+                .to_string();
+            let display = col
+                .get("display")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if label.trim().is_empty() || name.trim().is_empty() {
+                continue;
+            }
+            let _ = self
+                .db
+                .create_custom_column(&label, &name, &datatype, &display);
+        }
         Ok(())
     }
 
@@ -8948,7 +9409,10 @@ struct ManageTagsDialogState {
     tags: Vec<CategoryCount>,
     rename_from: String,
     rename_to: String,
+    merge_from: String,
+    merge_to: String,
     delete_name: String,
+    bulk_tag: String,
     needs_refresh: bool,
 }
 
@@ -8959,7 +9423,10 @@ impl Default for ManageTagsDialogState {
             tags: Vec::new(),
             rename_from: String::new(),
             rename_to: String::new(),
+            merge_from: String::new(),
+            merge_to: String::new(),
             delete_name: String::new(),
+            bulk_tag: String::new(),
             needs_refresh: true,
         }
     }
@@ -8971,7 +9438,12 @@ struct ManageSeriesDialogState {
     series: Vec<CategoryCount>,
     rename_from: String,
     rename_to: String,
+    merge_from: String,
+    merge_to: String,
     delete_name: String,
+    renumber_name: String,
+    renumber_start: f64,
+    renumber_step: f64,
     needs_refresh: bool,
 }
 
@@ -8982,7 +9454,12 @@ impl Default for ManageSeriesDialogState {
             series: Vec::new(),
             rename_from: String::new(),
             rename_to: String::new(),
+            merge_from: String::new(),
+            merge_to: String::new(),
             delete_name: String::new(),
+            renumber_name: String::new(),
+            renumber_start: 1.0,
+            renumber_step: 1.0,
             needs_refresh: true,
         }
     }
@@ -8997,6 +9474,8 @@ struct ManageCustomColumnsDialogState {
     new_datatype: String,
     new_display: String,
     delete_label: String,
+    import_path: String,
+    export_path: String,
     needs_refresh: bool,
 }
 
@@ -9010,6 +9489,8 @@ impl Default for ManageCustomColumnsDialogState {
             new_datatype: "text".to_string(),
             new_display: String::new(),
             delete_label: String::new(),
+            import_path: String::new(),
+            export_path: String::new(),
             needs_refresh: true,
         }
     }
@@ -9019,9 +9500,18 @@ impl Default for ManageCustomColumnsDialogState {
 struct ManageVirtualLibrariesDialogState {
     open: bool,
     searches: Vec<(String, String)>,
+    folders: HashMap<String, Vec<(String, String)>>,
     new_name: String,
+    new_folder: String,
     new_query: String,
+    builder_field: String,
+    builder_op: String,
+    builder_value: String,
     delete_name: String,
+    import_path: String,
+    export_path: String,
+    assign_name: String,
+    unassign_name: String,
     needs_refresh: bool,
 }
 
@@ -9030,9 +9520,18 @@ impl Default for ManageVirtualLibrariesDialogState {
         Self {
             open: false,
             searches: Vec::new(),
+            folders: HashMap::new(),
             new_name: String::new(),
+            new_folder: String::new(),
             new_query: String::new(),
+            builder_field: "title".to_string(),
+            builder_op: "contains".to_string(),
+            builder_value: String::new(),
             delete_name: String::new(),
+            import_path: String::new(),
+            export_path: String::new(),
+            assign_name: String::new(),
+            unassign_name: String::new(),
             needs_refresh: true,
         }
     }
@@ -10197,6 +10696,37 @@ fn first_csv_item(value: &str) -> String {
         .into_iter()
         .next()
         .unwrap_or_default()
+}
+
+fn split_saved_search_name(name: &str) -> (&str, &str) {
+    if let Some((folder, leaf)) = name.rsplit_once('/') {
+        if !folder.trim().is_empty() && !leaf.trim().is_empty() {
+            return (folder, leaf);
+        }
+    }
+    ("Ungrouped", name)
+}
+
+fn group_hierarchical_categories(
+    rows: &[CategoryCount],
+    delimiter: char,
+) -> Vec<(String, Vec<CategoryCount>)> {
+    let mut grouped: HashMap<String, Vec<CategoryCount>> = HashMap::new();
+    for row in rows {
+        let root = row
+            .name
+            .split(delimiter)
+            .next()
+            .unwrap_or(row.name.as_str())
+            .to_string();
+        grouped.entry(root).or_default().push(row.clone());
+    }
+    let mut entries = grouped.into_iter().collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    for (_, values) in &mut entries {
+        values.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    entries
 }
 
 fn export_stats_csv(cache_dir: &Path, stats: &LibraryStatsSummary) -> CoreResult<PathBuf> {

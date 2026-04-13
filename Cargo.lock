@@ -897,6 +897,7 @@ dependencies = [
  "egui_extras",
  "image",
  "pulldown-cmark",
+ "serde_json",
  "tempfile",
  "time",
  "tracing",
