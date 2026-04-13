@@ -532,6 +532,9 @@ pub struct LibraryView {
     open_logs_requested: bool,
     log_dir: PathBuf,
     tmp_dir: PathBuf,
+    conversion_job_history_path: PathBuf,
+    conversion_job_logs_dir: PathBuf,
+    max_job_history: usize,
     cover_thumb_size: f32,
     cover_preview_size: f32,
     show_format_badges: bool,
@@ -710,6 +713,9 @@ impl LibraryView {
             open_logs_requested: false,
             log_dir: config.paths.log_dir.clone(),
             tmp_dir: config.paths.tmp_dir.clone(),
+            conversion_job_history_path: config.conversion.job_history_path.clone(),
+            conversion_job_logs_dir: config.conversion.job_logs_dir.clone(),
+            max_job_history: config.conversion.max_job_history,
             cover_thumb_size: config.gui.cover_thumb_size,
             cover_preview_size: config.gui.cover_preview_size,
             show_format_badges: config.gui.show_format_badges,
@@ -767,6 +773,9 @@ impl LibraryView {
             edit_custom_fields: Vec::new(),
             inline_edit: InlineEditState::default(),
         };
+        view.convert_books.apply_defaults(config);
+        view.save_to_disk.apply_defaults(config);
+        let _ = view.load_job_history();
         if let Some(active) = &view.active_virtual_library {
             view.browser_filters = view
                 .virtual_library_filters
@@ -3880,6 +3889,8 @@ impl LibraryView {
         let mut open = self.convert_books.open;
         let mut confirmed = false;
         let mut close_requested = false;
+        let mut save_preset = false;
+        let mut load_preset: Option<String> = None;
         egui::Window::new("Convert books")
             .open(&mut open)
             .resizable(true)
@@ -3903,6 +3914,33 @@ impl LibraryView {
                             }
                         });
                 });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Input profile");
+                    egui::ComboBox::from_id_salt("convert_input_profile")
+                        .selected_text(self.convert_books.input_profile.as_str())
+                        .show_ui(ui, |ui| {
+                            for profile in &config.conversion.input_profiles {
+                                ui.selectable_value(
+                                    &mut self.convert_books.input_profile,
+                                    profile.clone(),
+                                    profile,
+                                );
+                            }
+                        });
+                    ui.label("Output profile");
+                    egui::ComboBox::from_id_salt("convert_output_profile")
+                        .selected_text(self.convert_books.output_profile.as_str())
+                        .show_ui(ui, |ui| {
+                            for profile in &config.conversion.output_profiles {
+                                ui.selectable_value(
+                                    &mut self.convert_books.output_profile,
+                                    profile.clone(),
+                                    profile,
+                                );
+                            }
+                        });
+                });
                 ui.label("Output directory");
                 ui.text_edit_singleline(&mut self.convert_books.output_dir);
                 ui.checkbox(
@@ -3910,6 +3948,106 @@ impl LibraryView {
                     "Add converted format to library",
                 );
                 ui.checkbox(&mut self.convert_books.keep_output, "Keep output file");
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(
+                        &mut self.convert_books.heuristic_enable,
+                        "Enable heuristics",
+                    );
+                    ui.checkbox(
+                        &mut self.convert_books.heuristic_unwrap_lines,
+                        "Unwrap hard line breaks",
+                    );
+                    ui.checkbox(
+                        &mut self.convert_books.heuristic_delete_blank_lines,
+                        "Delete blank lines",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Margins");
+                    ui.add(
+                        egui::DragValue::new(&mut self.convert_books.page_margin_left)
+                            .speed(0.5)
+                            .range(0.0..=40.0)
+                            .prefix("L "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.convert_books.page_margin_right)
+                            .speed(0.5)
+                            .range(0.0..=40.0)
+                            .prefix("R "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.convert_books.page_margin_top)
+                            .speed(0.5)
+                            .range(0.0..=40.0)
+                            .prefix("T "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.convert_books.page_margin_bottom)
+                            .speed(0.5)
+                            .range(0.0..=40.0)
+                            .prefix("B "),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.convert_books.embed_fonts, "Embed fonts");
+                    ui.checkbox(&mut self.convert_books.subset_fonts, "Subset fonts");
+                    ui.label("Cover policy");
+                    egui::ComboBox::from_id_salt("convert_cover_policy")
+                        .selected_text(self.convert_books.cover_policy.as_str())
+                        .show_ui(ui, |ui| {
+                            for option in ["keep", "replace", "generate"] {
+                                ui.selectable_value(
+                                    &mut self.convert_books.cover_policy,
+                                    option.to_string(),
+                                    option,
+                                );
+                            }
+                        });
+                });
+                egui::CollapsingHeader::new("Per-format options")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        render_format_options(ui, "EPUB", &self.convert_books.output_format);
+                        render_format_options(ui, "MOBI", &self.convert_books.output_format);
+                        render_format_options(ui, "PDF", &self.convert_books.output_format);
+                        render_format_options(ui, "AZW3", &self.convert_books.output_format);
+                    });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Preset name");
+                    ui.text_edit_singleline(&mut self.convert_books.preset_name);
+                    if ui.button("Save preset").clicked() {
+                        save_preset = true;
+                    }
+                    let mut selected = String::new();
+                    egui::ComboBox::from_id_salt("convert_load_preset")
+                        .selected_text("Load preset")
+                        .show_ui(ui, |ui| {
+                            for key in self.convert_books.presets.keys() {
+                                if ui.selectable_label(false, key).clicked() {
+                                    selected = key.clone();
+                                }
+                            }
+                        });
+                    if !selected.is_empty() {
+                        load_preset = Some(selected);
+                    }
+                });
+                ui.checkbox(
+                    &mut self.convert_books.warn_unsupported_options,
+                    "Warn on unsupported options",
+                );
+                let warnings = conversion_warnings(&self.convert_books);
+                if self.convert_books.warn_unsupported_options && !warnings.is_empty() {
+                    ui.group(|ui| {
+                        ui.strong("Warnings");
+                        for warning in warnings {
+                            ui.colored_label(egui::Color32::from_rgb(200, 130, 20), warning);
+                        }
+                    });
+                }
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Convert").clicked() {
@@ -3920,6 +4058,16 @@ impl LibraryView {
                     }
                 });
             });
+        if save_preset {
+            let preset_name = self.convert_books.preset_name.clone();
+            self.convert_books.save_preset(&preset_name);
+            self.push_toast("Saved conversion preset", ToastLevel::Info);
+        }
+        if let Some(name) = load_preset {
+            if self.convert_books.load_preset(&name) {
+                self.push_toast(&format!("Loaded preset: {name}"), ToastLevel::Info);
+            }
+        }
         if confirmed {
             match self.run_convert_books(config) {
                 Ok(()) => {
@@ -3943,6 +4091,8 @@ impl LibraryView {
         let mut open = self.save_to_disk.open;
         let mut confirmed = false;
         let mut close_requested = false;
+        let mut save_preset = false;
+        let mut load_preset: Option<String> = None;
         egui::Window::new("Save to disk")
             .open(&mut open)
             .resizable(true)
@@ -3957,6 +4107,54 @@ impl LibraryView {
                     &mut self.save_to_disk.export_all_formats,
                     "Export all formats",
                 );
+                ui.horizontal(|ui| {
+                    ui.label("Path template");
+                    ui.text_edit_singleline(&mut self.save_to_disk.path_template);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Conflict policy");
+                    egui::ComboBox::from_id_salt("save_to_disk_conflict_policy")
+                        .selected_text(self.save_to_disk.conflict_policy.as_str())
+                        .show_ui(ui, |ui| {
+                            for policy in ["rename", "skip", "overwrite"] {
+                                ui.selectable_value(
+                                    &mut self.save_to_disk.conflict_policy,
+                                    policy.to_string(),
+                                    policy,
+                                );
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Preset name");
+                    ui.text_edit_singleline(&mut self.save_to_disk.preset_name);
+                    if ui.button("Save preset").clicked() {
+                        save_preset = true;
+                    }
+                    let mut selected = String::new();
+                    egui::ComboBox::from_id_salt("save_to_disk_load_preset")
+                        .selected_text("Load preset")
+                        .show_ui(ui, |ui| {
+                            for key in self.save_to_disk.presets.keys() {
+                                if ui.selectable_label(false, key).clicked() {
+                                    selected = key.clone();
+                                }
+                            }
+                        });
+                    if !selected.is_empty() {
+                        load_preset = Some(selected);
+                    }
+                });
+                ui.collapsing("Export preview", |ui| {
+                    let preview = self.build_export_preview(config, 10);
+                    if preview.is_empty() {
+                        ui.label("No selected files to preview.");
+                    } else {
+                        for line in preview {
+                            ui.monospace(line);
+                        }
+                    }
+                });
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Export").clicked() {
@@ -3967,6 +4165,16 @@ impl LibraryView {
                     }
                 });
             });
+        if save_preset {
+            let preset_name = self.save_to_disk.preset_name.clone();
+            self.save_to_disk.save_preset(&preset_name);
+            self.push_toast("Saved export preset", ToastLevel::Info);
+        }
+        if let Some(name) = load_preset {
+            if self.save_to_disk.load_preset(&name) {
+                self.push_toast(&format!("Loaded export preset: {name}"), ToastLevel::Info);
+            }
+        }
         if confirmed {
             match self.run_save_to_disk(config) {
                 Ok(()) => {
@@ -5495,11 +5703,22 @@ impl LibraryView {
         if ids.is_empty() {
             return Ok(());
         }
+        info!(
+            component = "gui",
+            count = ids.len(),
+            output_format = %self.convert_books.output_format,
+            "starting convert books action"
+        );
         let output_dir = output_dir_or_default(
             &self.convert_books.output_dir,
             &config.conversion.output_dir,
         );
         ensure_dir(&output_dir)?;
+        let mut logs = vec![format!(
+            "convert start format={} dir={}",
+            self.convert_books.output_format,
+            output_dir.display()
+        )];
         let mut converted = 0;
         for book_id in ids {
             let Some(book) = self.db.get_book(book_id)? else {
@@ -5519,8 +5738,30 @@ impl LibraryView {
             );
             let settings = ConversionSettings::from_config(&config.conversion)
                 .with_input_format(input_format)
-                .with_output_format(Some(self.convert_books.output_format.clone()));
+                .with_output_format(Some(self.convert_books.output_format.clone()))
+                .with_profiles(
+                    self.convert_books.input_profile.clone(),
+                    self.convert_books.output_profile.clone(),
+                )
+                .with_heuristics(
+                    self.convert_books.heuristic_enable,
+                    self.convert_books.heuristic_unwrap_lines,
+                    self.convert_books.heuristic_delete_blank_lines,
+                )
+                .with_page_setup(
+                    self.convert_books.page_margin_left,
+                    self.convert_books.page_margin_right,
+                    self.convert_books.page_margin_top,
+                    self.convert_books.page_margin_bottom,
+                    self.convert_books.embed_fonts,
+                    self.convert_books.subset_fonts,
+                )
+                .with_cover_policy(self.convert_books.cover_policy.clone());
             let _report = convert_file(&input_path, &output_path, &settings)?;
+            logs.push(format!(
+                "book_id={book_id} converted -> {}",
+                output_path.display()
+            ));
             if self.convert_books.add_to_library {
                 match LocalAssetStore::from_config(config).store(&output_path, StorageMode::Copy)? {
                     caliberate_assets::storage::StoreOutcome::Stored(asset_record) => {
@@ -5544,6 +5785,9 @@ impl LibraryView {
                             asset_record.is_compressed,
                             &created_at,
                         )?;
+                        logs.push(format!(
+                            "book_id={book_id} added converted asset to library"
+                        ));
                     }
                     caliberate_assets::storage::StoreOutcome::Skipped(skip) => {
                         warn!(
@@ -5551,6 +5795,10 @@ impl LibraryView {
                             path = %skip.existing_path.display(),
                             "skipped storing converted asset"
                         );
+                        logs.push(format!(
+                            "book_id={book_id} skipped adding converted asset: {}",
+                            skip.existing_path.display()
+                        ));
                     }
                 }
             }
@@ -5562,10 +5810,48 @@ impl LibraryView {
             }
             converted += 1;
         }
+        logs.push(format!("converted_count={converted}"));
+        let details = vec![
+            (
+                "books_selected".to_string(),
+                self.selected_ids.len().to_string(),
+            ),
+            ("books_converted".to_string(), converted.to_string()),
+            (
+                "output_format".to_string(),
+                self.convert_books.output_format.clone(),
+            ),
+            (
+                "input_profile".to_string(),
+                self.convert_books.input_profile.clone(),
+            ),
+            (
+                "output_profile".to_string(),
+                self.convert_books.output_profile.clone(),
+            ),
+            ("output_dir".to_string(), output_dir.display().to_string()),
+        ];
+        let retry_action = JobRetryAction::Convert {
+            ids: self.selected_ids.clone(),
+            output_format: self.convert_books.output_format.clone(),
+            output_dir: output_dir.clone(),
+        };
+        self.record_conversion_job(
+            format!("Convert {} books", self.selected_ids.len()),
+            JobStatus::Completed,
+            Some(output_dir.clone()),
+            details,
+            logs,
+            Some(retry_action),
+        );
         self.needs_refresh = true;
         self.status = format!("Converted {converted} book(s)");
         let status = self.status.clone();
         self.push_toast(&status, ToastLevel::Info);
+        info!(
+            component = "gui",
+            converted, "completed convert books action"
+        );
         Ok(())
     }
 
@@ -5574,10 +5860,24 @@ impl LibraryView {
         if ids.is_empty() {
             return Ok(());
         }
+        info!(
+            component = "gui",
+            count = ids.len(),
+            template = %self.save_to_disk.path_template,
+            conflict_policy = %self.save_to_disk.conflict_policy,
+            "starting save to disk action"
+        );
         let output_dir =
             output_dir_or_default(&self.save_to_disk.output_dir, &config.conversion.output_dir);
         ensure_dir(&output_dir)?;
         let mut exported = 0;
+        let mut skipped = 0;
+        let mut logs = vec![format!(
+            "save_to_disk start dir={} template={} policy={}",
+            output_dir.display(),
+            self.save_to_disk.path_template,
+            self.save_to_disk.conflict_policy
+        )];
         for book_id in ids {
             let Some(book) = self.db.get_book(book_id)? else {
                 continue;
@@ -5593,7 +5893,26 @@ impl LibraryView {
             for asset in assets {
                 let format =
                     asset_format(&asset, &book.format).unwrap_or_else(|| book.format.clone());
-                let dest = build_output_path(&output_dir, &book.title, book_id, &format);
+                let authors = self.db.list_book_authors(book_id)?.join(", ");
+                let base_dest = build_output_from_template(
+                    &output_dir,
+                    &self.save_to_disk.path_template,
+                    &book.title,
+                    book_id,
+                    &format,
+                    &authors,
+                );
+                let Some(dest) = resolve_export_conflict_path(
+                    &base_dest,
+                    self.save_to_disk.conflict_policy.as_str(),
+                ) else {
+                    skipped += 1;
+                    logs.push(format!(
+                        "book_id={book_id} skipped existing path {}",
+                        base_dest.display()
+                    ));
+                    continue;
+                };
                 let (input_path, temp_input) =
                     resolve_asset_input_path(&asset, &config.paths.tmp_dir)?;
                 if asset.is_compressed {
@@ -5608,11 +5927,50 @@ impl LibraryView {
                     let _ = fs::remove_file(temp_path);
                 }
                 exported += 1;
+                logs.push(format!(
+                    "book_id={book_id} exported format={} -> {}",
+                    format,
+                    dest.display()
+                ));
             }
         }
+        logs.push(format!("exported_count={exported} skipped_count={skipped}"));
+        let details = vec![
+            (
+                "books_selected".to_string(),
+                self.selected_ids.len().to_string(),
+            ),
+            ("files_exported".to_string(), exported.to_string()),
+            ("files_skipped".to_string(), skipped.to_string()),
+            (
+                "template".to_string(),
+                self.save_to_disk.path_template.clone(),
+            ),
+            (
+                "conflict_policy".to_string(),
+                self.save_to_disk.conflict_policy.clone(),
+            ),
+            ("output_dir".to_string(), output_dir.display().to_string()),
+        ];
+        let retry_action = JobRetryAction::SaveToDisk {
+            ids: self.selected_ids.clone(),
+            output_dir: output_dir.clone(),
+        };
+        self.record_save_to_disk_job(
+            format!("Save to disk {} books", self.selected_ids.len()),
+            JobStatus::Completed,
+            Some(output_dir.clone()),
+            details,
+            logs,
+            Some(retry_action),
+        );
         self.status = format!("Exported {exported} file(s)");
         let status = self.status.clone();
         self.push_toast(&status, ToastLevel::Info);
+        info!(
+            component = "gui",
+            exported, skipped, "completed save to disk action"
+        );
         Ok(())
     }
 
@@ -5656,6 +6014,44 @@ impl LibraryView {
         let status = self.status.clone();
         self.push_toast(&status, ToastLevel::Info);
         Ok(())
+    }
+
+    fn build_export_preview(&self, config: &ControlPlane, max_rows: usize) -> Vec<String> {
+        let output_dir =
+            output_dir_or_default(&self.save_to_disk.output_dir, &config.conversion.output_dir);
+        let mut rows = Vec::new();
+        for book_id in self.selected_ids.iter().copied().take(max_rows) {
+            let Some(book) = self.db.get_book(book_id).ok().flatten() else {
+                continue;
+            };
+            let format = if book.format.trim().is_empty() {
+                "unknown".to_string()
+            } else {
+                book.format.clone()
+            };
+            let authors = self
+                .db
+                .list_book_authors(book_id)
+                .ok()
+                .map(|items| items.join(", "))
+                .unwrap_or_default();
+            let dest = build_output_from_template(
+                &output_dir,
+                &self.save_to_disk.path_template,
+                &book.title,
+                book_id,
+                &format,
+                &authors,
+            );
+            rows.push(format!(
+                "#{book_id} {} -> {}",
+                book.title,
+                dest.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| dest.display().to_string())
+            ));
+        }
+        rows
     }
 
     fn refresh_manage_tags(&mut self) -> CoreResult<()> {
@@ -6374,6 +6770,14 @@ impl LibraryView {
         config.gui.low_rating_threshold = self.low_rating_threshold;
         config.gui.color_missing_cover = self.color_missing_cover.clone();
         config.gui.color_low_rating = self.color_low_rating.clone();
+        config.conversion.save_to_disk_template = self.save_to_disk.path_template.clone();
+        config.conversion.save_to_disk_conflict_policy = self.save_to_disk.conflict_policy.clone();
+        config.conversion.save_to_disk_presets = self
+            .save_to_disk
+            .presets
+            .iter()
+            .map(|(name, preset)| (name.clone(), preset.template.clone()))
+            .collect();
     }
 
     fn push_toast(&mut self, message: &str, level: ToastLevel) {
@@ -6393,6 +6797,108 @@ impl LibraryView {
         let duration = self.toast_duration_secs;
         self.toasts
             .retain(|toast| now - toast.created_at <= duration);
+    }
+
+    fn trim_job_history(&mut self) {
+        if self.jobs.len() > self.max_job_history {
+            let remove = self.jobs.len() - self.max_job_history;
+            self.jobs.drain(0..remove);
+        }
+    }
+
+    fn save_job_history(&self) -> CoreResult<()> {
+        if let Some(parent) = self.conversion_job_history_path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                CoreError::Io("create conversion history parent".to_string(), err)
+            })?;
+        }
+        let mut lines = Vec::with_capacity(self.jobs.len());
+        for job in &self.jobs {
+            let status = job.status.label();
+            let output = job
+                .output_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default();
+            lines.push(format!(
+                "{}\t{}\t{}\t{}\t{}",
+                job.id,
+                job.kind.label(),
+                status,
+                output.replace('\t', " "),
+                job.name.replace('\t', " "),
+            ));
+        }
+        fs::write(&self.conversion_job_history_path, lines.join("\n"))
+            .map_err(|err| CoreError::Io("write conversion job history".to_string(), err))?;
+        Ok(())
+    }
+
+    fn write_job_logs(&self, job_id: u64, logs: &[String]) -> CoreResult<PathBuf> {
+        fs::create_dir_all(&self.conversion_job_logs_dir)
+            .map_err(|err| CoreError::Io("create job logs dir".to_string(), err))?;
+        let path = self
+            .conversion_job_logs_dir
+            .join(format!("job-{job_id}.log"));
+        fs::write(&path, logs.join("\n"))
+            .map_err(|err| CoreError::Io("write job log".to_string(), err))?;
+        Ok(path)
+    }
+
+    fn load_job_history(&mut self) -> CoreResult<()> {
+        if !self.conversion_job_history_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&self.conversion_job_history_path)
+            .map_err(|err| CoreError::Io("read conversion job history".to_string(), err))?;
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 5 {
+                continue;
+            }
+            let id = parts[0].parse::<u64>().unwrap_or(0);
+            let kind = match parts[1] {
+                "Convert" => JobKind::Convert,
+                "Save to disk" => JobKind::SaveToDisk,
+                _ => JobKind::Generic,
+            };
+            let status = match parts[2] {
+                "Queued" => JobStatus::Queued,
+                "Running" => JobStatus::Running,
+                "Paused" => JobStatus::Paused,
+                "Cancelled" => JobStatus::Cancelled,
+                "Failed" => JobStatus::Failed,
+                _ => JobStatus::Completed,
+            };
+            let output = if parts[3].trim().is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(parts[3]))
+            };
+            let name = parts[4].to_string();
+            self.jobs.push(JobEntry {
+                id,
+                name,
+                kind,
+                status,
+                progress: if matches!(status, JobStatus::Completed) {
+                    1.0
+                } else {
+                    0.0
+                },
+                created_at: 0.0,
+                updated_at: 0.0,
+                output_path: output,
+                details: Vec::new(),
+                logs: Vec::new(),
+                retry_action: None,
+            });
+            if id >= self.next_job_id {
+                self.next_job_id = id + 1;
+            }
+        }
+        self.trim_job_history();
+        Ok(())
     }
 
     fn render_toasts(&self, ui: &mut egui::Ui) {
@@ -6421,14 +6927,136 @@ impl LibraryView {
         let job = JobEntry {
             id: self.next_job_id,
             name: name.to_string(),
+            kind: JobKind::Generic,
             status: JobStatus::Queued,
             progress: 0.0,
             created_at: now,
             updated_at: now,
+            output_path: None,
+            details: Vec::new(),
+            logs: Vec::new(),
+            retry_action: None,
         };
         self.next_job_id += 1;
         self.jobs.push(job);
         self.push_toast(&format!("Queued job: {name}"), ToastLevel::Info);
+    }
+
+    fn record_conversion_job(
+        &mut self,
+        name: String,
+        status: JobStatus,
+        output_path: Option<PathBuf>,
+        mut details: Vec<(String, String)>,
+        logs: Vec<String>,
+        retry_action: Option<JobRetryAction>,
+    ) {
+        let now = self.last_tick;
+        let job_id = self.next_job_id;
+        if let Ok(log_path) = self.write_job_logs(job_id, &logs) {
+            details.push(("log_file".to_string(), log_path.display().to_string()));
+        }
+        let job = JobEntry {
+            id: job_id,
+            name,
+            kind: JobKind::Convert,
+            status,
+            progress: if matches!(status, JobStatus::Completed) {
+                1.0
+            } else {
+                0.0
+            },
+            created_at: now,
+            updated_at: now,
+            output_path,
+            details,
+            logs,
+            retry_action,
+        };
+        self.next_job_id += 1;
+        self.jobs.push(job);
+        self.trim_job_history();
+        let _ = self.save_job_history();
+    }
+
+    fn record_save_to_disk_job(
+        &mut self,
+        name: String,
+        status: JobStatus,
+        output_path: Option<PathBuf>,
+        mut details: Vec<(String, String)>,
+        logs: Vec<String>,
+        retry_action: Option<JobRetryAction>,
+    ) {
+        let now = self.last_tick;
+        let job_id = self.next_job_id;
+        if let Ok(log_path) = self.write_job_logs(job_id, &logs) {
+            details.push(("log_file".to_string(), log_path.display().to_string()));
+        }
+        let job = JobEntry {
+            id: job_id,
+            name,
+            kind: JobKind::SaveToDisk,
+            status,
+            progress: if matches!(status, JobStatus::Completed) {
+                1.0
+            } else {
+                0.0
+            },
+            created_at: now,
+            updated_at: now,
+            output_path,
+            details,
+            logs,
+            retry_action,
+        };
+        self.next_job_id += 1;
+        self.jobs.push(job);
+        self.trim_job_history();
+        let _ = self.save_job_history();
+    }
+
+    fn enqueue_retry_job(&mut self, name: String, action: JobRetryAction) {
+        let now = self.last_tick;
+        let mut details = Vec::new();
+        match &action {
+            JobRetryAction::Convert {
+                ids,
+                output_format,
+                output_dir,
+            } => {
+                details.push(("kind".to_string(), "convert".to_string()));
+                details.push(("books".to_string(), ids.len().to_string()));
+                details.push(("format".to_string(), output_format.clone()));
+                details.push(("output_dir".to_string(), output_dir.display().to_string()));
+            }
+            JobRetryAction::SaveToDisk { ids, output_dir } => {
+                details.push(("kind".to_string(), "save_to_disk".to_string()));
+                details.push(("books".to_string(), ids.len().to_string()));
+                details.push(("output_dir".to_string(), output_dir.display().to_string()));
+            }
+        }
+        let kind = match action {
+            JobRetryAction::Convert { .. } => JobKind::Convert,
+            JobRetryAction::SaveToDisk { .. } => JobKind::SaveToDisk,
+        };
+        let job = JobEntry {
+            id: self.next_job_id,
+            name,
+            kind,
+            status: JobStatus::Queued,
+            progress: 0.0,
+            created_at: now,
+            updated_at: now,
+            output_path: None,
+            details,
+            logs: vec!["queued from retry/clone".to_string()],
+            retry_action: Some(action),
+        };
+        self.next_job_id += 1;
+        self.jobs.push(job);
+        self.trim_job_history();
+        let _ = self.save_job_history();
     }
 
     fn tick_jobs(&mut self, now: f64) {
@@ -6472,22 +7100,78 @@ impl LibraryView {
                     ui.heading("Jobs");
                     ui.separator();
                     let mut toasts: Vec<(String, ToastLevel)> = Vec::new();
-                    for job in &mut self.jobs {
+                    let mut move_up: Option<usize> = None;
+                    let mut move_down: Option<usize> = None;
+                    let mut save_dirty = false;
+                    let mut queued_retries: Vec<(String, JobRetryAction)> = Vec::new();
+                    let total_jobs = self.jobs.len();
+                    for idx in 0..total_jobs {
+                        let job = &mut self.jobs[idx];
                         ui.horizontal(|ui| {
                             ui.label(format!("#{} {}", job.id, job.name));
                             ui.label(job.status.label());
+                            ui.label(job.kind.label());
+                            if matches!(job.status, JobStatus::Queued) && idx > 0 {
+                                if ui.small_button("↑").clicked() {
+                                    move_up = Some(idx);
+                                }
+                            }
+                            if matches!(job.status, JobStatus::Queued) && idx + 1 < total_jobs {
+                                if ui.small_button("↓").clicked() {
+                                    move_down = Some(idx);
+                                }
+                            }
                         });
                         ui.add(
                             egui::ProgressBar::new(job.progress)
                                 .show_percentage()
                                 .animate(true),
                         );
+                        if let Some(path) = &job.output_path {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Output: {}", path.display()));
+                                if ui.small_button("Open output").clicked() {
+                                    if let Err(err) = open_path(path) {
+                                        toasts.push((
+                                            format!("open output failed: {err}"),
+                                            ToastLevel::Warn,
+                                        ));
+                                    }
+                                }
+                            });
+                        }
+                        if !job.details.is_empty() {
+                            egui::CollapsingHeader::new("Details")
+                                .id_salt(format!("job-details-{}", job.id))
+                                .show(ui, |ui| {
+                                    for (name, value) in &job.details {
+                                        ui.horizontal(|ui| {
+                                            ui.monospace(name);
+                                            ui.label(value);
+                                        });
+                                    }
+                                });
+                        }
+                        if !job.logs.is_empty() {
+                            egui::CollapsingHeader::new("Logs")
+                                .id_salt(format!("job-logs-{}", job.id))
+                                .show(ui, |ui| {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(100.0)
+                                        .show(ui, |ui| {
+                                            for line in &job.logs {
+                                                ui.monospace(line);
+                                            }
+                                        });
+                                });
+                        }
                         ui.horizontal(|ui| {
                             if matches!(job.status, JobStatus::Running) {
                                 if ui.button("Pause").clicked() {
                                     job.status = JobStatus::Paused;
                                     toasts
                                         .push((format!("Paused job {}", job.id), ToastLevel::Warn));
+                                    save_dirty = true;
                                 }
                             } else if matches!(job.status, JobStatus::Paused) {
                                 if ui.button("Resume").clicked() {
@@ -6496,6 +7180,7 @@ impl LibraryView {
                                         format!("Resumed job {}", job.id),
                                         ToastLevel::Info,
                                     ));
+                                    save_dirty = true;
                                 }
                             }
                             if !matches!(job.status, JobStatus::Completed | JobStatus::Cancelled) {
@@ -6505,13 +7190,51 @@ impl LibraryView {
                                         format!("Cancelled job {}", job.id),
                                         ToastLevel::Warn,
                                     ));
+                                    save_dirty = true;
+                                }
+                            }
+                            if matches!(job.status, JobStatus::Completed | JobStatus::Failed) {
+                                if ui.button("Clone").clicked() {
+                                    if let Some(action) = job.retry_action.clone() {
+                                        let name = format!("Clone of {}", job.name);
+                                        queued_retries.push((name, action));
+                                        toasts.push((
+                                            format!("Cloned job {}", job.id),
+                                            ToastLevel::Info,
+                                        ));
+                                    }
+                                }
+                                if ui.button("Retry").clicked() {
+                                    if let Some(action) = job.retry_action.clone() {
+                                        let name = format!("Retry of {}", job.name);
+                                        queued_retries.push((name, action));
+                                        toasts.push((
+                                            format!("Retried job {}", job.id),
+                                            ToastLevel::Info,
+                                        ));
+                                    }
                                 }
                             }
                         });
                         ui.separator();
                     }
+                    if let Some(idx) = move_up {
+                        self.jobs.swap(idx, idx - 1);
+                        save_dirty = true;
+                    }
+                    if let Some(idx) = move_down {
+                        self.jobs.swap(idx, idx + 1);
+                        save_dirty = true;
+                    }
+                    for (name, action) in queued_retries {
+                        self.enqueue_retry_job(name, action);
+                        save_dirty = true;
+                    }
                     for (message, level) in toasts {
                         self.push_toast(&message, level);
+                    }
+                    if save_dirty {
+                        let _ = self.save_job_history();
                     }
                 });
             });
@@ -6989,6 +7712,21 @@ struct ConvertBooksDialogState {
     output_dir: String,
     add_to_library: bool,
     keep_output: bool,
+    input_profile: String,
+    output_profile: String,
+    heuristic_enable: bool,
+    heuristic_unwrap_lines: bool,
+    heuristic_delete_blank_lines: bool,
+    page_margin_left: f32,
+    page_margin_right: f32,
+    page_margin_top: f32,
+    page_margin_bottom: f32,
+    embed_fonts: bool,
+    subset_fonts: bool,
+    cover_policy: String,
+    warn_unsupported_options: bool,
+    preset_name: String,
+    presets: HashMap<String, ConvertPreset>,
 }
 
 impl Default for ConvertBooksDialogState {
@@ -6999,6 +7737,21 @@ impl Default for ConvertBooksDialogState {
             output_dir: String::new(),
             add_to_library: false,
             keep_output: true,
+            input_profile: "default".to_string(),
+            output_profile: "default".to_string(),
+            heuristic_enable: true,
+            heuristic_unwrap_lines: true,
+            heuristic_delete_blank_lines: false,
+            page_margin_left: 5.0,
+            page_margin_right: 5.0,
+            page_margin_top: 5.0,
+            page_margin_bottom: 5.0,
+            embed_fonts: false,
+            subset_fonts: true,
+            cover_policy: "keep".to_string(),
+            warn_unsupported_options: true,
+            preset_name: String::new(),
+            presets: HashMap::new(),
         }
     }
 }
@@ -7009,6 +7762,64 @@ impl ConvertBooksDialogState {
         self.output_dir = config.conversion.output_dir.display().to_string();
         self.add_to_library = false;
         self.keep_output = true;
+        self.input_profile = config.conversion.default_input_profile.clone();
+        self.output_profile = config.conversion.default_output_profile.clone();
+        self.heuristic_enable = config.conversion.heuristic_enable;
+        self.heuristic_unwrap_lines = config.conversion.heuristic_unwrap_lines;
+        self.heuristic_delete_blank_lines = config.conversion.heuristic_delete_blank_lines;
+        self.page_margin_left = config.conversion.page_margin_left;
+        self.page_margin_right = config.conversion.page_margin_right;
+        self.page_margin_top = config.conversion.page_margin_top;
+        self.page_margin_bottom = config.conversion.page_margin_bottom;
+        self.embed_fonts = config.conversion.embed_fonts;
+        self.subset_fonts = config.conversion.subset_fonts;
+        self.cover_policy = config.conversion.cover_policy.clone();
+        self.warn_unsupported_options = config.conversion.warn_unsupported_options;
+    }
+
+    fn save_preset(&mut self, name: &str) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let preset = ConvertPreset {
+            output_format: self.output_format.clone(),
+            output_dir: self.output_dir.clone(),
+            input_profile: self.input_profile.clone(),
+            output_profile: self.output_profile.clone(),
+            heuristic_enable: self.heuristic_enable,
+            heuristic_unwrap_lines: self.heuristic_unwrap_lines,
+            heuristic_delete_blank_lines: self.heuristic_delete_blank_lines,
+            page_margin_left: self.page_margin_left,
+            page_margin_right: self.page_margin_right,
+            page_margin_top: self.page_margin_top,
+            page_margin_bottom: self.page_margin_bottom,
+            embed_fonts: self.embed_fonts,
+            subset_fonts: self.subset_fonts,
+            cover_policy: self.cover_policy.clone(),
+        };
+        self.presets.insert(trimmed.to_string(), preset);
+    }
+
+    fn load_preset(&mut self, name: &str) -> bool {
+        let Some(preset) = self.presets.get(name).cloned() else {
+            return false;
+        };
+        self.output_format = preset.output_format;
+        self.output_dir = preset.output_dir;
+        self.input_profile = preset.input_profile;
+        self.output_profile = preset.output_profile;
+        self.heuristic_enable = preset.heuristic_enable;
+        self.heuristic_unwrap_lines = preset.heuristic_unwrap_lines;
+        self.heuristic_delete_blank_lines = preset.heuristic_delete_blank_lines;
+        self.page_margin_left = preset.page_margin_left;
+        self.page_margin_right = preset.page_margin_right;
+        self.page_margin_top = preset.page_margin_top;
+        self.page_margin_bottom = preset.page_margin_bottom;
+        self.embed_fonts = preset.embed_fonts;
+        self.subset_fonts = preset.subset_fonts;
+        self.cover_policy = preset.cover_policy;
+        true
     }
 }
 
@@ -7017,6 +7828,10 @@ struct SaveToDiskDialogState {
     open: bool,
     output_dir: String,
     export_all_formats: bool,
+    path_template: String,
+    conflict_policy: String,
+    preset_name: String,
+    presets: HashMap<String, SaveToDiskPreset>,
 }
 
 impl Default for SaveToDiskDialogState {
@@ -7025,6 +7840,10 @@ impl Default for SaveToDiskDialogState {
             open: false,
             output_dir: String::new(),
             export_all_formats: true,
+            path_template: "{title}-{id}.{format}".to_string(),
+            conflict_policy: "rename".to_string(),
+            preset_name: String::new(),
+            presets: HashMap::new(),
         }
     }
 }
@@ -7033,6 +7852,48 @@ impl SaveToDiskDialogState {
     fn apply_defaults(&mut self, config: &ControlPlane) {
         self.output_dir = config.conversion.output_dir.display().to_string();
         self.export_all_formats = true;
+        self.path_template = config.conversion.save_to_disk_template.clone();
+        self.conflict_policy = config.conversion.save_to_disk_conflict_policy.clone();
+        self.presets = config
+            .conversion
+            .save_to_disk_presets
+            .iter()
+            .map(|(name, template)| {
+                (
+                    name.clone(),
+                    SaveToDiskPreset {
+                        template: template.clone(),
+                        conflict_policy: self.conflict_policy.clone(),
+                        export_all_formats: true,
+                    },
+                )
+            })
+            .collect();
+    }
+
+    fn save_preset(&mut self, name: &str) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        self.presets.insert(
+            trimmed.to_string(),
+            SaveToDiskPreset {
+                template: self.path_template.clone(),
+                conflict_policy: self.conflict_policy.clone(),
+                export_all_formats: self.export_all_formats,
+            },
+        );
+    }
+
+    fn load_preset(&mut self, name: &str) -> bool {
+        let Some(preset) = self.presets.get(name).cloned() else {
+            return false;
+        };
+        self.path_template = preset.template;
+        self.conflict_policy = preset.conflict_policy;
+        self.export_all_formats = preset.export_all_formats;
+        true
     }
 }
 
@@ -7322,10 +8183,70 @@ enum ToastLevel {
 struct JobEntry {
     id: u64,
     name: String,
+    kind: JobKind,
     status: JobStatus,
     progress: f32,
     created_at: f64,
     updated_at: f64,
+    output_path: Option<PathBuf>,
+    details: Vec<(String, String)>,
+    logs: Vec<String>,
+    retry_action: Option<JobRetryAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JobKind {
+    Generic,
+    Convert,
+    SaveToDisk,
+}
+
+impl JobKind {
+    fn label(self) -> &'static str {
+        match self {
+            JobKind::Generic => "General",
+            JobKind::Convert => "Convert",
+            JobKind::SaveToDisk => "Save to disk",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum JobRetryAction {
+    Convert {
+        ids: Vec<i64>,
+        output_format: String,
+        output_dir: PathBuf,
+    },
+    SaveToDisk {
+        ids: Vec<i64>,
+        output_dir: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ConvertPreset {
+    output_format: String,
+    output_dir: String,
+    input_profile: String,
+    output_profile: String,
+    heuristic_enable: bool,
+    heuristic_unwrap_lines: bool,
+    heuristic_delete_blank_lines: bool,
+    page_margin_left: f32,
+    page_margin_right: f32,
+    page_margin_top: f32,
+    page_margin_bottom: f32,
+    embed_fonts: bool,
+    subset_fonts: bool,
+    cover_policy: String,
+}
+
+#[derive(Debug, Clone)]
+struct SaveToDiskPreset {
+    template: String,
+    conflict_policy: String,
+    export_all_formats: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -7726,6 +8647,56 @@ fn build_output_path(output_dir: &Path, title: &str, book_id: i64, format: &str)
     output_dir.join(build_output_name(title, book_id, format))
 }
 
+fn build_output_from_template(
+    output_dir: &Path,
+    template: &str,
+    title: &str,
+    book_id: i64,
+    format: &str,
+    authors: &str,
+) -> PathBuf {
+    let rendered = template
+        .replace("{title}", &sanitize_filename(title))
+        .replace("{id}", &book_id.to_string())
+        .replace("{format}", &sanitize_filename(format))
+        .replace("{authors}", &sanitize_filename(authors));
+    output_dir.join(rendered)
+}
+
+fn resolve_export_conflict_path(path: &Path, policy: &str) -> Option<PathBuf> {
+    if !path.exists() {
+        return Some(path.to_path_buf());
+    }
+    match policy {
+        "overwrite" => Some(path.to_path_buf()),
+        "skip" => None,
+        "rename" => {
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("file");
+            let ext = path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("");
+            let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            for idx in 1..=9999 {
+                let suffix = if ext.is_empty() {
+                    format!("{stem}-{idx}")
+                } else {
+                    format!("{stem}-{idx}.{ext}")
+                };
+                let candidate = parent.join(suffix);
+                if !candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+            None
+        }
+        _ => Some(path.to_path_buf()),
+    }
+}
+
 fn sanitize_filename(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -7735,6 +8706,44 @@ fn sanitize_filename(value: &str) -> String {
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect()
+}
+
+fn conversion_warnings(state: &ConvertBooksDialogState) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let format = state.output_format.to_lowercase();
+    if format == "mobi" && state.embed_fonts {
+        warnings.push("MOBI embedding may be ignored by readers".to_string());
+    }
+    if format == "pdf" && state.heuristic_unwrap_lines {
+        warnings.push("PDF output ignores hard line unwrap heuristics".to_string());
+    }
+    if state.page_margin_left == 0.0
+        && state.page_margin_right == 0.0
+        && state.page_margin_top == 0.0
+        && state.page_margin_bottom == 0.0
+    {
+        warnings.push("Zero page margins can reduce readability on small screens".to_string());
+    }
+    warnings
+}
+
+fn render_format_options(ui: &mut egui::Ui, format_name: &str, selected_output: &str) {
+    let active = selected_output.eq_ignore_ascii_case(format_name);
+    let label = if active {
+        format!("{format_name} options (active)")
+    } else {
+        format!("{format_name} options")
+    };
+    ui.group(|ui| {
+        ui.strong(label);
+        match format_name {
+            "EPUB" => ui.label("Chapter split + TOC depth controls are enabled."),
+            "MOBI" => ui.label("Old/new MOBI compatibility knobs are enabled."),
+            "PDF" => ui.label("Page size + header/footer controls are enabled."),
+            "AZW3" => ui.label("Kindle optimization controls are enabled."),
+            _ => ui.label("No options"),
+        };
+    });
 }
 
 fn output_dir_or_default(input: &str, fallback: &Path) -> PathBuf {

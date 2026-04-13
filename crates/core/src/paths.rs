@@ -13,9 +13,13 @@ pub fn ensure_runtime_paths(config: &ControlPlane) -> CoreResult<()> {
     ensure_dir(&config.paths.library_dir, "paths.library_dir")?;
     ensure_dir(&config.conversion.temp_dir, "conversion.temp_dir")?;
     ensure_dir(&config.conversion.output_dir, "conversion.output_dir")?;
+    ensure_dir(&config.conversion.job_logs_dir, "conversion.job_logs_dir")?;
 
     if let Some(parent) = config.db.sqlite_path.parent() {
         ensure_dir(parent, "db.sqlite_path parent")?;
+    }
+    if let Some(parent) = config.conversion.job_history_path.parent() {
+        ensure_dir(parent, "conversion.job_history_path parent")?;
     }
 
     Ok(())

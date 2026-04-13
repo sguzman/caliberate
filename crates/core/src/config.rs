@@ -146,6 +146,84 @@ impl ControlPlane {
                 "conversion.default_output_format must not be empty".to_string(),
             ));
         }
+        if self.conversion.input_profiles.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.input_profiles must not be empty".to_string(),
+            ));
+        }
+        if self.conversion.output_profiles.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.output_profiles must not be empty".to_string(),
+            ));
+        }
+        if self.conversion.default_input_profile.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.default_input_profile must not be empty".to_string(),
+            ));
+        }
+        if self.conversion.default_output_profile.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.default_output_profile must not be empty".to_string(),
+            ));
+        }
+        if !self
+            .conversion
+            .input_profiles
+            .iter()
+            .any(|profile| profile == &self.conversion.default_input_profile)
+        {
+            return Err(CoreError::ConfigValidate(
+                "conversion.default_input_profile must exist in conversion.input_profiles"
+                    .to_string(),
+            ));
+        }
+        if !self
+            .conversion
+            .output_profiles
+            .iter()
+            .any(|profile| profile == &self.conversion.default_output_profile)
+        {
+            return Err(CoreError::ConfigValidate(
+                "conversion.default_output_profile must exist in conversion.output_profiles"
+                    .to_string(),
+            ));
+        }
+        if self.conversion.page_margin_left < 0.0
+            || self.conversion.page_margin_right < 0.0
+            || self.conversion.page_margin_top < 0.0
+            || self.conversion.page_margin_bottom < 0.0
+        {
+            return Err(CoreError::ConfigValidate(
+                "conversion page margins must be >= 0".to_string(),
+            ));
+        }
+        if !matches!(
+            self.conversion.cover_policy.as_str(),
+            "keep" | "replace" | "generate"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "conversion.cover_policy must be one of keep/replace/generate".to_string(),
+            ));
+        }
+        if self.conversion.save_to_disk_template.trim().is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "conversion.save_to_disk_template must not be empty".to_string(),
+            ));
+        }
+        if !matches!(
+            self.conversion.save_to_disk_conflict_policy.as_str(),
+            "overwrite" | "skip" | "rename"
+        ) {
+            return Err(CoreError::ConfigValidate(
+                "conversion.save_to_disk_conflict_policy must be one of overwrite/skip/rename"
+                    .to_string(),
+            ));
+        }
+        if self.conversion.max_job_history == 0 {
+            return Err(CoreError::ConfigValidate(
+                "conversion.max_job_history must be greater than 0".to_string(),
+            ));
+        }
         if self.device.mount_roots.is_empty() {
             return Err(CoreError::ConfigValidate(
                 "device.mount_roots must not be empty".to_string(),
@@ -673,10 +751,52 @@ pub struct ConversionConfig {
     pub max_input_bytes: u64,
     #[serde(default = "default_conversion_default_output_format")]
     pub default_output_format: String,
+    #[serde(default = "default_conversion_input_profiles")]
+    pub input_profiles: Vec<String>,
+    #[serde(default = "default_conversion_output_profiles")]
+    pub output_profiles: Vec<String>,
+    #[serde(default = "default_conversion_default_input_profile")]
+    pub default_input_profile: String,
+    #[serde(default = "default_conversion_default_output_profile")]
+    pub default_output_profile: String,
+    #[serde(default = "default_conversion_heuristic_enable")]
+    pub heuristic_enable: bool,
+    #[serde(default = "default_conversion_heuristic_unwrap_lines")]
+    pub heuristic_unwrap_lines: bool,
+    #[serde(default = "default_conversion_heuristic_delete_blank_lines")]
+    pub heuristic_delete_blank_lines: bool,
+    #[serde(default = "default_conversion_page_margin_left")]
+    pub page_margin_left: f32,
+    #[serde(default = "default_conversion_page_margin_right")]
+    pub page_margin_right: f32,
+    #[serde(default = "default_conversion_page_margin_top")]
+    pub page_margin_top: f32,
+    #[serde(default = "default_conversion_page_margin_bottom")]
+    pub page_margin_bottom: f32,
+    #[serde(default = "default_conversion_embed_fonts")]
+    pub embed_fonts: bool,
+    #[serde(default = "default_conversion_subset_fonts")]
+    pub subset_fonts: bool,
+    #[serde(default = "default_conversion_cover_policy")]
+    pub cover_policy: String,
+    #[serde(default = "default_conversion_warn_unsupported_options")]
+    pub warn_unsupported_options: bool,
+    #[serde(default = "default_conversion_save_to_disk_template")]
+    pub save_to_disk_template: String,
+    #[serde(default = "default_conversion_save_to_disk_conflict_policy")]
+    pub save_to_disk_conflict_policy: String,
+    #[serde(default)]
+    pub save_to_disk_presets: BTreeMap<String, String>,
     #[serde(default = "default_conversion_temp_dir")]
     pub temp_dir: PathBuf,
     #[serde(default = "default_conversion_output_dir")]
     pub output_dir: PathBuf,
+    #[serde(default = "default_conversion_job_history_path")]
+    pub job_history_path: PathBuf,
+    #[serde(default = "default_conversion_job_logs_dir")]
+    pub job_logs_dir: PathBuf,
+    #[serde(default = "default_conversion_max_job_history")]
+    pub max_job_history: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1801,10 +1921,100 @@ fn default_conversion_default_output_format() -> String {
     "epub".to_string()
 }
 
+fn default_conversion_input_profiles() -> Vec<String> {
+    vec![
+        "default".to_string(),
+        "tablet".to_string(),
+        "phone".to_string(),
+        "kindle".to_string(),
+    ]
+}
+
+fn default_conversion_output_profiles() -> Vec<String> {
+    vec![
+        "default".to_string(),
+        "tablet".to_string(),
+        "phone".to_string(),
+        "kindle".to_string(),
+    ]
+}
+
+fn default_conversion_default_input_profile() -> String {
+    "default".to_string()
+}
+
+fn default_conversion_default_output_profile() -> String {
+    "default".to_string()
+}
+
+fn default_conversion_heuristic_enable() -> bool {
+    true
+}
+
+fn default_conversion_heuristic_unwrap_lines() -> bool {
+    true
+}
+
+fn default_conversion_heuristic_delete_blank_lines() -> bool {
+    false
+}
+
+fn default_conversion_page_margin_left() -> f32 {
+    5.0
+}
+
+fn default_conversion_page_margin_right() -> f32 {
+    5.0
+}
+
+fn default_conversion_page_margin_top() -> f32 {
+    5.0
+}
+
+fn default_conversion_page_margin_bottom() -> f32 {
+    5.0
+}
+
+fn default_conversion_embed_fonts() -> bool {
+    false
+}
+
+fn default_conversion_subset_fonts() -> bool {
+    true
+}
+
+fn default_conversion_cover_policy() -> String {
+    "keep".to_string()
+}
+
+fn default_conversion_warn_unsupported_options() -> bool {
+    true
+}
+
+fn default_conversion_save_to_disk_template() -> String {
+    "{title}-{id}.{format}".to_string()
+}
+
+fn default_conversion_save_to_disk_conflict_policy() -> String {
+    "rename".to_string()
+}
+
 fn default_conversion_temp_dir() -> PathBuf {
     PathBuf::from("./.cache/caliberate/tmp/conversion")
 }
 
 fn default_conversion_output_dir() -> PathBuf {
     PathBuf::from("./.cache/caliberate/output/conversion")
+}
+
+fn default_conversion_job_history_path() -> PathBuf {
+    PathBuf::from("./.cache/caliberate/data/conversion-jobs.log")
+}
+
+fn default_conversion_job_logs_dir() -> PathBuf {
+    PathBuf::from("./.cache/caliberate/logs/jobs")
+}
+
+fn default_conversion_max_job_history() -> usize {
+    500
 }

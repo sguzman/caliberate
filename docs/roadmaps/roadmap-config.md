@@ -23,6 +23,12 @@
 - [x] Define `[library]` keys: `delete_files_on_remove`, `delete_reference_files`
 - [x] Define `[conversion]` keys: `enabled`, `allow_passthrough`, `max_input_bytes`
 - [x] Define `[conversion]` keys: `default_output_format`, `temp_dir`, `output_dir`
+- [x] Define `[conversion]` keys: `input_profiles`, `output_profiles`, `default_input_profile`, `default_output_profile`
+- [x] Define `[conversion]` keys: `heuristic_enable`, `heuristic_unwrap_lines`, `heuristic_delete_blank_lines`
+- [x] Define `[conversion]` keys: `page_margin_left`, `page_margin_right`, `page_margin_top`, `page_margin_bottom`
+- [x] Define `[conversion]` keys: `embed_fonts`, `subset_fonts`, `cover_policy`, `warn_unsupported_options`
+- [x] Define `[conversion]` keys: `save_to_disk_template`, `save_to_disk_conflict_policy`, `save_to_disk_presets`
+- [x] Define `[conversion]` keys: `job_history_path`, `job_logs_dir`, `max_job_history`
 - [x] Point `[conversion].temp_dir` and `[conversion].output_dir` under `./.cache/caliberate`
 - [x] Define `[device]` keys: `mount_roots`, `library_subdir`
 - [x] Point `[device].mount_roots` project default to `./.cache/caliberate/devices`
