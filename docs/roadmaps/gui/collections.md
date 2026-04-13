@@ -8,10 +8,10 @@
 - [x] Add tag assign/remove bulk actions
 
 ## Custom Columns
-- [ ] Add custom column editor with type-specific UI
-- [ ] Add column visibility presets per view
+- [x] Add custom column editor with type-specific UI
+- [x] Add column visibility presets per view
 - [x] Add column import/export
-- [ ] Add custom column value editor in metadata dialog
+- [x] Add custom column value editor in metadata dialog
 
 ## Virtual Libraries
 - [x] Add advanced query builder UI

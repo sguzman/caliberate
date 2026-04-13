@@ -68,6 +68,22 @@ enum ViewMode {
     Shelf,
 }
 
+impl ViewMode {
+    fn preset_scope_key(self) -> &'static str {
+        match self {
+            ViewMode::Table => "table",
+            ViewMode::Grid => "grid",
+            ViewMode::Shelf => "shelf",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ColumnPresetScope {
+    CurrentView,
+    Global,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GroupMode {
     None,
@@ -500,6 +516,7 @@ pub struct LibraryView {
     active_sort_preset: Option<String>,
     column_presets: HashMap<String, ColumnPreset>,
     column_preset_name: String,
+    column_preset_scope: ColumnPresetScope,
     active_column_preset: Option<String>,
     search_query: String,
     search_scope: SearchScope,
@@ -686,6 +703,7 @@ impl LibraryView {
             active_sort_preset: config.gui.active_sort_preset.clone(),
             column_presets: decode_column_presets(&config.gui.column_presets),
             column_preset_name: String::new(),
+            column_preset_scope: ColumnPresetScope::CurrentView,
             active_column_preset: config.gui.active_column_preset.clone(),
             search_query: String::new(),
             search_scope: SearchScope::All,
@@ -2220,6 +2238,24 @@ impl LibraryView {
                     }
                 });
                 ui.horizontal(|ui| {
+                    ui.label("Scope");
+                    egui::ComboBox::from_id_salt("column_preset_scope")
+                        .selected_text(match self.column_preset_scope {
+                            ColumnPresetScope::CurrentView => "Current view",
+                            ColumnPresetScope::Global => "All views",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.column_preset_scope,
+                                ColumnPresetScope::CurrentView,
+                                "Current view",
+                            );
+                            ui.selectable_value(
+                                &mut self.column_preset_scope,
+                                ColumnPresetScope::Global,
+                                "All views",
+                            );
+                        });
                     let selected = self
                         .active_column_preset
                         .as_ref()
@@ -2238,8 +2274,7 @@ impl LibraryView {
                                 self.active_column_preset = None;
                                 self.config_dirty = true;
                             }
-                            let mut names = self.column_presets.keys().cloned().collect::<Vec<_>>();
-                            names.sort();
+                            let names = self.visible_column_preset_names();
                             for name in names {
                                 if ui
                                     .selectable_label(
@@ -3575,10 +3610,27 @@ impl LibraryView {
                 egui::CollapsingHeader::new("Custom metadata fields")
                     .default_open(true)
                     .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Filter");
+                            ui.text_edit_singleline(&mut self.manage_custom_columns.value_filter);
+                            if ui.small_button("Clear filter").clicked() {
+                                self.manage_custom_columns.value_filter.clear();
+                            }
+                        });
                         if self.edit_custom_fields.is_empty() {
                             ui.label("No custom columns defined.");
                         } else {
+                            let filter = self.manage_custom_columns.value_filter.trim().to_lowercase();
+                            let mut rendered = 0usize;
                             for field in &mut self.edit_custom_fields {
+                                if !filter.is_empty()
+                                    && !field.label.to_lowercase().contains(&filter)
+                                    && !field.name.to_lowercase().contains(&filter)
+                                    && !field.datatype.to_lowercase().contains(&filter)
+                                {
+                                    continue;
+                                }
+                                rendered += 1;
                                 ui.horizontal(|ui| {
                                     ui.label(format!("{} ({})", field.name, field.datatype));
                                     custom_field_editor_widget(ui, field);
@@ -3586,6 +3638,9 @@ impl LibraryView {
                                         field.value.clear();
                                     }
                                 });
+                            }
+                            if rendered == 0 {
+                                ui.label("No matching custom fields for current filter.");
                             }
                         }
                     });
@@ -4956,6 +5011,7 @@ impl LibraryView {
         let mut open = self.manage_custom_columns.open;
         let mut create = false;
         let mut delete = false;
+        let mut save = false;
         let mut export = false;
         let mut import = false;
         egui::Window::new("Manage custom columns")
@@ -4964,23 +5020,28 @@ impl LibraryView {
             .show(ui.ctx(), |ui| {
                 ui.label("Custom columns");
                 egui::ScrollArea::vertical()
-                    .max_height(200.0)
+                    .max_height(160.0)
                     .show(ui, |ui| {
-                        for column in &self.manage_custom_columns.columns {
-                            ui.label(format!(
-                                "{} ({}, {})",
-                                column.label, column.name, column.datatype
-                            ));
+                        for column in self.manage_custom_columns.columns.clone() {
+                            let selected =
+                                self.manage_custom_columns.edit_label.trim() == column.label;
+                            let label =
+                                format!("{} ({}, {})", column.label, column.name, column.datatype);
+                            if ui.selectable_label(selected, label).clicked() {
+                                self.select_custom_column_for_edit(&column.label);
+                            }
                         }
                     });
                 ui.separator();
                 ui.label("Create column");
+                ui.label("Label");
                 ui.text_edit_singleline(&mut self.manage_custom_columns.new_label);
+                ui.label("Name");
                 ui.text_edit_singleline(&mut self.manage_custom_columns.new_name);
                 egui::ComboBox::from_id_salt("custom_column_datatype")
                     .selected_text(self.manage_custom_columns.new_datatype.as_str())
                     .show_ui(ui, |ui| {
-                        for datatype in ["text", "int", "float", "bool"] {
+                        for datatype in ["text", "int", "float", "bool", "date", "series"] {
                             ui.selectable_value(
                                 &mut self.manage_custom_columns.new_datatype,
                                 datatype.to_string(),
@@ -4988,9 +5049,50 @@ impl LibraryView {
                             );
                         }
                     });
+                ui.label("Display JSON");
                 ui.text_edit_singleline(&mut self.manage_custom_columns.new_display);
                 if ui.button("Create").clicked() {
                     create = true;
+                }
+                ui.separator();
+                ui.label("Edit selected column");
+                if self.manage_custom_columns.edit_label.trim().is_empty() {
+                    if let Some(label) = self.selected_column_label() {
+                        self.select_custom_column_for_edit(&label);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Label");
+                    ui.monospace(self.manage_custom_columns.edit_label.clone());
+                });
+                ui.label("Name");
+                ui.text_edit_singleline(&mut self.manage_custom_columns.edit_name);
+                egui::ComboBox::from_id_salt("custom_column_edit_datatype")
+                    .selected_text(self.manage_custom_columns.edit_datatype.as_str())
+                    .show_ui(ui, |ui| {
+                        for datatype in ["text", "int", "float", "bool", "date", "series"] {
+                            ui.selectable_value(
+                                &mut self.manage_custom_columns.edit_datatype,
+                                datatype.to_string(),
+                                datatype,
+                            );
+                        }
+                    });
+                ui.label("Display JSON");
+                ui.text_edit_singleline(&mut self.manage_custom_columns.edit_display);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.manage_custom_columns.edit_editable, "Editable");
+                    ui.checkbox(
+                        &mut self.manage_custom_columns.edit_is_multiple,
+                        "Multiple values",
+                    );
+                    ui.checkbox(
+                        &mut self.manage_custom_columns.edit_normalized,
+                        "Normalized",
+                    );
+                });
+                if ui.button("Save edits").clicked() {
+                    save = true;
                 }
                 ui.separator();
                 ui.label("Delete column (label)");
@@ -5016,6 +5118,13 @@ impl LibraryView {
                 &self.manage_custom_columns.new_datatype,
                 &self.manage_custom_columns.new_display,
             ) {
+                self.set_error(err);
+            } else {
+                self.manage_custom_columns.needs_refresh = true;
+            }
+        }
+        if save {
+            if let Err(err) = self.save_custom_column_edits() {
                 self.set_error(err);
             } else {
                 self.manage_custom_columns.needs_refresh = true;
@@ -7116,6 +7225,23 @@ impl LibraryView {
 
     fn refresh_manage_custom_columns(&mut self) -> CoreResult<()> {
         self.manage_custom_columns.columns = self.db.list_custom_columns()?;
+        let selected = self.manage_custom_columns.edit_label.clone();
+        if !selected.trim().is_empty()
+            && self
+                .manage_custom_columns
+                .columns
+                .iter()
+                .any(|column| column.label == selected)
+        {
+            self.select_custom_column_for_edit(&selected);
+        } else if let Some(first_label) = self
+            .manage_custom_columns
+            .columns
+            .first()
+            .map(|column| column.label.clone())
+        {
+            self.select_custom_column_for_edit(&first_label);
+        }
         self.manage_custom_columns.needs_refresh = false;
         Ok(())
     }
@@ -7781,11 +7907,12 @@ impl LibraryView {
     }
 
     fn save_column_preset(&mut self) {
-        let name = self.column_preset_name.trim().to_string();
-        if name.is_empty() {
+        let raw_name = self.column_preset_name.trim();
+        if raw_name.is_empty() {
             self.push_toast("Column preset name is required", ToastLevel::Warn);
             return;
         }
+        let name = self.scoped_column_preset_name(raw_name);
         let preset = ColumnPreset {
             order: self.column_order.clone(),
             visibility: self.columns.clone(),
@@ -7818,6 +7945,85 @@ impl LibraryView {
         self.config_dirty = true;
         info!(component = "gui", preset = name, "column preset deleted");
         self.push_toast("Column preset deleted", ToastLevel::Info);
+    }
+
+    fn scoped_column_preset_name(&self, name: &str) -> String {
+        let trimmed = name.trim();
+        match self.column_preset_scope {
+            ColumnPresetScope::CurrentView => {
+                format!("{}/{}", self.view_mode.preset_scope_key(), trimmed)
+            }
+            ColumnPresetScope::Global => format!("all/{trimmed}"),
+        }
+    }
+
+    fn visible_column_preset_names(&self) -> Vec<String> {
+        let view_scope = format!("{}/", self.view_mode.preset_scope_key());
+        let mut names = self
+            .column_presets
+            .keys()
+            .filter(|name| {
+                name.starts_with("all/") || name.starts_with(&view_scope) || !name.contains('/')
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
+    fn selected_column_label(&self) -> Option<String> {
+        if !self.manage_custom_columns.edit_label.trim().is_empty() {
+            return Some(self.manage_custom_columns.edit_label.trim().to_string());
+        }
+        self.manage_custom_columns
+            .columns
+            .first()
+            .map(|column| column.label.clone())
+    }
+
+    fn select_custom_column_for_edit(&mut self, label: &str) {
+        if let Some(column) = self
+            .manage_custom_columns
+            .columns
+            .iter()
+            .find(|column| column.label == label)
+            .cloned()
+        {
+            self.manage_custom_columns.edit_label = column.label.clone();
+            self.manage_custom_columns.edit_name = column.name;
+            self.manage_custom_columns.edit_datatype = column.datatype;
+            self.manage_custom_columns.edit_display = column.display;
+            self.manage_custom_columns.edit_editable = column.editable;
+            self.manage_custom_columns.edit_is_multiple = column.is_multiple;
+            self.manage_custom_columns.edit_normalized = column.normalized;
+            self.manage_custom_columns.delete_label = column.label;
+        }
+    }
+
+    fn save_custom_column_edits(&mut self) -> CoreResult<()> {
+        let label = self.manage_custom_columns.edit_label.trim().to_string();
+        if label.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "custom column label is required".to_string(),
+            ));
+        }
+        let name = self.manage_custom_columns.edit_name.trim().to_string();
+        if name.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "custom column name is required".to_string(),
+            ));
+        }
+        self.db.update_custom_column(
+            &label,
+            &name,
+            self.manage_custom_columns.edit_datatype.trim(),
+            self.manage_custom_columns.edit_display.trim(),
+            self.manage_custom_columns.edit_editable,
+            self.manage_custom_columns.edit_is_multiple,
+            self.manage_custom_columns.edit_normalized,
+        )?;
+        info!(component = "gui", label, "updated custom column metadata");
+        Ok(())
     }
 
     fn begin_inline_edit(&mut self, book: &BookRow) {
@@ -9474,6 +9680,14 @@ struct ManageCustomColumnsDialogState {
     new_datatype: String,
     new_display: String,
     delete_label: String,
+    edit_label: String,
+    edit_name: String,
+    edit_datatype: String,
+    edit_display: String,
+    edit_editable: bool,
+    edit_is_multiple: bool,
+    edit_normalized: bool,
+    value_filter: String,
     import_path: String,
     export_path: String,
     needs_refresh: bool,
@@ -9489,6 +9703,14 @@ impl Default for ManageCustomColumnsDialogState {
             new_datatype: "text".to_string(),
             new_display: String::new(),
             delete_label: String::new(),
+            edit_label: String::new(),
+            edit_name: String::new(),
+            edit_datatype: "text".to_string(),
+            edit_display: String::new(),
+            edit_editable: true,
+            edit_is_multiple: false,
+            edit_normalized: false,
+            value_filter: String::new(),
             import_path: String::new(),
             export_path: String::new(),
             needs_refresh: true,
@@ -10084,6 +10306,16 @@ fn custom_field_editor_widget(ui: &mut egui::Ui, field: &mut CustomEditField) {
                 .changed()
             {
                 field.value = value.to_string();
+            }
+        }
+        "date" => {
+            ui.text_edit_singleline(&mut field.value);
+            let valid = is_loose_date_or_datetime(field.value.trim());
+            if !valid {
+                ui.colored_label(
+                    egui::Color32::from_rgb(170, 60, 30),
+                    "expected YYYY-MM-DD or RFC3339",
+                );
             }
         }
         _ => {

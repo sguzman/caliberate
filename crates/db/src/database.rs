@@ -3162,6 +3162,46 @@ impl Database {
         Ok(true)
     }
 
+    pub fn update_custom_column(
+        &self,
+        label: &str,
+        name: &str,
+        datatype: &str,
+        display: &str,
+        editable: bool,
+        is_multiple: bool,
+        normalized: bool,
+    ) -> CoreResult<bool> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE custom_columns
+                 SET name = ?2,
+                     datatype = ?3,
+                     display = ?4,
+                     editable = ?5,
+                     is_multiple = ?6,
+                     normalized = ?7
+                 WHERE label = ?1",
+                params![
+                    label,
+                    name,
+                    datatype,
+                    display,
+                    if editable { 1 } else { 0 },
+                    if is_multiple { 1 } else { 0 },
+                    if normalized { 1 } else { 0 }
+                ],
+            )
+            .map_err(|err| {
+                CoreError::Io(
+                    "update custom column".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })?;
+        Ok(changed > 0)
+    }
+
     pub fn set_custom_value(&self, book_id: i64, label: &str, value: &str) -> CoreResult<()> {
         let table_name = format!("custom_column_{label}");
         if !self.schema_object_exists("table", &table_name)? {
