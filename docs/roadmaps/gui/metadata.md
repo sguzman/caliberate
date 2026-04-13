@@ -8,9 +8,12 @@
 - [x] Add metadata normalization actions for authors/tags/languages/identifiers
 - [x] Add datatype-aware widgets for custom metadata fields
 - [x] Add validation summary panel for metadata edit inputs
-- [ ] Add calibre-parity publish metadata fields beyond current core set
-- [ ] Add metadata editor keyboard navigation parity and shortcut coverage
-- [ ] Add metadata editor field-level help text and inline conflict hints
+- [x] Add calibre-parity publish metadata fields beyond current core set
+- [x] Add metadata editor keyboard navigation parity and shortcut coverage
+- [x] Add metadata editor field-level help text and inline conflict hints
+- [ ] Add additional publish metadata slots (imprint/edition/rights) with persistence strategy
+- [ ] Expand shortcut map to full calibre-like edit workflow coverage
+- [ ] Add field-level conflict auto-resolution actions (not just warnings)
 - [x] Add per-field reset controls for primary metadata fields
 - [x] Add global undo-all reset in metadata editor dialog
 - [x] Add metadata diff view (before/after)

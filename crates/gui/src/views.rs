@@ -3225,24 +3225,51 @@ impl LibraryView {
             .as_ref()
             .map(EditState::from_details)
             .unwrap_or_default();
+        let mut request_save = false;
+        let mut request_cancel = false;
+        let mut request_undo = false;
+        let mut request_generate_uuid = false;
+        let mut request_copy_identifiers = false;
         egui::Window::new("Edit Metadata")
             .open(&mut open)
             .resizable(true)
             .show(ui.ctx(), |ui| {
+                request_save = ui
+                    .ctx()
+                    .input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+                request_cancel = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
+                request_undo = ui
+                    .ctx()
+                    .input(|i| i.modifiers.command && i.key_pressed(egui::Key::R));
+                request_generate_uuid = ui
+                    .ctx()
+                    .input(|i| i.modifiers.command && i.key_pressed(egui::Key::G));
+                request_copy_identifiers = ui
+                    .ctx()
+                    .input(|i| i.modifiers.command && i.key_pressed(egui::Key::I));
+                ui.small(
+                    "Shortcuts: Ctrl/Cmd+S save, Esc cancel, Ctrl/Cmd+R undo, Ctrl/Cmd+G UUID, Ctrl/Cmd+I copy IDs",
+                );
+                ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Title");
+                    ui.label("Title")
+                        .on_hover_text("Primary display title for the book.");
                     ui.text_edit_singleline(&mut self.edit.title);
                     if ui.small_button("Reset").clicked() {
                         self.edit.title = baseline.title.clone();
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Authors");
+                    ui.label("Authors")
+                        .on_hover_text("Comma-separated author names.");
                     ui.text_edit_singleline(&mut self.edit.authors);
                     if ui.small_button("Reset").clicked() {
                         self.edit.authors = baseline.authors.clone();
                     }
                 });
+                if let Some(message) = duplicate_csv_hint("authors", &self.edit.authors) {
+                    ui.colored_label(egui::Color32::from_rgb(170, 90, 20), message);
+                }
                 ui.horizontal(|ui| {
                     ui.label("Author sort");
                     ui.text_edit_singleline(&mut self.edit.author_sort);
@@ -3278,7 +3305,8 @@ impl LibraryView {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Title sort");
+                    ui.label("Title sort")
+                        .on_hover_text("Sort key used for title ordering.");
                     ui.text_edit_singleline(&mut self.edit.series_sort);
                     if ui.small_button("Reset").clicked() {
                         self.edit.series_sort = baseline.series_sort.clone();
@@ -3300,6 +3328,9 @@ impl LibraryView {
                 });
                 ui.label("Identifiers (one per line, type:value)");
                 ui.text_edit_multiline(&mut self.edit.identifiers);
+                if let Some(message) = identifier_conflict_hint(&self.edit.identifiers) {
+                    ui.colored_label(egui::Color32::from_rgb(170, 90, 20), message);
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Add ISBN").clicked() && !self.edit.isbn.trim().is_empty() {
                         self.edit
@@ -3367,6 +3398,9 @@ impl LibraryView {
                 ui.label("Languages (comma separated)");
                 ui.text_edit_singleline(&mut self.edit.languages);
                 self.language_autocomplete(ui);
+                if let Some(message) = language_hint(&self.edit.languages) {
+                    ui.colored_label(egui::Color32::from_rgb(170, 90, 20), message);
+                }
                 ui.horizontal(|ui| {
                     ui.label("Timestamp");
                     ui.text_edit_singleline(&mut self.edit.timestamp);
@@ -3379,9 +3413,37 @@ impl LibraryView {
                     ui.text_edit_singleline(&mut self.edit.pubdate);
                     if ui.small_button("Reset").clicked() {
                         self.edit.pubdate = baseline.pubdate.clone();
+                        self.edit.pubdate_year = baseline.pubdate_year;
+                        self.edit.pubdate_month = baseline.pubdate_month;
+                        self.edit.pubdate_day = baseline.pubdate_day;
                     }
                     if ui.small_button("Today").clicked() {
                         self.edit.pubdate = current_date_ymd();
+                        if let Some((y, m, d)) = parse_date_parts(&self.edit.pubdate) {
+                            self.edit.pubdate_year = y;
+                            self.edit.pubdate_month = m;
+                            self.edit.pubdate_day = d;
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Published Y/M/D")
+                        .on_hover_text("Helper values for publication date composition.");
+                    ui.add(egui::DragValue::new(&mut self.edit.pubdate_year).range(0..=9999));
+                    ui.add(egui::DragValue::new(&mut self.edit.pubdate_month).range(1..=12));
+                    ui.add(egui::DragValue::new(&mut self.edit.pubdate_day).range(1..=31));
+                    if ui.small_button("Apply").clicked() {
+                        self.edit.pubdate = format!(
+                            "{:04}-{:02}-{:02}",
+                            self.edit.pubdate_year, self.edit.pubdate_month, self.edit.pubdate_day
+                        );
+                    }
+                    if ui.small_button("Sync from text").clicked() {
+                        if let Some((y, m, d)) = parse_date_parts(&self.edit.pubdate) {
+                            self.edit.pubdate_year = y;
+                            self.edit.pubdate_month = m;
+                            self.edit.pubdate_day = d;
+                        }
                     }
                 });
                 ui.horizontal(|ui| {
@@ -3468,10 +3530,11 @@ impl LibraryView {
                 egui::CollapsingHeader::new("Validation summary")
                     .default_open(false)
                     .show(ui, |ui| {
-                        for issue in collect_edit_validation_issues(&self.edit) {
+                        let issues = collect_edit_validation_issues(&self.edit);
+                        for issue in &issues {
                             ui.colored_label(egui::Color32::from_rgb(180, 40, 40), issue);
                         }
-                        if collect_edit_validation_issues(&self.edit).is_empty() {
+                        if issues.is_empty() {
                             ui.colored_label(egui::Color32::from_rgb(40, 140, 60), "No issues");
                         }
                     });
@@ -3506,6 +3569,28 @@ impl LibraryView {
                     }
                 });
             });
+        if request_generate_uuid {
+            self.edit.uuid = uuid::Uuid::new_v4().to_string();
+        }
+        if request_copy_identifiers {
+            ui.ctx().copy_text(self.edit.identifiers.clone());
+        }
+        if request_undo {
+            self.edit = baseline.clone();
+            if let Some(details) = &self.details {
+                if let Err(err) = self.load_edit_custom_fields(details.book.id) {
+                    self.set_error(err);
+                }
+            }
+        }
+        if request_cancel {
+            self.cancel_edit();
+            open = false;
+        }
+        if request_save {
+            self.pending_save = true;
+            open = false;
+        }
         self.show_edit_dialog = open;
         self.edit_mode = open;
     }
@@ -6478,6 +6563,9 @@ struct EditState {
     languages: String,
     timestamp: String,
     pubdate: String,
+    pubdate_year: i32,
+    pubdate_month: u8,
+    pubdate_day: u8,
     last_modified: String,
     rating: i64,
     uuid: String,
@@ -7290,6 +7378,9 @@ impl Default for EditState {
             languages: String::new(),
             timestamp: String::new(),
             pubdate: String::new(),
+            pubdate_year: 2000,
+            pubdate_month: 1,
+            pubdate_day: 1,
             last_modified: String::new(),
             rating: 0,
             uuid: String::new(),
@@ -7305,6 +7396,9 @@ impl EditState {
             .find(|id| id.id_type.eq_ignore_ascii_case("isbn"))
             .map(|id| id.value.clone())
             .unwrap_or_default();
+        let pubdate_text = details.extras.pubdate.clone().unwrap_or_default();
+        let (pubdate_year, pubdate_month, pubdate_day) =
+            parse_date_parts(&pubdate_text).unwrap_or((2000, 1, 1));
         Self {
             title: details.book.title.clone(),
             authors: details.authors.join(", "),
@@ -7332,7 +7426,10 @@ impl EditState {
             publisher: details.extras.publisher.clone().unwrap_or_default(),
             languages: details.extras.languages.join(", "),
             timestamp: details.extras.timestamp.clone().unwrap_or_default(),
-            pubdate: details.extras.pubdate.clone().unwrap_or_default(),
+            pubdate: pubdate_text,
+            pubdate_year,
+            pubdate_month,
+            pubdate_day,
             last_modified: details.extras.last_modified.clone().unwrap_or_default(),
             rating: details.extras.rating.unwrap_or(0),
             uuid: details.extras.uuid.clone().unwrap_or_default(),
@@ -7411,10 +7508,104 @@ fn current_date_ymd() -> String {
         .unwrap_or_else(|_| String::new())
 }
 
+fn parse_date_parts(value: &str) -> Option<(i32, u8, u8)> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(dt) =
+        time::OffsetDateTime::parse(trimmed, &time::format_description::well_known::Rfc3339)
+    {
+        return Some((dt.year(), dt.month() as u8, dt.day()));
+    }
+    let format = time::format_description::parse("[year]-[month]-[day]").ok()?;
+    let date = time::Date::parse(trimmed, &format).ok()?;
+    Some((date.year(), date.month() as u8, date.day()))
+}
+
+fn duplicate_csv_hint(field: &str, value: &str) -> Option<String> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for part in value.split(',') {
+        let token = part.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let key = token.to_lowercase();
+        if !seen.insert(key.clone()) {
+            duplicates.insert(key);
+        }
+    }
+    if duplicates.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "{field} contains duplicates: {}",
+            duplicates.into_iter().collect::<Vec<_>>().join(", ")
+        ))
+    }
+}
+
+fn identifier_conflict_hint(value: &str) -> Option<String> {
+    let mut by_type: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for line in value.lines() {
+        let trimmed = line.trim();
+        if let Some((id_type, id_value)) = trimmed.split_once(':') {
+            let id_type = id_type.trim().to_lowercase();
+            let id_value = id_value.trim().to_string();
+            if id_type.is_empty() || id_value.is_empty() {
+                continue;
+            }
+            by_type.entry(id_type).or_default().insert(id_value);
+        }
+    }
+    let mut conflicts = Vec::new();
+    for (id_type, values) in by_type {
+        if values.len() > 1 {
+            conflicts.push(format!("{id_type} has {} values", values.len()));
+        }
+    }
+    if conflicts.is_empty() {
+        None
+    } else {
+        Some(format!("Identifier conflicts: {}", conflicts.join("; ")))
+    }
+}
+
+fn language_hint(value: &str) -> Option<String> {
+    let invalid: Vec<String> = parse_list(value)
+        .into_iter()
+        .filter(|token| {
+            let len = token.trim().len();
+            !(len == 2 || len == 3)
+        })
+        .collect();
+    if invalid.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Language tokens should be 2-3 chars: {}",
+            invalid.join(", ")
+        ))
+    }
+}
+
 fn collect_edit_validation_issues(edit: &EditState) -> Vec<String> {
     let mut issues = Vec::new();
     if edit.title.trim().is_empty() {
         issues.push("title cannot be empty".to_string());
+    }
+    if let Some(message) = duplicate_csv_hint("authors", &edit.authors) {
+        issues.push(message);
+    }
+    if let Some(message) = duplicate_csv_hint("tags", &edit.tags) {
+        issues.push(message);
+    }
+    if let Some(message) = language_hint(&edit.languages) {
+        issues.push(message);
+    }
+    if let Some(message) = identifier_conflict_hint(&edit.identifiers) {
+        issues.push(message);
     }
     if !edit.uuid.trim().is_empty() && uuid::Uuid::parse_str(edit.uuid.trim()).is_err() {
         issues.push("uuid must be a valid UUID".to_string());
