@@ -22,7 +22,7 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use image::{DynamicImage, ImageFormat};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -607,6 +607,7 @@ pub struct LibraryView {
     manage_series: ManageSeriesDialogState,
     manage_custom_columns: ManageCustomColumnsDialogState,
     manage_virtual_libraries: ManageVirtualLibrariesDialogState,
+    plugins: PluginManagerDialogState,
     metadata_download_config: MetadataDownloadConfig,
     metadata_download: MetadataDownloadDialogState,
     edit_custom_fields: Vec<CustomEditField>,
@@ -794,6 +795,7 @@ impl LibraryView {
             manage_series: ManageSeriesDialogState::default(),
             manage_custom_columns: ManageCustomColumnsDialogState::default(),
             manage_virtual_libraries: ManageVirtualLibrariesDialogState::default(),
+            plugins: PluginManagerDialogState::default(),
             metadata_download_config: config.metadata_download.clone(),
             metadata_download: MetadataDownloadDialogState::default_from_config(
                 &config.metadata_download,
@@ -1002,6 +1004,13 @@ impl LibraryView {
     pub fn open_manage_virtual_libraries(&mut self) {
         self.manage_virtual_libraries.open = true;
         self.manage_virtual_libraries.needs_refresh = true;
+    }
+
+    pub fn open_manage_plugins(&mut self) {
+        self.plugins.open = true;
+        if self.plugins.selected.is_none() {
+            self.plugins.selected = self.plugins.plugins.first().map(|entry| entry.id.clone());
+        }
     }
 
     pub fn open_download_metadata(&mut self) {
@@ -1229,6 +1238,7 @@ impl LibraryView {
         self.manage_series_dialog(ui);
         self.manage_custom_columns_dialog(ui);
         self.manage_virtual_libraries_dialog(ui);
+        self.plugins_dialog(ui);
         self.metadata_download_dialog(ui);
         self.reader_dialog(ui);
         self.remove_asset_dialog(ui, config);
@@ -2431,6 +2441,9 @@ impl LibraryView {
                 }
                 if ui.button("Virtual libraries…").clicked() {
                     self.open_manage_virtual_libraries();
+                }
+                if ui.button("Plugins…").clicked() {
+                    self.open_manage_plugins();
                 }
                 if ui.button("Devices…").clicked() {
                     self.open_device_manager(config);
@@ -5325,6 +5338,194 @@ impl LibraryView {
         self.manage_virtual_libraries.open = open;
     }
 
+    fn plugins_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.plugins.open {
+            return;
+        }
+        let mut open = self.plugins.open;
+        let mut check_updates = false;
+        let mut install = false;
+        let mut remove = false;
+        egui::Window::new("Plugins")
+            .open(&mut open)
+            .resizable(true)
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Filter");
+                    ui.text_edit_singleline(&mut self.plugins.search);
+                    if ui.button("Check updates").clicked() {
+                        check_updates = true;
+                    }
+                });
+                ui.separator();
+                let filter = self.plugins.search.trim().to_lowercase();
+                egui::ScrollArea::vertical()
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for plugin in &mut self.plugins.plugins {
+                            if !filter.is_empty()
+                                && !plugin.name.to_lowercase().contains(&filter)
+                                && !plugin.id.to_lowercase().contains(&filter)
+                            {
+                                continue;
+                            }
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .selectable_label(
+                                        self.plugins.selected.as_deref()
+                                            == Some(plugin.id.as_str()),
+                                        format!("{} ({})", plugin.name, plugin.id),
+                                    )
+                                    .clicked()
+                                {
+                                    self.plugins.selected = Some(plugin.id.clone());
+                                    self.plugins.remove_id = plugin.id.clone();
+                                }
+                                ui.checkbox(&mut plugin.enabled, "enabled");
+                            });
+                        }
+                    });
+                if let Some(selected) = self.plugins.selected.clone() {
+                    let installed_ids = self
+                        .plugins
+                        .plugins
+                        .iter()
+                        .map(|entry| entry.id.clone())
+                        .collect::<HashSet<_>>();
+                    if let Some(plugin) = self.plugins.plugins.iter_mut().find(|p| p.id == selected)
+                    {
+                        ui.separator();
+                        ui.label(format!("Version: {}", plugin.version));
+                        ui.label(format!("Latest: {}", plugin.latest_version));
+                        ui.label(format!("Author: {}", plugin.author));
+                        ui.label(format!("Description: {}", plugin.description));
+                        ui.label(format!("Status: {}", plugin.status));
+                        if let Some(err) = &plugin.error {
+                            ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
+                        }
+                        if !plugin.dependencies.is_empty() {
+                            let missing = plugin
+                                .dependencies
+                                .iter()
+                                .filter(|dep| !installed_ids.contains(*dep))
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            ui.label(format!("Dependencies: {}", plugin.dependencies.join(", ")));
+                            if !missing.is_empty() {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(180, 80, 20),
+                                    format!("Conflict: missing {}", missing.join(", ")),
+                                );
+                            }
+                        }
+                        ui.separator();
+                        ui.label("Plugin settings");
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut plugin.setting_key);
+                            ui.text_edit_singleline(&mut plugin.setting_value);
+                            if ui.button("Apply setting").clicked() {
+                                plugin.logs.push(format!(
+                                    "set {}={}",
+                                    plugin.setting_key, plugin.setting_value
+                                ));
+                                plugin.status = "settings updated".to_string();
+                            }
+                        });
+                        egui::CollapsingHeader::new("Plugin logs")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .max_height(100.0)
+                                    .show(ui, |ui| {
+                                        for line in &plugin.logs {
+                                            ui.monospace(line);
+                                        }
+                                    });
+                            });
+                    }
+                }
+                ui.separator();
+                ui.label("Install plugin");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.plugins.install_id);
+                    ui.text_edit_singleline(&mut self.plugins.install_name);
+                    ui.text_edit_singleline(&mut self.plugins.install_version);
+                });
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.plugins.install_author);
+                    ui.text_edit_singleline(&mut self.plugins.install_description);
+                });
+                if ui.button("Install").clicked() {
+                    install = true;
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Remove id");
+                    ui.text_edit_singleline(&mut self.plugins.remove_id);
+                    if ui.button("Remove").clicked() {
+                        remove = true;
+                    }
+                });
+                if !self.plugins.status_message.is_empty() {
+                    ui.label(self.plugins.status_message.clone());
+                }
+            });
+        if check_updates {
+            for plugin in &mut self.plugins.plugins {
+                if plugin.latest_version > plugin.version {
+                    plugin.status = "update available".to_string();
+                    plugin.logs.push(format!(
+                        "update available: {} -> {}",
+                        plugin.version, plugin.latest_version
+                    ));
+                } else {
+                    plugin.status = "up to date".to_string();
+                    plugin.logs.push("already up to date".to_string());
+                }
+            }
+            self.plugins.status_message = "Update check completed".to_string();
+            info!(component = "gui", "checked plugin updates");
+        }
+        if install {
+            let id = self.plugins.install_id.trim().to_string();
+            let name = self.plugins.install_name.trim().to_string();
+            if !id.is_empty() && !name.is_empty() {
+                self.plugins.plugins.push(PluginEntry {
+                    id: id.clone(),
+                    name,
+                    version: self.plugins.install_version.trim().to_string(),
+                    latest_version: self.plugins.install_version.trim().to_string(),
+                    author: self.plugins.install_author.trim().to_string(),
+                    description: self.plugins.install_description.trim().to_string(),
+                    enabled: true,
+                    dependencies: Vec::new(),
+                    status: "installed".to_string(),
+                    error: None,
+                    setting_key: "enabled".to_string(),
+                    setting_value: "true".to_string(),
+                    logs: vec!["plugin installed".to_string()],
+                });
+                self.plugins.selected = Some(id.clone());
+                self.plugins.remove_id = id;
+                self.plugins.status_message = "Plugin installed".to_string();
+                info!(component = "gui", "installed plugin");
+            }
+        }
+        if remove {
+            let remove_id = self.plugins.remove_id.trim().to_string();
+            let before = self.plugins.plugins.len();
+            self.plugins.plugins.retain(|entry| entry.id != remove_id);
+            if self.plugins.plugins.len() != before {
+                self.plugins.status_message = "Plugin removed".to_string();
+                self.plugins.selected = self.plugins.plugins.first().map(|entry| entry.id.clone());
+                info!(component = "gui", "removed plugin");
+            } else {
+                self.plugins.status_message = "Plugin id not found".to_string();
+            }
+        }
+        self.plugins.open = open;
+    }
+
     fn metadata_download_dialog(&mut self, ui: &mut egui::Ui) {
         if !self.metadata_download.open {
             return;
@@ -5897,9 +6098,62 @@ impl LibraryView {
                 ui.horizontal(|ui| {
                     ui.label("Search");
                     ui.text_edit_singleline(&mut self.reader.search_query);
+                    egui::ComboBox::from_id_salt("reader_search_scope")
+                        .selected_text(match self.reader.search_scope {
+                            ReaderSearchScope::CurrentBook => "This book",
+                            ReaderSearchScope::Library => "Library",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.search_scope,
+                                ReaderSearchScope::CurrentBook,
+                                "This book",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.search_scope,
+                                ReaderSearchScope::Library,
+                                "Library",
+                            );
+                        });
                     if ui.button("Find").clicked() {
-                        self.reader.find_next();
+                        match self.reader.search_scope {
+                            ReaderSearchScope::CurrentBook => self.reader.find_next(),
+                            ReaderSearchScope::Library => {
+                                let query = self.reader.search_query.trim().to_lowercase();
+                                self.reader.search_results = self
+                                    .all_books
+                                    .iter()
+                                    .filter(|book| {
+                                        book.title.to_lowercase().contains(&query)
+                                            || book.authors.to_lowercase().contains(&query)
+                                            || book.tags.to_lowercase().contains(&query)
+                                    })
+                                    .map(|book| ReaderSearchResult {
+                                        label: format!(
+                                            "{} — {}",
+                                            book.title,
+                                            if book.authors.is_empty() {
+                                                "Unknown".to_string()
+                                            } else {
+                                                book.authors.clone()
+                                            }
+                                        ),
+                                        page: None,
+                                        book_id: Some(book.id),
+                                    })
+                                    .collect();
+                            }
+                        }
                     }
+                    if ui.button("Clear").clicked() {
+                        self.reader.search_query.clear();
+                        self.reader.search_results.clear();
+                        self.reader.search_result_cursor = None;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.reader.search_highlighting, "Highlight matches");
+                    ui.label(format!("Results: {}", self.reader.search_results.len()));
                 });
                 if let Some(error) = &self.reader.error {
                     ui.colored_label(egui::Color32::from_rgb(190, 0, 0), error);
@@ -5917,6 +6171,30 @@ impl LibraryView {
                         self.reader.page + 1,
                         self.reader.page_count().max(1)
                     ));
+                    if ui.button("Prev chapter").clicked() {
+                        self.reader.prev_chapter();
+                    }
+                    if ui.button("Next chapter").clicked() {
+                        self.reader.next_chapter();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Go to page");
+                    ui.add(
+                        egui::DragValue::new(&mut self.reader.go_to_page_input).range(1..=50000),
+                    );
+                    if ui.button("Go").clicked() {
+                        self.reader.go_to_page(self.reader.go_to_page_input);
+                    }
+                    ui.label("or %");
+                    ui.add(
+                        egui::DragValue::new(&mut self.reader.go_to_percent_input)
+                            .speed(0.5)
+                            .range(0.0..=100.0),
+                    );
+                    if ui.button("Jump %").clicked() {
+                        self.reader.go_to_percent(self.reader.go_to_percent_input);
+                    }
                 });
                 if ui.ctx().input(|i| i.key_pressed(egui::Key::ArrowRight)) {
                     self.reader.next_page();
@@ -5940,11 +6218,71 @@ impl LibraryView {
                             .range(1.1..=2.2),
                     );
                 });
+                ui.horizontal(|ui| {
+                    ui.label("Font family");
+                    egui::ComboBox::from_id_salt("reader_font_family")
+                        .selected_text(match self.reader.font_family {
+                            ReaderFontFamily::Sans => "Sans",
+                            ReaderFontFamily::Serif => "Serif",
+                            ReaderFontFamily::Monospace => "Monospace",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.font_family,
+                                ReaderFontFamily::Sans,
+                                "Sans",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.font_family,
+                                ReaderFontFamily::Serif,
+                                "Serif",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.font_family,
+                                ReaderFontFamily::Monospace,
+                                "Monospace",
+                            );
+                        });
+                    ui.checkbox(&mut self.reader.justify_text, "Justify");
+                    ui.checkbox(&mut self.reader.hyphenation, "Hyphenation");
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.reader.continuous_scroll, "Continuous scroll");
+                    ui.label("Fit");
+                    egui::ComboBox::from_id_salt("reader_fit_mode")
+                        .selected_text(match self.reader.fit_mode {
+                            ReaderFitMode::FitWidth => "Width",
+                            ReaderFitMode::FitPage => "Page",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.fit_mode,
+                                ReaderFitMode::FitWidth,
+                                "Fit width",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.fit_mode,
+                                ReaderFitMode::FitPage,
+                                "Fit page",
+                            );
+                        });
+                    ui.label("Image zoom");
+                    ui.add(
+                        egui::DragValue::new(&mut self.reader.image_zoom)
+                            .speed(0.1)
+                            .range(0.5..=4.0),
+                    );
+                });
                 let mut page_chars = self.reader.page_chars;
                 ui.horizontal(|ui| {
                     ui.label("Page chars");
                     ui.add(egui::DragValue::new(&mut page_chars).range(600..=6000));
                 });
+                if matches!(self.reader.fit_mode, ReaderFitMode::FitPage) {
+                    page_chars = page_chars.clamp(600, 1800);
+                } else {
+                    page_chars = page_chars.clamp(1200, 6000);
+                }
                 self.reader.update_page_chars(page_chars);
                 ui.horizontal(|ui| {
                     ui.label("Theme");
@@ -5963,6 +6301,41 @@ impl LibraryView {
                                 "Sepia",
                             );
                         });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Preset");
+                    egui::ComboBox::from_id_salt("reader_preset")
+                        .selected_text(match self.reader.preset {
+                            ReaderPreset::Balanced => "Balanced",
+                            ReaderPreset::Focus => "Focus",
+                            ReaderPreset::Dense => "Dense",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.preset,
+                                ReaderPreset::Balanced,
+                                "Balanced",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.preset,
+                                ReaderPreset::Focus,
+                                "Focus",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.preset,
+                                ReaderPreset::Dense,
+                                "Dense",
+                            );
+                        });
+                    if ui.button("Apply preset").clicked() {
+                        self.reader.apply_preset();
+                    }
+                    ui.label("Margins");
+                    ui.add(
+                        egui::DragValue::new(&mut self.reader.margin_scale)
+                            .speed(0.05)
+                            .range(0.5..=2.0),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label("Recent");
@@ -5984,18 +6357,122 @@ impl LibraryView {
                 let text_color = self.reader.theme.text_color();
                 egui::Frame::none().fill(background).show(ui, |ui| {
                     ui.visuals_mut().override_text_color = Some(text_color);
+                    ui.add_space(12.0 * self.reader.margin_scale);
                     ui.set_width(ui.available_width());
                     ui.add_space(4.0);
                     self.reader.render(ui);
                     ui.add_space(4.0);
+                    ui.add_space(12.0 * self.reader.margin_scale);
+                });
+                ui.separator();
+                ui.collapsing("Search results", |ui| {
+                    let results = self.reader.search_results.clone();
+                    for (idx, result) in results.iter().enumerate() {
+                        if ui
+                            .selectable_label(
+                                self.reader.search_result_cursor == Some(idx),
+                                result.label.as_str(),
+                            )
+                            .clicked()
+                        {
+                            self.reader.search_result_cursor = Some(idx);
+                            if let Some(page) = result.page {
+                                self.reader.page = page;
+                            } else if let Some(book_id) = result.book_id {
+                                let _ = self.open_reader(book_id);
+                            }
+                        }
+                    }
+                });
+                ui.collapsing("Table of contents", |ui| {
+                    let toc = self.reader.toc.clone();
+                    for item in toc {
+                        if ui
+                            .button(format!("{} (p{})", item.title, item.page + 1))
+                            .clicked()
+                        {
+                            self.reader.page = item.page;
+                        }
+                    }
+                });
+                ui.collapsing("Bookmarks", |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("Add bookmark").clicked() {
+                            self.reader.add_bookmark();
+                        }
+                    });
+                    let bookmarks = self.reader.bookmarks.clone();
+                    for (idx, mark) in bookmarks.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui.button(mark.title.as_str()).clicked() {
+                                self.reader.page = mark.page;
+                            }
+                            if ui.small_button("Remove").clicked() {
+                                self.reader.remove_bookmark(idx);
+                            }
+                        });
+                    }
+                });
+                ui.collapsing("Highlights + Notes", |ui| {
+                    ui.label("Text/quote");
+                    ui.text_edit_singleline(&mut self.reader.selected_text);
+                    ui.label("Color");
+                    egui::ComboBox::from_id_salt("highlight_color")
+                        .selected_text(match self.reader.highlight_color {
+                            ReaderHighlightColor::Yellow => "Yellow",
+                            ReaderHighlightColor::Green => "Green",
+                            ReaderHighlightColor::Blue => "Blue",
+                            ReaderHighlightColor::Pink => "Pink",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.reader.highlight_color,
+                                ReaderHighlightColor::Yellow,
+                                "Yellow",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.highlight_color,
+                                ReaderHighlightColor::Green,
+                                "Green",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.highlight_color,
+                                ReaderHighlightColor::Blue,
+                                "Blue",
+                            );
+                            ui.selectable_value(
+                                &mut self.reader.highlight_color,
+                                ReaderHighlightColor::Pink,
+                                "Pink",
+                            );
+                        });
+                    ui.label("Note");
+                    ui.text_edit_singleline(&mut self.reader.highlight_note);
+                    if ui.button("Add highlight").clicked() {
+                        self.reader.add_annotation();
+                    }
+                    let annotations = self.reader.annotations.clone();
+                    for (idx, ann) in annotations.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(format!("p{} {}", ann.page + 1, ann.text))
+                                .clicked()
+                            {
+                                self.reader.page = ann.page;
+                            }
+                            let mut note = ann.note.clone();
+                            if ui.text_edit_singleline(&mut note).changed() {
+                                if let Some(edit) = self.reader.annotations.get_mut(idx) {
+                                    edit.note = note;
+                                }
+                            }
+                        });
+                    }
                 });
                 if let Some(book_id) = self.reader.book_id {
                     self.reader_progress.insert(book_id, self.reader.page);
                 }
                 ui.separator();
-                ui.label("Table of contents (stub)");
-                ui.label("• Chapter 1");
-                ui.label("• Chapter 2");
                 if ui.button("Close").clicked() {
                     close_requested = true;
                 }
@@ -8837,7 +9314,27 @@ struct ReaderState {
     page_chars: usize,
     theme: ReaderTheme,
     search_query: String,
+    search_scope: ReaderSearchScope,
+    search_highlighting: bool,
+    search_results: Vec<ReaderSearchResult>,
+    search_result_cursor: Option<usize>,
     last_match: Option<usize>,
+    toc: Vec<ReaderTocEntry>,
+    bookmarks: Vec<ReaderBookmark>,
+    selected_text: String,
+    highlight_note: String,
+    highlight_color: ReaderHighlightColor,
+    annotations: Vec<ReaderAnnotation>,
+    go_to_page_input: usize,
+    go_to_percent_input: f32,
+    continuous_scroll: bool,
+    fit_mode: ReaderFitMode,
+    image_zoom: f32,
+    font_family: ReaderFontFamily,
+    margin_scale: f32,
+    preset: ReaderPreset,
+    justify_text: bool,
+    hyphenation: bool,
     recent: Vec<ReaderRecent>,
     temp_path: Option<PathBuf>,
     error: Option<String>,
@@ -8857,7 +9354,27 @@ impl ReaderState {
             page_chars: config.gui.reader_page_chars,
             theme: ReaderTheme::from_config(&config.gui.reader_theme),
             search_query: String::new(),
+            search_scope: ReaderSearchScope::CurrentBook,
+            search_highlighting: true,
+            search_results: Vec::new(),
+            search_result_cursor: None,
             last_match: None,
+            toc: Vec::new(),
+            bookmarks: Vec::new(),
+            selected_text: String::new(),
+            highlight_note: String::new(),
+            highlight_color: ReaderHighlightColor::Yellow,
+            annotations: Vec::new(),
+            go_to_page_input: 1,
+            go_to_percent_input: 0.0,
+            continuous_scroll: false,
+            fit_mode: ReaderFitMode::FitWidth,
+            image_zoom: 1.0,
+            font_family: ReaderFontFamily::Sans,
+            margin_scale: 1.0,
+            preset: ReaderPreset::Balanced,
+            justify_text: false,
+            hyphenation: false,
             recent: Vec::new(),
             temp_path: None,
             error: None,
@@ -8882,12 +9399,17 @@ impl ReaderState {
         self.error = None;
         self.search_query.clear();
         self.last_match = None;
+        self.search_results.clear();
+        self.search_result_cursor = None;
         self.temp_path = temp_path;
         self.content =
             ReaderContent::from_path(path, format, self.page_chars).unwrap_or_else(|err| {
                 self.error = Some(err);
                 ReaderContent::Unsupported
             });
+        self.rebuild_toc();
+        self.bookmarks.clear();
+        self.annotations.clear();
         self.open = true;
         self.push_recent(book_id, title, self.page);
     }
@@ -8903,11 +9425,16 @@ impl ReaderState {
         self.error = None;
         self.search_query.clear();
         self.last_match = None;
+        self.search_results.clear();
+        self.search_result_cursor = None;
         self.temp_path = None;
         self.content = ReaderContent::Text {
             raw: raw.to_string(),
             pages: paginate_text(raw, self.page_chars),
         };
+        self.rebuild_toc();
+        self.bookmarks.clear();
+        self.annotations.clear();
         self.open = true;
         self.push_recent(book_id, title, self.page);
     }
@@ -8919,6 +9446,11 @@ impl ReaderState {
         self.page = 0;
         self.error = None;
         self.content = ReaderContent::Empty;
+        self.search_results.clear();
+        self.search_result_cursor = None;
+        self.toc.clear();
+        self.bookmarks.clear();
+        self.annotations.clear();
         if let Some(path) = self.temp_path.take() {
             let _ = fs::remove_file(path);
         }
@@ -8965,6 +9497,7 @@ impl ReaderState {
             if self.page >= pages.len() {
                 self.page = pages.len().saturating_sub(1);
             }
+            self.rebuild_toc();
         }
     }
 
@@ -8972,24 +9505,152 @@ impl ReaderState {
         let query = self.search_query.trim().to_lowercase();
         if query.is_empty() {
             self.last_match = None;
+            self.search_results.clear();
+            self.search_result_cursor = None;
             return;
         }
         if let ReaderContent::Text { pages, .. } = &self.content {
+            self.search_results = pages
+                .iter()
+                .enumerate()
+                .filter(|(_, page)| page.to_lowercase().contains(&query))
+                .map(|(idx, page)| ReaderSearchResult {
+                    label: format!(
+                        "Page {}: {}",
+                        idx + 1,
+                        page.lines().next().unwrap_or("").trim()
+                    ),
+                    page: Some(idx),
+                    book_id: self.book_id,
+                })
+                .collect();
             let start = self.last_match.unwrap_or(0);
             for idx in start..pages.len() {
                 if pages[idx].to_lowercase().contains(&query) {
                     self.page = idx;
                     self.last_match = Some(idx + 1);
+                    self.search_result_cursor = self
+                        .search_results
+                        .iter()
+                        .position(|result| result.page == Some(idx));
                     return;
                 }
             }
             self.last_match = Some(0);
+            self.search_result_cursor = None;
         }
     }
 
     fn jump_to(&mut self, book_id: i64, page: usize) {
         if self.book_id == Some(book_id) {
             self.page = page.min(self.page_count().saturating_sub(1));
+        }
+    }
+
+    fn go_to_page(&mut self, page: usize) {
+        let count = self.page_count();
+        if count == 0 {
+            return;
+        }
+        self.page = page.saturating_sub(1).min(count.saturating_sub(1));
+    }
+
+    fn go_to_percent(&mut self, percent: f32) {
+        let count = self.page_count();
+        if count == 0 {
+            return;
+        }
+        let clamped = percent.clamp(0.0, 100.0) / 100.0;
+        let page = ((count.saturating_sub(1)) as f32 * clamped).round() as usize;
+        self.page = page.min(count.saturating_sub(1));
+    }
+
+    fn next_chapter(&mut self) {
+        if let Some(next) = self.toc.iter().find(|entry| entry.page > self.page) {
+            self.page = next.page;
+        } else {
+            self.next_page();
+        }
+    }
+
+    fn prev_chapter(&mut self) {
+        if let Some(prev) = self.toc.iter().rev().find(|entry| entry.page < self.page) {
+            self.page = prev.page;
+        } else {
+            self.prev_page();
+        }
+    }
+
+    fn add_bookmark(&mut self) {
+        self.bookmarks.push(ReaderBookmark {
+            title: format!("Page {}", self.page + 1),
+            page: self.page,
+        });
+    }
+
+    fn remove_bookmark(&mut self, idx: usize) {
+        if idx < self.bookmarks.len() {
+            self.bookmarks.remove(idx);
+        }
+    }
+
+    fn add_annotation(&mut self) {
+        let text = self.selected_text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.annotations.push(ReaderAnnotation {
+            page: self.page,
+            text,
+            note: self.highlight_note.trim().to_string(),
+            color: self.highlight_color,
+        });
+        self.highlight_note.clear();
+    }
+
+    fn apply_preset(&mut self) {
+        match self.preset {
+            ReaderPreset::Balanced => {
+                self.font_size = 18.0;
+                self.line_spacing = 1.35;
+                self.margin_scale = 1.0;
+            }
+            ReaderPreset::Focus => {
+                self.font_size = 20.0;
+                self.line_spacing = 1.5;
+                self.margin_scale = 1.2;
+            }
+            ReaderPreset::Dense => {
+                self.font_size = 15.0;
+                self.line_spacing = 1.2;
+                self.margin_scale = 0.8;
+            }
+        }
+    }
+
+    fn rebuild_toc(&mut self) {
+        self.toc.clear();
+        if let ReaderContent::Text { pages, .. } = &self.content {
+            for (idx, page) in pages.iter().enumerate() {
+                if let Some(line) = page
+                    .lines()
+                    .find(|line| line.trim_start().starts_with('#'))
+                    .map(|line| line.trim_start_matches('#').trim())
+                {
+                    if !line.is_empty() {
+                        self.toc.push(ReaderTocEntry {
+                            title: line.to_string(),
+                            page: idx,
+                        });
+                    }
+                }
+            }
+        }
+        if self.toc.is_empty() {
+            self.toc.push(ReaderTocEntry {
+                title: "Start".to_string(),
+                page: 0,
+            });
         }
     }
 
@@ -9009,13 +9670,41 @@ impl ReaderState {
     fn render(&self, ui: &mut egui::Ui) {
         match &self.content {
             ReaderContent::Text { pages, .. } => {
-                let raw_text = pages.get(self.page).map(|s| s.as_str()).unwrap_or("");
-                let page_text = if self.line_spacing > 1.3 {
-                    raw_text.replace('\n', "\n\n")
+                let show_query = if self.search_highlighting {
+                    self.search_query.as_str()
                 } else {
-                    raw_text.to_string()
+                    ""
                 };
-                render_text_with_highlight(ui, &page_text, &self.search_query, self.font_size);
+                if self.continuous_scroll {
+                    for raw in pages {
+                        render_text_with_highlight_and_style(
+                            ui,
+                            raw,
+                            show_query,
+                            self.font_size,
+                            self.font_family,
+                            self.justify_text,
+                            self.hyphenation,
+                        );
+                        ui.add_space(8.0 * self.margin_scale);
+                    }
+                } else {
+                    let raw_text = pages.get(self.page).map(|s| s.as_str()).unwrap_or("");
+                    let page_text = if self.line_spacing > 1.3 {
+                        raw_text.replace('\n', "\n\n")
+                    } else {
+                        raw_text.to_string()
+                    };
+                    render_text_with_highlight_and_style(
+                        ui,
+                        &page_text,
+                        show_query,
+                        self.font_size,
+                        self.font_family,
+                        self.justify_text,
+                        self.hyphenation,
+                    );
+                }
             }
             ReaderContent::Unsupported => {
                 ui.label("Preview not available for this format.");
@@ -9032,6 +9721,67 @@ enum ReaderContent {
     Text { raw: String, pages: Vec<String> },
     Unsupported,
     Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderSearchScope {
+    CurrentBook,
+    Library,
+}
+
+#[derive(Debug, Clone)]
+struct ReaderSearchResult {
+    label: String,
+    page: Option<usize>,
+    book_id: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+struct ReaderTocEntry {
+    title: String,
+    page: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ReaderBookmark {
+    title: String,
+    page: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderHighlightColor {
+    Yellow,
+    Green,
+    Blue,
+    Pink,
+}
+
+#[derive(Debug, Clone)]
+struct ReaderAnnotation {
+    page: usize,
+    text: String,
+    note: String,
+    color: ReaderHighlightColor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderFitMode {
+    FitWidth,
+    FitPage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderFontFamily {
+    Sans,
+    Serif,
+    Monospace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderPreset {
+    Balanced,
+    Focus,
+    Dense,
 }
 
 impl ReaderContent {
@@ -9755,6 +10505,87 @@ impl Default for ManageVirtualLibrariesDialogState {
             assign_name: String::new(),
             unassign_name: String::new(),
             needs_refresh: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PluginEntry {
+    id: String,
+    name: String,
+    version: String,
+    latest_version: String,
+    author: String,
+    description: String,
+    enabled: bool,
+    dependencies: Vec<String>,
+    status: String,
+    error: Option<String>,
+    setting_key: String,
+    setting_value: String,
+    logs: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PluginManagerDialogState {
+    open: bool,
+    search: String,
+    selected: Option<String>,
+    install_id: String,
+    install_name: String,
+    install_version: String,
+    install_author: String,
+    install_description: String,
+    remove_id: String,
+    status_message: String,
+    plugins: Vec<PluginEntry>,
+}
+
+impl Default for PluginManagerDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            search: String::new(),
+            selected: None,
+            install_id: String::new(),
+            install_name: String::new(),
+            install_version: "0.1.0".to_string(),
+            install_author: String::new(),
+            install_description: String::new(),
+            remove_id: String::new(),
+            status_message: String::new(),
+            plugins: vec![
+                PluginEntry {
+                    id: "builtin.metadata".to_string(),
+                    name: "Metadata Sources".to_string(),
+                    version: "1.0.0".to_string(),
+                    latest_version: "1.1.0".to_string(),
+                    author: "Caliberate".to_string(),
+                    description: "Built-in metadata source integration.".to_string(),
+                    enabled: true,
+                    dependencies: vec![],
+                    status: "healthy".to_string(),
+                    error: None,
+                    setting_key: "timeout_ms".to_string(),
+                    setting_value: "5000".to_string(),
+                    logs: vec!["loaded plugin".to_string()],
+                },
+                PluginEntry {
+                    id: "builtin.converter".to_string(),
+                    name: "Converter Hooks".to_string(),
+                    version: "1.0.0".to_string(),
+                    latest_version: "1.0.0".to_string(),
+                    author: "Caliberate".to_string(),
+                    description: "Conversion pipeline extension hooks.".to_string(),
+                    enabled: true,
+                    dependencies: vec!["builtin.metadata".to_string()],
+                    status: "healthy".to_string(),
+                    error: None,
+                    setting_key: "max_workers".to_string(),
+                    setting_value: "2".to_string(),
+                    logs: vec!["initialized hook registry".to_string()],
+                },
+            ],
         }
     }
 }
@@ -11601,21 +12432,64 @@ fn image_to_color_image(image: &DynamicImage) -> egui::ColorImage {
 }
 
 fn render_text_with_highlight(ui: &mut egui::Ui, text: &str, query: &str, size: f32) {
+    render_text_with_highlight_and_style(
+        ui,
+        text,
+        query,
+        size,
+        ReaderFontFamily::Sans,
+        false,
+        false,
+    );
+}
+
+fn render_text_with_highlight_and_style(
+    ui: &mut egui::Ui,
+    text: &str,
+    query: &str,
+    size: f32,
+    family: ReaderFontFamily,
+    justify: bool,
+    hyphenation: bool,
+) {
+    let font_id = match family {
+        ReaderFontFamily::Sans => egui::FontId::proportional(size),
+        ReaderFontFamily::Serif => egui::FontId::new(size, egui::FontFamily::Name("serif".into())),
+        ReaderFontFamily::Monospace => egui::FontId::monospace(size),
+    };
+    let mut rendered = text.to_string();
+    if hyphenation {
+        rendered = rendered
+            .split_whitespace()
+            .map(|token| {
+                if token.len() > 14 {
+                    let split = token.len() / 2;
+                    format!("{}-{}", &token[..split], &token[split..])
+                } else {
+                    token.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
     let mut job = egui::text::LayoutJob::default();
     if query.trim().is_empty() {
         job.append(
-            text,
+            &rendered,
             0.0,
             egui::TextFormat {
-                font_id: egui::FontId::proportional(size),
+                font_id,
                 ..Default::default()
             },
         );
+        if justify {
+            job.justify = true;
+        }
         ui.label(job);
         return;
     }
     let query_lower = query.to_lowercase();
-    let mut remaining = text;
+    let mut remaining = rendered.as_str();
     while let Some(pos) = remaining.to_lowercase().find(&query_lower) {
         let (prefix, rest) = remaining.split_at(pos);
         if !prefix.is_empty() {
@@ -11623,7 +12497,7 @@ fn render_text_with_highlight(ui: &mut egui::Ui, text: &str, query: &str, size: 
                 prefix,
                 0.0,
                 egui::TextFormat {
-                    font_id: egui::FontId::proportional(size),
+                    font_id: font_id.clone(),
                     ..Default::default()
                 },
             );
@@ -11634,7 +12508,7 @@ fn render_text_with_highlight(ui: &mut egui::Ui, text: &str, query: &str, size: 
                 match_text,
                 0.0,
                 egui::TextFormat {
-                    font_id: egui::FontId::proportional(size),
+                    font_id: font_id.clone(),
                     color: egui::Color32::from_rgb(220, 180, 60),
                     ..Default::default()
                 },
@@ -11647,10 +12521,13 @@ fn render_text_with_highlight(ui: &mut egui::Ui, text: &str, query: &str, size: 
             remaining,
             0.0,
             egui::TextFormat {
-                font_id: egui::FontId::proportional(size),
+                font_id,
                 ..Default::default()
             },
         );
+    }
+    if justify {
+        job.justify = true;
     }
     ui.label(job);
 }
