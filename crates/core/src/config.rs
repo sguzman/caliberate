@@ -28,6 +28,8 @@ pub struct ControlPlane {
     #[serde(default)]
     pub metadata_download: MetadataDownloadConfig,
     #[serde(default)]
+    pub news: NewsConfig,
+    #[serde(default)]
     pub gui: GuiConfig,
 }
 
@@ -232,6 +234,26 @@ impl ControlPlane {
         if self.device.library_subdir.trim().is_empty() {
             return Err(CoreError::ConfigValidate(
                 "device.library_subdir must not be empty".to_string(),
+            ));
+        }
+        if self.device.connection_timeout_ms < 100 {
+            return Err(CoreError::ConfigValidate(
+                "device.connection_timeout_ms must be at least 100".to_string(),
+            ));
+        }
+        if !matches!(self.device.driver_backend.as_str(), "auto" | "usb" | "mtp") {
+            return Err(CoreError::ConfigValidate(
+                "device.driver_backend must be one of auto/usb/mtp".to_string(),
+            ));
+        }
+        if self.news.retention_days == 0 {
+            return Err(CoreError::ConfigValidate(
+                "news.retention_days must be greater than 0".to_string(),
+            ));
+        }
+        if self.news.fetch_limit == 0 {
+            return Err(CoreError::ConfigValidate(
+                "news.fetch_limit must be greater than 0".to_string(),
             ));
         }
         if self.plugins.plugins_dir.as_os_str().is_empty() {
@@ -895,6 +917,42 @@ pub struct DeviceConfig {
     pub mount_roots: Vec<PathBuf>,
     #[serde(default = "default_device_library_subdir")]
     pub library_subdir: String,
+    #[serde(default = "default_device_send_auto_convert")]
+    pub send_auto_convert: bool,
+    #[serde(default = "default_device_send_overwrite")]
+    pub send_overwrite: bool,
+    #[serde(default = "default_device_sync_metadata")]
+    pub sync_metadata: bool,
+    #[serde(default = "default_device_sync_cover")]
+    pub sync_cover: bool,
+    #[serde(default = "default_device_scan_recursive")]
+    pub scan_recursive: bool,
+    #[serde(default = "default_device_driver_backend")]
+    pub driver_backend: String,
+    #[serde(default = "default_device_connection_timeout_ms")]
+    pub connection_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NewsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_news_recipes_dir")]
+    pub recipes_dir: PathBuf,
+    #[serde(default = "default_news_downloads_dir")]
+    pub downloads_dir: PathBuf,
+    #[serde(default = "default_news_history_path")]
+    pub history_path: PathBuf,
+    #[serde(default = "default_news_retention_days")]
+    pub retention_days: u64,
+    #[serde(default = "default_news_auto_delete")]
+    pub auto_delete: bool,
+    #[serde(default = "default_news_fetch_limit")]
+    pub fetch_limit: usize,
+    #[serde(default = "default_news_source_enabled")]
+    pub source_enabled: BTreeMap<String, bool>,
+    #[serde(default = "default_news_source_schedule")]
+    pub source_schedule: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1279,6 +1337,22 @@ impl Default for MetadataDownloadConfig {
             overwrite_language_default: default_metadata_download_overwrite_language_default(),
             overwrite_pubdate_default: default_metadata_download_overwrite_pubdate_default(),
             overwrite_comment_default: default_metadata_download_overwrite_comment_default(),
+        }
+    }
+}
+
+impl Default for NewsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            recipes_dir: default_news_recipes_dir(),
+            downloads_dir: default_news_downloads_dir(),
+            history_path: default_news_history_path(),
+            retention_days: default_news_retention_days(),
+            auto_delete: default_news_auto_delete(),
+            fetch_limit: default_news_fetch_limit(),
+            source_enabled: default_news_source_enabled(),
+            source_schedule: default_news_source_schedule(),
         }
     }
 }
@@ -1778,6 +1852,77 @@ fn default_device_mount_roots() -> Vec<PathBuf> {
 
 fn default_device_library_subdir() -> String {
     "Caliberate Library".to_string()
+}
+
+fn default_device_send_auto_convert() -> bool {
+    false
+}
+
+fn default_device_send_overwrite() -> bool {
+    false
+}
+
+fn default_device_sync_metadata() -> bool {
+    true
+}
+
+fn default_device_sync_cover() -> bool {
+    true
+}
+
+fn default_device_scan_recursive() -> bool {
+    true
+}
+
+fn default_device_driver_backend() -> String {
+    "auto".to_string()
+}
+
+fn default_device_connection_timeout_ms() -> u64 {
+    5_000
+}
+
+fn default_news_recipes_dir() -> PathBuf {
+    PathBuf::from("./.cache/caliberate/news/recipes")
+}
+
+fn default_news_downloads_dir() -> PathBuf {
+    PathBuf::from("./.cache/caliberate/news/downloads")
+}
+
+fn default_news_history_path() -> PathBuf {
+    PathBuf::from("./.cache/caliberate/news/history.log")
+}
+
+fn default_news_retention_days() -> u64 {
+    30
+}
+
+fn default_news_auto_delete() -> bool {
+    true
+}
+
+fn default_news_fetch_limit() -> usize {
+    20
+}
+
+fn default_news_source_enabled() -> BTreeMap<String, bool> {
+    BTreeMap::from([
+        ("hacker-news".to_string(), true),
+        ("lobsters".to_string(), true),
+        ("project-gutenberg".to_string(), false),
+    ])
+}
+
+fn default_news_source_schedule() -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("hacker-news".to_string(), "hourly".to_string()),
+        ("lobsters".to_string(), "daily@06:00".to_string()),
+        (
+            "project-gutenberg".to_string(),
+            "weekly@sun-06:00".to_string(),
+        ),
+    ])
 }
 
 fn default_plugins_enabled() -> bool {

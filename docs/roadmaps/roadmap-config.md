@@ -32,6 +32,11 @@
 - [x] Point `[conversion].temp_dir` and `[conversion].output_dir` under `./.cache/caliberate`
 - [x] Define `[device]` keys: `mount_roots`, `library_subdir`
 - [x] Point `[device].mount_roots` project default to `./.cache/caliberate/devices`
+- [x] Define `[device]` keys: `send_auto_convert`, `send_overwrite`, `sync_metadata`, `sync_cover`
+- [x] Define `[device]` keys: `scan_recursive`, `driver_backend`, `connection_timeout_ms`
+- [x] Define `[news]` keys: `enabled`, `recipes_dir`, `downloads_dir`, `history_path`
+- [x] Define `[news]` keys: `retention_days`, `auto_delete`, `fetch_limit`
+- [x] Define `[news]` keys: `source_enabled`, `source_schedule`
 - [x] Define `[plugins]` keys: `enabled`, `plugins_dir`
 - [x] Point `[plugins].plugins_dir` default to `./.cache/caliberate/plugins`
 - [x] Define `[network]` keys: `http_proxy`, `https_proxy`, `no_proxy`, `offline_mode`, `dns_mode`

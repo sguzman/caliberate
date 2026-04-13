@@ -114,6 +114,24 @@ result_limit = 100
 [device]
 mount_roots = ["./.cache/caliberate/devices", "/media", "/run/media"]
 library_subdir = "Caliberate Library"
+send_auto_convert = false
+send_overwrite = false
+sync_metadata = true
+sync_cover = true
+scan_recursive = true
+driver_backend = "auto"
+connection_timeout_ms = 5000
+
+[news]
+enabled = true
+recipes_dir = "./.cache/caliberate/news/recipes"
+downloads_dir = "./.cache/caliberate/news/downloads"
+history_path = "./.cache/caliberate/news/history.log"
+retention_days = 30
+auto_delete = true
+fetch_limit = 20
+source_enabled = { hacker-news = true, lobsters = true, project-gutenberg = false }
+source_schedule = { hacker-news = "hourly", lobsters = "daily@06:00", project-gutenberg = "weekly@sun-06:00" }
 
 [plugins]
 enabled = true

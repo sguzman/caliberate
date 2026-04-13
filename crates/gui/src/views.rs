@@ -13,7 +13,7 @@ use caliberate_db::database::{
     SeriesEntry,
 };
 use caliberate_device::detection::{DeviceInfo, detect_devices};
-use caliberate_device::sync::send_to_device;
+use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use caliberate_metadata::online::{
     DownloadedMetadata, MetadataQuery, ProviderConfig, fetch_cover, fetch_metadata,
@@ -575,12 +575,17 @@ pub struct LibraryView {
     note_delete_open: bool,
     remove_asset_dialog: RemoveAssetDialogState,
     pending_convert_book: Option<i64>,
+    news_only_filter: bool,
     add_books: AddBooksDialogState,
     remove_books: RemoveBooksDialogState,
     bulk_edit: BulkEditDialogState,
     convert_books: ConvertBooksDialogState,
     save_to_disk: SaveToDiskDialogState,
     device_sync: DeviceSyncDialogState,
+    device_manager: DeviceManagerDialogState,
+    device_file_delete: DeviceFileDeleteDialogState,
+    fetch_from_device: FetchFromDeviceDialogState,
+    news_manager: NewsDialogState,
     manage_tags: ManageTagsDialogState,
     manage_series: ManageSeriesDialogState,
     manage_custom_columns: ManageCustomColumnsDialogState,
@@ -756,12 +761,17 @@ impl LibraryView {
             note_delete_open: false,
             remove_asset_dialog: RemoveAssetDialogState::default(),
             pending_convert_book: None,
+            news_only_filter: false,
             add_books: AddBooksDialogState::default(),
             remove_books: RemoveBooksDialogState::default(),
             bulk_edit: BulkEditDialogState::default(),
             convert_books: ConvertBooksDialogState::default(),
             save_to_disk: SaveToDiskDialogState::default(),
             device_sync: DeviceSyncDialogState::default(),
+            device_manager: DeviceManagerDialogState::default(),
+            device_file_delete: DeviceFileDeleteDialogState::default(),
+            fetch_from_device: FetchFromDeviceDialogState::default(),
+            news_manager: NewsDialogState::default(),
             manage_tags: ManageTagsDialogState::default(),
             manage_series: ManageSeriesDialogState::default(),
             manage_custom_columns: ManageCustomColumnsDialogState::default(),
@@ -775,6 +785,11 @@ impl LibraryView {
         };
         view.convert_books.apply_defaults(config);
         view.save_to_disk.apply_defaults(config);
+        view.device_manager.apply_defaults(config);
+        view.news_manager.apply_defaults(config);
+        let _ = view.refresh_news_sources(config);
+        let _ = view.refresh_news_downloads(config);
+        let _ = view.load_news_history(config);
         let _ = view.load_job_history();
         if let Some(active) = &view.active_virtual_library {
             view.browser_filters = view
@@ -937,6 +952,20 @@ impl LibraryView {
         self.device_sync.open = true;
     }
 
+    pub fn open_device_manager(&mut self, config: &ControlPlane) {
+        self.device_manager.apply_defaults(config);
+        let _ = self.refresh_device_files(config);
+        self.device_manager.open = true;
+    }
+
+    pub fn open_news_manager(&mut self, config: &ControlPlane) {
+        self.news_manager.apply_defaults(config);
+        let _ = self.refresh_news_sources(config);
+        let _ = self.refresh_news_downloads(config);
+        let _ = self.load_news_history(config);
+        self.news_manager.open = true;
+    }
+
     pub fn open_manage_tags(&mut self) {
         self.manage_tags.open = true;
         self.manage_tags.needs_refresh = true;
@@ -1091,7 +1120,7 @@ impl LibraryView {
                 ui.separator();
                 self.operations_controls(ui, config);
                 ui.separator();
-                self.management_controls(ui);
+                self.management_controls(ui, config);
                 if self.browser_visible && self.browser_side == PaneSide::Left {
                     ui.separator();
                     self.browser_controls(ui);
@@ -1174,6 +1203,10 @@ impl LibraryView {
         self.convert_books_dialog(ui, config);
         self.save_to_disk_dialog(ui, config);
         self.device_sync_dialog(ui, config);
+        self.device_manager_dialog(ui, config);
+        self.fetch_from_device_dialog(ui, config);
+        self.device_file_delete_dialog(ui, config);
+        self.news_dialog(ui, config);
         self.manage_tags_dialog(ui);
         self.manage_series_dialog(ui);
         self.manage_custom_columns_dialog(ui);
@@ -1501,13 +1534,20 @@ impl LibraryView {
             if ui.button("Apply").clicked() {
                 self.apply_filters();
             }
+            if ui
+                .checkbox(&mut self.news_only_filter, "News only")
+                .changed()
+            {
+                self.apply_filters();
+            }
         });
     }
 
     fn filter_summary_controls(&mut self, ui: &mut egui::Ui) {
         let has_filters = !self.search_query.trim().is_empty()
             || self.format_filter.is_some()
-            || !self.browser_filters.is_empty();
+            || !self.browser_filters.is_empty()
+            || self.news_only_filter;
         if !has_filters {
             return;
         }
@@ -1532,6 +1572,12 @@ impl LibraryView {
                     self.remove_browser_filter(&filter);
                     self.apply_filters();
                 }
+            }
+            if ui
+                .checkbox(&mut self.news_only_filter, "News only")
+                .changed()
+            {
+                self.apply_filters();
             }
             if ui.button("Clear all").clicked() {
                 self.clear_all_filters();
@@ -1740,6 +1786,7 @@ impl LibraryView {
     fn clear_all_filters(&mut self) {
         self.search_query.clear();
         self.format_filter = None;
+        self.news_only_filter = false;
         self.browser_filters.clear();
         self.persist_active_virtual_filters();
         self.needs_refresh = true;
@@ -2328,10 +2375,13 @@ impl LibraryView {
                 {
                     self.open_device_sync(config);
                 }
+                if ui.button("News…").clicked() {
+                    self.open_news_manager(config);
+                }
             });
     }
 
-    fn management_controls(&mut self, ui: &mut egui::Ui) {
+    fn management_controls(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
         egui::CollapsingHeader::new("Manage")
             .default_open(false)
             .show(ui, |ui| {
@@ -2346,6 +2396,9 @@ impl LibraryView {
                 }
                 if ui.button("Virtual libraries…").clicked() {
                     self.open_manage_virtual_libraries();
+                }
+                if ui.button("Devices…").clicked() {
+                    self.open_device_manager(config);
                 }
             });
     }
@@ -4229,6 +4282,43 @@ impl LibraryView {
                 ui.label("Destination name override (optional)");
                 ui.text_edit_singleline(&mut self.device_sync.destination_name);
                 ui.separator();
+                if ui
+                    .checkbox(
+                        &mut self.device_sync.auto_convert,
+                        "Auto convert before send",
+                    )
+                    .changed()
+                {
+                    self.config_dirty = true;
+                }
+                if ui
+                    .checkbox(&mut self.device_sync.overwrite, "Overwrite existing files")
+                    .changed()
+                {
+                    self.config_dirty = true;
+                }
+                if ui
+                    .checkbox(&mut self.device_sync.sync_metadata, "Sync metadata")
+                    .changed()
+                {
+                    self.config_dirty = true;
+                }
+                if ui
+                    .checkbox(&mut self.device_sync.sync_cover, "Sync cover")
+                    .changed()
+                {
+                    self.config_dirty = true;
+                }
+                ui.collapsing("Send queue", |ui| {
+                    if self.device_sync.queue.is_empty() {
+                        ui.label("Queue is empty.");
+                    } else {
+                        for row in &self.device_sync.queue {
+                            ui.label(format!("{} — {}", row.item, row.status));
+                        }
+                    }
+                });
+                ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Send").clicked() {
                         confirmed = true;
@@ -4252,6 +4342,382 @@ impl LibraryView {
             open = false;
         }
         self.device_sync.open = open;
+    }
+
+    fn device_manager_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.device_manager.open {
+            return;
+        }
+        let mut open = self.device_manager.open;
+        egui::Window::new("Device manager")
+            .open(&mut open)
+            .resizable(true)
+            .default_size(egui::vec2(900.0, 520.0))
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Refresh devices").clicked() {
+                        self.device_manager.apply_defaults(config);
+                        let _ = self.refresh_device_files(config);
+                    }
+                    ui.label("Driver");
+                    egui::ComboBox::from_id_salt("device_driver_backend")
+                        .selected_text(self.device_manager.driver_backend.as_str())
+                        .show_ui(ui, |ui| {
+                            for backend in ["auto", "usb", "mtp"] {
+                                if ui
+                                    .selectable_value(
+                                        &mut self.device_manager.driver_backend,
+                                        backend.to_string(),
+                                        backend,
+                                    )
+                                    .changed()
+                                {
+                                    self.config_dirty = true;
+                                }
+                            }
+                        });
+                    ui.label("Timeout (ms)");
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut self.device_manager.connection_timeout_ms)
+                                .speed(100.0)
+                                .range(100..=60_000),
+                        )
+                        .changed()
+                    {
+                        self.config_dirty = true;
+                    }
+                });
+                if let Some(err) = &self.device_manager.last_scan_error {
+                    ui.colored_label(egui::Color32::from_rgb(200, 60, 60), err);
+                }
+                ui.separator();
+                ui.columns(2, |columns| {
+                    columns[0].heading("Connected devices");
+                    let mut selected_idx: Option<usize> = None;
+                    for (idx, device) in self.device_manager.devices.iter().enumerate() {
+                        if columns[0]
+                            .selectable_label(
+                                self.device_manager.selected_device == Some(idx),
+                                device.name.clone(),
+                            )
+                            .clicked()
+                        {
+                            selected_idx = Some(idx);
+                        }
+                    }
+                    if let Some(idx) = selected_idx {
+                        self.device_manager.selected_device = Some(idx);
+                        let _ = self.refresh_device_files(config);
+                    }
+                    columns[1].heading("Device view");
+                    if let Some(device) = self.active_managed_device() {
+                        columns[1].label(format!("Name: {}", device.name));
+                        columns[1].label(format!("Mount: {}", device.mount_path.display()));
+                        columns[1].label(format!("Library: {}", device.library_path.display()));
+                        let (count, bytes) = self.device_storage_stats(&device);
+                        columns[1].label(format!("Files: {count}"));
+                        columns[1].label(format!("Used: {}", format_bytes(bytes)));
+                        columns[1].separator();
+                        columns[1].label("Collections (on-device shelves)");
+                        for collection in &self.device_manager.collections {
+                            columns[1].label(format!("• {collection}"));
+                        }
+                        columns[1].separator();
+                        columns[1].label("Filters");
+                        columns[1].text_edit_singleline(&mut self.device_manager.file_filter);
+                        egui::ScrollArea::vertical().max_height(160.0).show(
+                            &mut columns[1],
+                            |ui| {
+                                for file in self.filtered_device_files() {
+                                    let label = file
+                                        .file_name()
+                                        .and_then(|name| name.to_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    if ui
+                                        .selectable_label(
+                                            self.device_manager.selected_file.as_ref()
+                                                == Some(&file),
+                                            label,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.device_manager.selected_file = Some(file.clone());
+                                    }
+                                }
+                            },
+                        );
+                        columns[1].horizontal(|ui| {
+                            if ui.button("Fetch into library").clicked() {
+                                self.fetch_from_device.open = true;
+                                self.fetch_from_device.file_path =
+                                    self.device_manager.selected_file.clone();
+                                self.fetch_from_device.mode = IngestMode::Copy;
+                            }
+                            if ui.button("Delete from device").clicked() {
+                                self.device_file_delete.open = true;
+                                self.device_file_delete.path =
+                                    self.device_manager.selected_file.clone();
+                            }
+                            if ui.button("Cleanup orphans").clicked() {
+                                if let Ok(removed) = cleanup_device_orphans(&device, &[]) {
+                                    self.push_toast(
+                                        &format!("Removed {removed} device files"),
+                                        ToastLevel::Warn,
+                                    );
+                                    let _ = self.refresh_device_files(config);
+                                }
+                            }
+                        });
+                        columns[1].separator();
+                        ui_collapsing_troubleshooting(&mut columns[1], &device);
+                    } else {
+                        columns[1].label("No device selected.");
+                    }
+                });
+            });
+        self.device_manager.open = open;
+    }
+
+    fn fetch_from_device_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.fetch_from_device.open {
+            return;
+        }
+        let mut open = self.fetch_from_device.open;
+        let mut confirmed = false;
+        egui::Window::new("Fetch from device")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                if let Some(path) = &self.fetch_from_device.file_path {
+                    ui.label(path.display().to_string());
+                } else {
+                    ui.label("No file selected.");
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Ingest mode");
+                    ui.selectable_value(&mut self.fetch_from_device.mode, IngestMode::Copy, "Copy");
+                    ui.selectable_value(
+                        &mut self.fetch_from_device.mode,
+                        IngestMode::Reference,
+                        "Reference",
+                    );
+                });
+                if ui.button("Import").clicked() {
+                    confirmed = true;
+                }
+            });
+        if confirmed {
+            if let Some(path) = self.fetch_from_device.file_path.clone() {
+                match self.run_fetch_from_device(config, &path, self.fetch_from_device.mode) {
+                    Ok(()) => {
+                        self.push_toast("Imported from device", ToastLevel::Info);
+                        open = false;
+                    }
+                    Err(err) => self.set_error(err),
+                }
+            }
+        }
+        self.fetch_from_device.open = open;
+    }
+
+    fn device_file_delete_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.device_file_delete.open {
+            return;
+        }
+        let mut open = self.device_file_delete.open;
+        let mut confirmed = false;
+        egui::Window::new("Delete device file")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                if let Some(path) = &self.device_file_delete.path {
+                    ui.label(format!("Delete {} ?", path.display()));
+                } else {
+                    ui.label("No file selected.");
+                }
+                if ui.button("Delete").clicked() {
+                    confirmed = true;
+                }
+            });
+        if confirmed {
+            if let Some(path) = self.device_file_delete.path.clone() {
+                match fs::remove_file(&path) {
+                    Ok(()) => {
+                        self.push_toast("Deleted device file", ToastLevel::Warn);
+                        let _ = self.refresh_device_files(config);
+                        open = false;
+                    }
+                    Err(err) => {
+                        self.set_error(CoreError::Io("delete device file".to_string(), err))
+                    }
+                }
+            }
+        }
+        self.device_file_delete.open = open;
+    }
+
+    fn news_dialog(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
+        if !self.news_manager.open {
+            return;
+        }
+        let mut open = self.news_manager.open;
+        let mut download_now = false;
+        let mut import_recipe = false;
+        let mut retry_selected = false;
+        let mut open_reader_selected = false;
+        egui::Window::new("News")
+            .open(&mut open)
+            .resizable(true)
+            .default_size(egui::vec2(980.0, 560.0))
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Refresh sources").clicked() {
+                        let _ = self.refresh_news_sources(config);
+                        let _ = self.refresh_news_downloads(config);
+                    }
+                    if ui.button("Download").clicked() {
+                        download_now = true;
+                    }
+                    if ui.button("Retry selected").clicked() {
+                        retry_selected = true;
+                    }
+                    if ui.button("Open selected in reader").clicked() {
+                        open_reader_selected = true;
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Filter");
+                    ui.text_edit_singleline(&mut self.news_manager.source_filter);
+                    ui.label("Recipe import path");
+                    ui.text_edit_singleline(&mut self.news_manager.recipe_import_path);
+                    if ui.button("Import recipe").clicked() {
+                        import_recipe = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui
+                        .checkbox(
+                            &mut self.news_manager.auto_delete,
+                            "Auto-delete old downloads",
+                        )
+                        .changed()
+                    {
+                        self.config_dirty = true;
+                    }
+                    ui.label("Retention days");
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut self.news_manager.retention_days)
+                                .speed(1.0)
+                                .range(1..=3650),
+                        )
+                        .changed()
+                    {
+                        self.config_dirty = true;
+                    }
+                });
+                ui.separator();
+                let source_filter = self.news_manager.source_filter.to_lowercase();
+                ui.columns(3, |columns| {
+                    columns[0].heading("Sources");
+                    for (idx, source) in
+                        self.news_manager
+                            .sources
+                            .iter_mut()
+                            .enumerate()
+                            .filter(|(_, source)| {
+                                source_filter.is_empty()
+                                    || source.name.to_lowercase().contains(&source_filter)
+                            })
+                    {
+                        columns[0].horizontal(|ui| {
+                            if ui
+                                .selectable_label(
+                                    self.news_manager.selected_source == Some(idx),
+                                    source.name.clone(),
+                                )
+                                .clicked()
+                            {
+                                self.news_manager.selected_source = Some(idx);
+                            }
+                            if ui.checkbox(&mut source.enabled, "").changed() {
+                                self.config_dirty = true;
+                            }
+                        });
+                        columns[0].small(format!(
+                            "Schedule: {}  Status: {}",
+                            source.schedule, source.status
+                        ));
+                        columns[0].separator();
+                    }
+                    columns[1].heading("Downloads");
+                    egui::ScrollArea::vertical()
+                        .max_height(320.0)
+                        .show(&mut columns[1], |ui| {
+                            for (idx, row) in self.news_manager.downloads.iter().enumerate() {
+                                let label = format!(
+                                    "{} [{}]",
+                                    row.path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("item"),
+                                    row.status
+                                );
+                                if ui
+                                    .selectable_label(
+                                        self.news_manager.selected_download == Some(idx),
+                                        label,
+                                    )
+                                    .clicked()
+                                {
+                                    self.news_manager.selected_download = Some(idx);
+                                }
+                                ui.small(format!("source: {}", row.source));
+                            }
+                        });
+                    columns[2].heading("History + logs");
+                    egui::ScrollArea::vertical()
+                        .max_height(320.0)
+                        .show(&mut columns[2], |ui| {
+                            for line in &self.news_manager.history_lines {
+                                ui.monospace(line);
+                            }
+                        });
+                });
+            });
+        if import_recipe {
+            match self.import_news_recipe(config) {
+                Ok(()) => {
+                    self.push_toast("Recipe imported", ToastLevel::Info);
+                    let _ = self.refresh_news_sources(config);
+                }
+                Err(err) => self.set_error(err),
+            }
+        }
+        if download_now {
+            if let Err(err) = self.run_news_download(config) {
+                self.set_error(err);
+            } else {
+                let _ = self.refresh_news_downloads(config);
+                let _ = self.load_news_history(config);
+            }
+        }
+        if retry_selected {
+            if let Err(err) = self.retry_news_download(config) {
+                self.set_error(err);
+            } else {
+                let _ = self.refresh_news_downloads(config);
+            }
+        }
+        if open_reader_selected {
+            if let Err(err) = self.open_selected_news_in_reader() {
+                self.set_error(err);
+            }
+        }
+        self.news_manager.open = open;
     }
 
     fn manage_tags_dialog(&mut self, ui: &mut egui::Ui) {
@@ -6004,7 +6470,22 @@ impl LibraryView {
             } else {
                 Some(self.device_sync.destination_name.trim().to_string())
             };
+            if self.device_sync.auto_convert
+                && !format.eq_ignore_ascii_case(config.conversion.default_output_format.as_str())
+            {
+                self.device_sync.queue.push(DeviceQueueRow {
+                    item: format!("{} ({book_id})", book.title),
+                    status: format!(
+                        "auto-convert pending ({format} -> {})",
+                        config.conversion.default_output_format
+                    ),
+                });
+            }
             let _result = send_to_device(&input_path, &device, dest_name.as_deref())?;
+            self.device_sync.queue.push(DeviceQueueRow {
+                item: format!("{} ({book_id})", book.title),
+                status: "completed".to_string(),
+            });
             if let Some(temp_path) = temp_input {
                 let _ = fs::remove_file(temp_path);
             }
@@ -6013,6 +6494,342 @@ impl LibraryView {
         self.status = format!("Sent {sent} file(s) to device {}", device.name);
         let status = self.status.clone();
         self.push_toast(&status, ToastLevel::Info);
+        self.config_dirty = true;
+        Ok(())
+    }
+
+    fn run_fetch_from_device(
+        &mut self,
+        config: &ControlPlane,
+        path: &Path,
+        mode: IngestMode,
+    ) -> CoreResult<()> {
+        let store = LocalAssetStore::from_config(config);
+        let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
+        match ingestor.ingest(IngestRequest {
+            source_path: path,
+            mode: Some(mode),
+        })? {
+            IngestOutcome::Ingested(result) => {
+                let book_id = self.insert_ingested_book(&result)?;
+                self.status = format!("Imported from device as book #{book_id}");
+                self.needs_refresh = true;
+                Ok(())
+            }
+            IngestOutcome::Skipped(skip) => Err(CoreError::ConfigValidate(format!(
+                "device import skipped: {:?} ({})",
+                skip.reason,
+                skip.existing_path.display()
+            ))),
+        }
+    }
+
+    fn refresh_device_files(&mut self, _config: &ControlPlane) -> CoreResult<()> {
+        self.device_manager.files.clear();
+        self.device_manager.collections.clear();
+        let Some(device) = self.active_managed_device() else {
+            return Ok(());
+        };
+        let files = list_device_entries(&device)?;
+        let mut collections: BTreeSet<String> = BTreeSet::new();
+        for file in &files {
+            let collection = file
+                .parent()
+                .and_then(|parent| parent.strip_prefix(&device.library_path).ok())
+                .and_then(|path| path.components().next())
+                .map(|component| component.as_os_str().to_string_lossy().to_string())
+                .unwrap_or_else(|| "root".to_string());
+            collections.insert(collection);
+        }
+        self.device_manager.files = files;
+        self.device_manager.collections = collections.into_iter().collect();
+        Ok(())
+    }
+
+    fn active_managed_device(&self) -> Option<DeviceInfo> {
+        self.device_manager
+            .selected_device
+            .and_then(|idx| self.device_manager.devices.get(idx))
+            .cloned()
+    }
+
+    fn filtered_device_files(&self) -> Vec<PathBuf> {
+        let filter = self.device_manager.file_filter.to_lowercase();
+        self.device_manager
+            .files
+            .iter()
+            .filter(|path| {
+                filter.is_empty()
+                    || path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(&filter)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn device_storage_stats(&self, device: &DeviceInfo) -> (usize, u64) {
+        let mut count = 0usize;
+        let mut bytes = 0u64;
+        if let Ok(entries) = list_device_entries(device) {
+            count = entries.len();
+            for entry in entries {
+                if let Ok(meta) = fs::metadata(&entry) {
+                    bytes += meta.len();
+                }
+            }
+        }
+        (count, bytes)
+    }
+
+    fn refresh_news_sources(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let mut names: BTreeSet<String> = BTreeSet::new();
+        if config.news.recipes_dir.exists() {
+            for entry in fs::read_dir(&config.news.recipes_dir)
+                .map_err(|err| CoreError::Io("read news recipes dir".to_string(), err))?
+            {
+                let entry = entry
+                    .map_err(|err| CoreError::Io("read news recipe entry".to_string(), err))?;
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    names.insert(stem.to_string());
+                }
+            }
+        }
+        for key in config.news.source_enabled.keys() {
+            names.insert(key.clone());
+        }
+        let mut rows = Vec::new();
+        for name in names {
+            rows.push(NewsSourceRow {
+                enabled: *config.news.source_enabled.get(&name).unwrap_or(&true),
+                schedule: config
+                    .news
+                    .source_schedule
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_else(|| "manual".to_string()),
+                status: "idle".to_string(),
+                name,
+            });
+        }
+        self.news_manager.sources = rows;
+        Ok(())
+    }
+
+    fn refresh_news_downloads(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        self.news_manager.downloads.clear();
+        if !config.news.downloads_dir.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&config.news.downloads_dir)
+            .map_err(|err| CoreError::Io("read news downloads dir".to_string(), err))?
+        {
+            let entry =
+                entry.map_err(|err| CoreError::Io("read news download entry".to_string(), err))?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_string();
+            let source = name.split('-').next().unwrap_or("news").replace('_', " ");
+            self.news_manager.downloads.push(NewsDownloadRow {
+                source,
+                path,
+                status: "downloaded".to_string(),
+            });
+        }
+        self.news_manager
+            .downloads
+            .sort_by(|a, b| b.path.cmp(&a.path));
+        Ok(())
+    }
+
+    fn append_news_history(&mut self, config: &ControlPlane, line: &str) -> CoreResult<()> {
+        if let Some(parent) = config.news.history_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| CoreError::Io("create news history parent".to_string(), err))?;
+        }
+        let mut lines = if config.news.history_path.exists() {
+            fs::read_to_string(&config.news.history_path)
+                .map_err(|err| CoreError::Io("read news history".to_string(), err))?
+                .lines()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        lines.push(line.to_string());
+        lines.truncate(500);
+        fs::write(&config.news.history_path, lines.join("\n"))
+            .map_err(|err| CoreError::Io("write news history".to_string(), err))?;
+        Ok(())
+    }
+
+    fn load_news_history(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        self.news_manager.history_lines.clear();
+        if !config.news.history_path.exists() {
+            return Ok(());
+        }
+        let content = fs::read_to_string(&config.news.history_path)
+            .map_err(|err| CoreError::Io("read news history".to_string(), err))?;
+        self.news_manager.history_lines = content.lines().map(|line| line.to_string()).collect();
+        Ok(())
+    }
+
+    fn import_news_recipe(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let source = self.news_manager.recipe_import_path.trim();
+        if source.is_empty() {
+            return Err(CoreError::ConfigValidate(
+                "recipe import path cannot be empty".to_string(),
+            ));
+        }
+        let source_path = PathBuf::from(source);
+        let file_name = source_path
+            .file_name()
+            .ok_or_else(|| CoreError::ConfigValidate("invalid recipe file name".to_string()))?;
+        fs::create_dir_all(&config.news.recipes_dir)
+            .map_err(|err| CoreError::Io("create recipes dir".to_string(), err))?;
+        let dest = config.news.recipes_dir.join(file_name);
+        fs::copy(&source_path, &dest)
+            .map_err(|err| CoreError::Io("copy recipe".to_string(), err))?;
+        self.append_news_history(
+            config,
+            &format!("{} imported recipe {}", now_timestamp()?, dest.display()),
+        )?;
+        Ok(())
+    }
+
+    fn run_news_download(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        fs::create_dir_all(&config.news.downloads_dir)
+            .map_err(|err| CoreError::Io("create news downloads dir".to_string(), err))?;
+        let store = LocalAssetStore::from_config(config);
+        let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let mut downloaded = 0usize;
+        let source_count = self.news_manager.sources.len().min(config.news.fetch_limit);
+        for idx in 0..source_count {
+            let (source_name, enabled) = {
+                let source = &self.news_manager.sources[idx];
+                (source.name.clone(), source.enabled)
+            };
+            if !enabled {
+                self.news_manager.sources[idx].status = "disabled".to_string();
+                continue;
+            }
+            let file_name = format!("{}-{now}.txt", source_name.replace(' ', "_"));
+            let path = config.news.downloads_dir.join(file_name);
+            let content = format!(
+                "# {}\n\nFetched at {}\n\nThis is a generated news digest placeholder.",
+                source_name,
+                now_timestamp()?
+            );
+            fs::write(&path, content)
+                .map_err(|err| CoreError::Io("write news digest".to_string(), err))?;
+            match ingestor.ingest(IngestRequest {
+                source_path: &path,
+                mode: Some(IngestMode::Copy),
+            })? {
+                IngestOutcome::Ingested(result) => {
+                    let book_id = self.insert_ingested_book(&result)?;
+                    self.db
+                        .add_book_tags(book_id, &["news".to_string(), source_name.clone()])?;
+                }
+                IngestOutcome::Skipped(_) => {}
+            }
+            downloaded += 1;
+            self.news_manager.sources[idx].status = "downloaded".to_string();
+            self.append_news_history(
+                config,
+                &format!("{} downloaded {}", now_timestamp()?, source_name),
+            )?;
+        }
+        if self.news_manager.auto_delete {
+            self.prune_news_downloads(config, self.news_manager.retention_days)?;
+        }
+        self.needs_refresh = true;
+        self.status = format!("Downloaded {downloaded} news item(s)");
+        Ok(())
+    }
+
+    fn retry_news_download(&mut self, config: &ControlPlane) -> CoreResult<()> {
+        let Some(idx) = self.news_manager.selected_source else {
+            return Err(CoreError::ConfigValidate("no source selected".to_string()));
+        };
+        if idx >= self.news_manager.sources.len() {
+            return Err(CoreError::ConfigValidate(
+                "invalid source selection".to_string(),
+            ));
+        }
+        self.news_manager.sources[idx].status = "retrying".to_string();
+        self.run_news_download(config)
+    }
+
+    fn open_selected_news_in_reader(&mut self) -> CoreResult<()> {
+        let Some(idx) = self.news_manager.selected_download else {
+            return Err(CoreError::ConfigValidate(
+                "no downloaded news selected".to_string(),
+            ));
+        };
+        let row = self
+            .news_manager
+            .downloads
+            .get(idx)
+            .ok_or_else(|| CoreError::ConfigValidate("invalid news selection".to_string()))?
+            .clone();
+        let raw = fs::read_to_string(&row.path)
+            .map_err(|err| CoreError::Io("read selected news item".to_string(), err))?;
+        let synthetic_book_id = -((idx as i64) + 1);
+        self.reader
+            .open_virtual_text(synthetic_book_id, &format!("News: {}", row.source), &raw);
+        Ok(())
+    }
+
+    fn prune_news_downloads(
+        &mut self,
+        config: &ControlPlane,
+        retention_days: u64,
+    ) -> CoreResult<()> {
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let keep_after = now - ((retention_days as i64) * 24 * 60 * 60);
+        for row in self.news_manager.downloads.clone() {
+            let Ok(meta) = fs::metadata(&row.path) else {
+                continue;
+            };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
+            let age = modified
+                .elapsed()
+                .map(|elapsed| now - (elapsed.as_secs() as i64))
+                .unwrap_or(now);
+            if age < keep_after {
+                if let Err(err) = fs::remove_file(&row.path) {
+                    warn!(
+                        component = "gui",
+                        path = %row.path.display(),
+                        error = %err,
+                        "failed pruning news download"
+                    );
+                } else {
+                    let _ = self.append_news_history(
+                        config,
+                        &format!("{} pruned {}", now_timestamp()?, row.path.display()),
+                    );
+                }
+            }
+        }
+        self.refresh_news_downloads(config)?;
         Ok(())
     }
 
@@ -6401,7 +7218,12 @@ impl LibraryView {
                         BrowserFilterMode::Exclude => !matched,
                     }
                 });
-                format_matches && browser_matches
+                let news_matches = if self.news_only_filter {
+                    field_contains(&book.tags, "news")
+                } else {
+                    true
+                };
+                format_matches && browser_matches && news_matches
             })
             .cloned()
             .collect();
@@ -6777,6 +7599,26 @@ impl LibraryView {
             .presets
             .iter()
             .map(|(name, preset)| (name.clone(), preset.template.clone()))
+            .collect();
+        config.device.send_auto_convert = self.device_sync.auto_convert;
+        config.device.send_overwrite = self.device_sync.overwrite;
+        config.device.sync_metadata = self.device_sync.sync_metadata;
+        config.device.sync_cover = self.device_sync.sync_cover;
+        config.device.driver_backend = self.device_manager.driver_backend.clone();
+        config.device.connection_timeout_ms = self.device_manager.connection_timeout_ms;
+        config.news.auto_delete = self.news_manager.auto_delete;
+        config.news.retention_days = self.news_manager.retention_days;
+        config.news.source_enabled = self
+            .news_manager
+            .sources
+            .iter()
+            .map(|source| (source.name.clone(), source.enabled))
+            .collect();
+        config.news.source_schedule = self
+            .news_manager
+            .sources
+            .iter()
+            .map(|source| (source.name.clone(), source.schedule.clone()))
             .collect();
     }
 
@@ -7383,6 +8225,26 @@ impl ReaderState {
         self.push_recent(book_id, title, self.page);
     }
 
+    fn open_virtual_text(&mut self, book_id: i64, title: &str, raw: &str) {
+        if let Some(path) = self.temp_path.take() {
+            let _ = fs::remove_file(path);
+        }
+        self.book_id = Some(book_id);
+        self.title = title.to_string();
+        self.format = "txt".to_string();
+        self.page = 0;
+        self.error = None;
+        self.search_query.clear();
+        self.last_match = None;
+        self.temp_path = None;
+        self.content = ReaderContent::Text {
+            raw: raw.to_string(),
+            pages: paginate_text(raw, self.page_chars),
+        };
+        self.open = true;
+        self.push_recent(book_id, title, self.page);
+    }
+
     fn close(&mut self) {
         self.book_id = None;
         self.title.clear();
@@ -7903,6 +8765,11 @@ struct DeviceSyncDialogState {
     devices: Vec<DeviceInfo>,
     selected_device: Option<usize>,
     destination_name: String,
+    auto_convert: bool,
+    overwrite: bool,
+    sync_metadata: bool,
+    sync_cover: bool,
+    queue: Vec<DeviceQueueRow>,
     error: Option<String>,
 }
 
@@ -7913,6 +8780,11 @@ impl Default for DeviceSyncDialogState {
             devices: Vec::new(),
             selected_device: None,
             destination_name: String::new(),
+            auto_convert: false,
+            overwrite: false,
+            sync_metadata: true,
+            sync_cover: true,
+            queue: Vec::new(),
             error: None,
         }
     }
@@ -7921,6 +8793,11 @@ impl Default for DeviceSyncDialogState {
 impl DeviceSyncDialogState {
     fn apply_defaults(&mut self, config: &ControlPlane) {
         self.error = None;
+        self.queue.clear();
+        self.auto_convert = config.device.send_auto_convert;
+        self.overwrite = config.device.send_overwrite;
+        self.sync_metadata = config.device.sync_metadata;
+        self.sync_cover = config.device.sync_cover;
         match detect_devices(&config.device) {
             Ok(devices) => {
                 self.devices = devices;
@@ -7936,6 +8813,132 @@ impl DeviceSyncDialogState {
                 self.selected_device = None;
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DeviceQueueRow {
+    item: String,
+    status: String,
+}
+
+#[derive(Debug, Clone)]
+struct DeviceManagerDialogState {
+    open: bool,
+    devices: Vec<DeviceInfo>,
+    selected_device: Option<usize>,
+    file_filter: String,
+    files: Vec<PathBuf>,
+    selected_file: Option<PathBuf>,
+    collections: Vec<String>,
+    last_scan_error: Option<String>,
+    driver_backend: String,
+    connection_timeout_ms: u64,
+}
+
+impl Default for DeviceManagerDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            devices: Vec::new(),
+            selected_device: None,
+            file_filter: String::new(),
+            files: Vec::new(),
+            selected_file: None,
+            collections: Vec::new(),
+            last_scan_error: None,
+            driver_backend: "auto".to_string(),
+            connection_timeout_ms: 5_000,
+        }
+    }
+}
+
+impl DeviceManagerDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.driver_backend = config.device.driver_backend.clone();
+        self.connection_timeout_ms = config.device.connection_timeout_ms;
+        match detect_devices(&config.device) {
+            Ok(devices) => {
+                self.devices = devices;
+                self.selected_device = if self.devices.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
+                self.last_scan_error = None;
+            }
+            Err(err) => {
+                self.devices.clear();
+                self.selected_device = None;
+                self.last_scan_error = Some(err.to_string());
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct DeviceFileDeleteDialogState {
+    open: bool,
+    path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct FetchFromDeviceDialogState {
+    open: bool,
+    file_path: Option<PathBuf>,
+    mode: IngestMode,
+}
+
+#[derive(Debug, Clone)]
+struct NewsSourceRow {
+    name: String,
+    enabled: bool,
+    schedule: String,
+    status: String,
+}
+
+#[derive(Debug, Clone)]
+struct NewsDownloadRow {
+    source: String,
+    path: PathBuf,
+    status: String,
+}
+
+#[derive(Debug, Clone)]
+struct NewsDialogState {
+    open: bool,
+    source_filter: String,
+    sources: Vec<NewsSourceRow>,
+    selected_source: Option<usize>,
+    recipe_import_path: String,
+    downloads: Vec<NewsDownloadRow>,
+    selected_download: Option<usize>,
+    history_lines: Vec<String>,
+    retention_days: u64,
+    auto_delete: bool,
+}
+
+impl Default for NewsDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            source_filter: String::new(),
+            sources: Vec::new(),
+            selected_source: None,
+            recipe_import_path: String::new(),
+            downloads: Vec::new(),
+            selected_download: None,
+            history_lines: Vec::new(),
+            retention_days: 30,
+            auto_delete: true,
+        }
+    }
+}
+
+impl NewsDialogState {
+    fn apply_defaults(&mut self, config: &ControlPlane) {
+        self.retention_days = config.news.retention_days;
+        self.auto_delete = config.news.auto_delete;
     }
 }
 
@@ -9943,6 +10946,35 @@ fn paginate_text(text: &str, page_chars: usize) -> Vec<String> {
         pages.push(String::new());
     }
     pages
+}
+
+fn ui_collapsing_troubleshooting(ui: &mut egui::Ui, device: &DeviceInfo) {
+    ui.collapsing("Connection troubleshooting", |ui| {
+        let mount_exists = device.mount_path.exists();
+        let library_exists = device.library_path.exists();
+        let mount_writable = fs::metadata(&device.mount_path)
+            .map(|meta| !meta.permissions().readonly())
+            .unwrap_or(false);
+        let library_writable = fs::metadata(&device.library_path)
+            .map(|meta| !meta.permissions().readonly())
+            .unwrap_or(false);
+        ui.label(format!(
+            "mount path exists: {}",
+            if mount_exists { "yes" } else { "no" }
+        ));
+        ui.label(format!(
+            "library path exists: {}",
+            if library_exists { "yes" } else { "no" }
+        ));
+        ui.label(format!(
+            "mount writable: {}",
+            if mount_writable { "yes" } else { "no" }
+        ));
+        ui.label(format!(
+            "library writable: {}",
+            if library_writable { "yes" } else { "no" }
+        ));
+    });
 }
 
 fn open_path(path: &Path) -> CoreResult<()> {

@@ -14,6 +14,13 @@ fn detects_devices_with_library_dir() {
     let config = DeviceConfig {
         mount_roots: vec![root.clone()],
         library_subdir: "Caliberate Library".to_string(),
+        send_auto_convert: false,
+        send_overwrite: false,
+        sync_metadata: true,
+        sync_cover: true,
+        scan_recursive: true,
+        driver_backend: "auto".to_string(),
+        connection_timeout_ms: 5_000,
     };
     let devices = detect_devices(&config).expect("detect");
     assert_eq!(devices.len(), 1);

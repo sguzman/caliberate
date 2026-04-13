@@ -1,19 +1,19 @@
 # GUI News Roadmap
 
 ## News Sources
-- [ ] Add news source list UI
-- [ ] Add news source enable/disable toggles
-- [ ] Add news source scheduling editor
-- [ ] Add news source search/filter box
-- [ ] Add custom recipe import UI
+- [x] Add news source list UI
+- [x] Add news source enable/disable toggles
+- [x] Add news source scheduling editor
+- [x] Add news source search/filter box
+- [x] Add custom recipe import UI
 
 ## Downloads
-- [ ] Add fetched news list and status
-- [ ] Add download history and logs view
-- [ ] Add news download retry action
-- [ ] Add per-source download status badges
+- [x] Add fetched news list and status
+- [x] Add download history and logs view
+- [x] Add news download retry action
+- [x] Add per-source download status badges
 
 ## Reader Integration
-- [ ] Add open news in reader action
-- [ ] Add news collection grouping in library view
-- [ ] Add news auto-delete retention settings UI
+- [x] Add open news in reader action
+- [x] Add news collection grouping in library view
+- [x] Add news auto-delete retention settings UI
