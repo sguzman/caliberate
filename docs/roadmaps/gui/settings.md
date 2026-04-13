@@ -20,3 +20,15 @@
 - [x] Add cache and storage settings UI
 - [x] Add logging verbosity controls
 - [x] Add proxy/network settings UI
+
+## Preferences Hardening
+- [x] Add explicit preferences tree pane model
+- [x] Add pane-to-section mapping helpers
+- [x] Add per-section pane listing helpers
+- [x] Render preferences tree navigation sidebar
+- [x] Split preferences layout into tree + content columns
+- [x] Synchronize section tabs with active pane state
+- [x] Synchronize open-section API helpers with active pane state
+- [x] Add focused-pane status indicator in preferences UI
+- [x] Make section pane collapsers open based on selected pane
+- [x] Add unit tests for pane mapping and pane coverage across sections

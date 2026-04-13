@@ -51,3 +51,20 @@
 - [x] Add identifier validation status badges
 - [x] Add identifier import/export (buffer + clipboard copy)
 - [x] Add identifier cleanup/dedupe action
+
+## Metadata Hardening
+- [x] Persist publish slots using dedicated custom columns
+- [x] Auto-create publish slot columns when missing
+- [x] Load publish slot values when opening metadata editor
+- [x] Save publish slot values on metadata save
+- [x] Preserve publish slot baseline for reset/diff rendering
+- [x] Add publish slot rows to metadata diff view
+- [x] Extend normalize action to trim comment and publish slot fields
+- [x] Extend auto-fix action to clamp rating range
+- [x] Extend auto-fix action to normalize negative series index
+- [x] Add normalize shortcut (`Ctrl/Cmd+Shift+N`)
+- [x] Add auto-fix shortcut (`Ctrl/Cmd+Shift+F`)
+- [x] Add tracing logs for normalize/auto-fix actions
+- [x] Add identifier dedupe helper used by auto-fix workflow
+- [x] Add unit tests for identifier normalize/dedupe helpers
+- [x] Add unit tests for metadata helper utilities used by editor flows

@@ -1485,7 +1485,7 @@ impl PrefSection {
 
 #[cfg(test)]
 mod tests {
-    use super::PreferencesState;
+    use super::{PrefPane, PrefSection, PreferencesState};
     use caliberate_core::config::ControlPlane;
     use std::path::PathBuf;
 
@@ -1505,5 +1505,24 @@ mod tests {
             state.conversion_default_output_format,
             config.conversion.default_output_format
         );
+    }
+
+    #[test]
+    fn pref_pane_section_mapping_is_stable() {
+        assert_eq!(PrefPane::BehaviorAssets.section(), PrefSection::Behavior);
+        assert_eq!(PrefPane::LookReader.section(), PrefSection::LookAndFeel);
+        assert_eq!(
+            PrefPane::ImportExportFormats.section(),
+            PrefSection::ImportExport
+        );
+        assert_eq!(PrefPane::AdvancedFts.section(), PrefSection::Advanced);
+        assert_eq!(PrefPane::SystemNetwork.section(), PrefSection::System);
+    }
+
+    #[test]
+    fn pref_panes_exist_for_all_sections() {
+        for section in PrefSection::all() {
+            assert!(!PrefPane::for_section(section).is_empty());
+        }
     }
 }

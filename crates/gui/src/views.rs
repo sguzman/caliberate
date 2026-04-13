@@ -3333,11 +3333,18 @@ impl LibraryView {
 
     fn edit_dialog(&mut self, ui: &mut egui::Ui) {
         let mut open = self.show_edit_dialog;
-        let baseline = self
+        let mut baseline = self
             .details
             .as_ref()
             .map(EditState::from_details)
             .unwrap_or_default();
+        if let Some(book_id) = self.details.as_ref().map(|details| details.book.id) {
+            if let Ok((imprint, edition, rights)) = self.load_publish_slot_baseline(book_id) {
+                baseline.imprint = imprint;
+                baseline.edition = edition;
+                baseline.rights = rights;
+            }
+        }
         let mut request_save = false;
         let mut request_cancel = false;
         let mut request_undo = false;
@@ -3703,6 +3710,8 @@ impl LibraryView {
                                 self.edit.imprint = self.edit.imprint.trim().to_string();
                                 self.edit.edition = self.edit.edition.trim().to_string();
                                 self.edit.rights = self.edit.rights.trim().to_string();
+                                self.edit.comment = self.edit.comment.trim().to_string();
+                                info!(component = "gui", "normalized metadata fields");
                             }
                             if ui.button("Auto-fix conflicts").clicked() {
                                 self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
@@ -3722,6 +3731,11 @@ impl LibraryView {
                                 if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
                                     self.edit.uuid = uuid::Uuid::new_v4().to_string();
                                 }
+                                if self.edit.series_index < 0.0 {
+                                    self.edit.series_index = 1.0;
+                                }
+                                self.edit.rating = self.edit.rating.clamp(0, 10);
+                                info!(component = "gui", "applied metadata conflict auto-fix");
                             }
                         });
                         for issue in &issues {
@@ -3780,6 +3794,8 @@ impl LibraryView {
             self.edit.imprint = self.edit.imprint.trim().to_string();
             self.edit.edition = self.edit.edition.trim().to_string();
             self.edit.rights = self.edit.rights.trim().to_string();
+            self.edit.comment = self.edit.comment.trim().to_string();
+            info!(component = "gui", "normalized metadata fields from shortcut");
         }
         if request_resolve {
             self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
@@ -3797,6 +3813,11 @@ impl LibraryView {
             if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
                 self.edit.uuid = uuid::Uuid::new_v4().to_string();
             }
+            if self.edit.series_index < 0.0 {
+                self.edit.series_index = 1.0;
+            }
+            self.edit.rating = self.edit.rating.clamp(0, 10);
+            info!(component = "gui", "applied metadata conflict auto-fix from shortcut");
         }
         if request_undo {
             self.edit = baseline.clone();
@@ -8784,6 +8805,22 @@ impl LibraryView {
         Ok(())
     }
 
+    fn load_publish_slot_baseline(&self, book_id: i64) -> CoreResult<(String, String, String)> {
+        let imprint = self
+            .db
+            .get_custom_value(book_id, "imprint")?
+            .unwrap_or_default();
+        let edition = self
+            .db
+            .get_custom_value(book_id, "edition")?
+            .unwrap_or_default();
+        let rights = self
+            .db
+            .get_custom_value(book_id, "rights")?
+            .unwrap_or_default();
+        Ok((imprint, edition, rights))
+    }
+
     fn save_publish_slots(&self, book_id: i64) -> CoreResult<()> {
         self.db
             .set_custom_value(book_id, "imprint", self.edit.imprint.trim())?;
@@ -12693,6 +12730,80 @@ fn render_text_with_highlight_and_style(
         job.justify = true;
     }
     ui.label(job);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedupe_identifier_lines_removes_duplicates_case_insensitive() {
+        let input = "isbn:123\nISBN:123\nasin:abc\nasin:abc";
+        let out = dedupe_identifier_lines(input);
+        assert_eq!(out.lines().count(), 2);
+        assert!(out.contains("isbn:123"));
+        assert!(out.contains("asin:abc"));
+    }
+
+    #[test]
+    fn normalize_identifier_lines_keeps_type_value_shape() {
+        let input = " isbn :  123 \nfoo:bar";
+        let out = normalize_identifier_lines(input);
+        assert!(out.contains("isbn:123"));
+        assert!(out.contains("foo:bar"));
+    }
+
+    #[test]
+    fn normalize_csv_list_dedupes_and_trims() {
+        let out = normalize_csv_list(" A ,B,a , c ", false);
+        assert_eq!(out, "A, B, c");
+    }
+
+    #[test]
+    fn normalize_csv_list_lowercases_when_requested() {
+        let out = normalize_csv_list("EN, Fr ", true);
+        assert_eq!(out, "en, fr");
+    }
+
+    #[test]
+    fn split_saved_search_name_groups_paths() {
+        let (folder, leaf) = split_saved_search_name("SciFi/Unread");
+        assert_eq!(folder, "SciFi");
+        assert_eq!(leaf, "Unread");
+    }
+
+    #[test]
+    fn split_saved_search_name_falls_back_to_ungrouped() {
+        let (folder, leaf) = split_saved_search_name("Unread");
+        assert_eq!(folder, "Ungrouped");
+        assert_eq!(leaf, "Unread");
+    }
+
+    #[test]
+    fn view_mode_scope_key_matches_expected_values() {
+        assert_eq!(ViewMode::Table.preset_scope_key(), "table");
+        assert_eq!(ViewMode::Grid.preset_scope_key(), "grid");
+        assert_eq!(ViewMode::Shelf.preset_scope_key(), "shelf");
+    }
+
+    #[test]
+    fn parse_group_mode_supports_known_values() {
+        assert_eq!(parse_group_mode("series"), GroupMode::Series);
+        assert_eq!(parse_group_mode("authors"), GroupMode::Authors);
+        assert_eq!(parse_group_mode("tags"), GroupMode::Tags);
+        assert_eq!(parse_group_mode("other"), GroupMode::None);
+    }
+
+    #[test]
+    fn parse_view_density_defaults_to_comfortable() {
+        assert_eq!(parse_view_density("compact"), ViewDensity::Compact);
+        assert_eq!(parse_view_density("unknown"), ViewDensity::Comfortable);
+    }
+
+    #[test]
+    fn format_date_cell_returns_dash_for_empty() {
+        assert_eq!(format_date_cell(""), "-");
+    }
 }
 
 fn render_html_fallback(ui: &mut egui::Ui, text: &str) {
