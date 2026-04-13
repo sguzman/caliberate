@@ -1195,6 +1195,12 @@ pub struct GuiConfig {
     pub pane_right_width: f32,
     #[serde(default = "default_gui_layout_preset")]
     pub layout_preset: String,
+    #[serde(default = "default_gui_user_manual_url")]
+    pub user_manual_url: String,
+    #[serde(default = "default_gui_project_home_url")]
+    pub project_home_url: String,
+    #[serde(default = "default_gui_report_issue_url")]
+    pub report_issue_url: String,
     #[serde(default)]
     pub column_presets: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -1294,6 +1300,9 @@ impl Default for GuiConfig {
             pane_left_width: default_gui_pane_left_width(),
             pane_right_width: default_gui_pane_right_width(),
             layout_preset: default_gui_layout_preset(),
+            user_manual_url: default_gui_user_manual_url(),
+            project_home_url: default_gui_project_home_url(),
+            report_issue_url: default_gui_report_issue_url(),
             column_presets: BTreeMap::new(),
             active_column_preset: None,
             active_virtual_library: None,
@@ -1772,6 +1781,18 @@ fn default_gui_pane_right_width() -> f32 {
 
 fn default_gui_layout_preset() -> String {
     "classic".to_string()
+}
+
+fn default_gui_user_manual_url() -> String {
+    "https://manual.calibre-ebook.com/".to_string()
+}
+
+fn default_gui_project_home_url() -> String {
+    "https://calibre-ebook.com/".to_string()
+}
+
+fn default_gui_report_issue_url() -> String {
+    "https://github.com/kovidgoyal/calibre/issues".to_string()
 }
 
 fn default_server_download_enabled() -> bool {

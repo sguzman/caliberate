@@ -311,6 +311,9 @@ pane_jobs_visible = true
 pane_left_width = 1864.4375
 pane_right_width = 900.71875
 layout_preset = "classic"
+user_manual_url = "https://manual.calibre-ebook.com/"
+project_home_url = "https://calibre-ebook.com/"
+report_issue_url = "https://github.com/kovidgoyal/calibre/issues"
 
 [gui.sort_presets]
 

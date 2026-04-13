@@ -26,6 +26,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
 use tracing::{info, warn};
 use walkdir::WalkDir;
@@ -1069,6 +1070,55 @@ impl LibraryView {
         if let Some(source) = first_enabled_source(&self.metadata_download_config) {
             self.metadata_download.source = source;
         }
+    }
+
+    pub fn open_selected_book_in_reader(&mut self) -> CoreResult<()> {
+        let Some(book_id) = self.selected_ids.first().copied() else {
+            return Err(CoreError::ConfigValidate(
+                "no selected book to open".to_string(),
+            ));
+        };
+        self.open_reader(book_id)?;
+        info!(
+            component = "gui_library",
+            book_id, "opened selected book in reader"
+        );
+        Ok(())
+    }
+
+    pub fn open_random_book_in_reader(&mut self) -> CoreResult<()> {
+        let Some(index) = choose_random_index(self.books.len(), current_nanos()) else {
+            return Err(CoreError::ConfigValidate(
+                "no books available in current view".to_string(),
+            ));
+        };
+        let book_id = self.books[index].id;
+        self.select_book(book_id);
+        self.open_reader(book_id)?;
+        info!(
+            component = "gui_library",
+            book_id,
+            index,
+            total_books = self.books.len(),
+            "opened random book in reader"
+        );
+        Ok(())
+    }
+
+    pub fn open_external_url(&mut self, url: &str) -> CoreResult<()> {
+        let normalized = url.trim();
+        if normalized.is_empty() {
+            return Err(CoreError::ConfigValidate("empty url".to_string()));
+        }
+        open_url(normalized)?;
+        self.status = format!("Opened URL: {normalized}");
+        self.push_toast(&self.status.clone(), ToastLevel::Info);
+        info!(
+            component = "gui_library",
+            url = normalized,
+            "opened external url"
+        );
+        Ok(())
     }
 
     pub fn notify_unimplemented(&mut self, message: &str) {
@@ -3702,39 +3752,11 @@ impl LibraryView {
                         let issues = collect_edit_validation_issues(&self.edit);
                         ui.horizontal(|ui| {
                             if ui.button("Normalize fields").clicked() {
-                                self.edit.authors = normalize_csv_list(&self.edit.authors, false);
-                                self.edit.tags = normalize_csv_list(&self.edit.tags, false);
-                                self.edit.languages = normalize_csv_list(&self.edit.languages, true);
-                                self.edit.identifiers = normalize_identifier_lines(&self.edit.identifiers);
-                                self.edit.publisher = self.edit.publisher.trim().to_string();
-                                self.edit.imprint = self.edit.imprint.trim().to_string();
-                                self.edit.edition = self.edit.edition.trim().to_string();
-                                self.edit.rights = self.edit.rights.trim().to_string();
-                                self.edit.comment = self.edit.comment.trim().to_string();
+                                normalize_edit_fields(&mut self.edit);
                                 info!(component = "gui", "normalized metadata fields");
                             }
                             if ui.button("Auto-fix conflicts").clicked() {
-                                self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
-                                if !is_loose_date_or_datetime(self.edit.pubdate.trim()) {
-                                    self.edit.pubdate = current_date_ymd();
-                                }
-                                if !is_loose_date_or_datetime(self.edit.timestamp.trim()) {
-                                    self.edit.timestamp = current_date_ymd();
-                                }
-                                if !is_loose_date_or_datetime(self.edit.last_modified.trim()) {
-                                    if let Ok(now) = now_timestamp() {
-                                        self.edit.last_modified = now;
-                                    } else {
-                                        self.edit.last_modified = current_date_ymd();
-                                    }
-                                }
-                                if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
-                                    self.edit.uuid = uuid::Uuid::new_v4().to_string();
-                                }
-                                if self.edit.series_index < 0.0 {
-                                    self.edit.series_index = 1.0;
-                                }
-                                self.edit.rating = self.edit.rating.clamp(0, 10);
+                                auto_fix_edit_conflicts(&mut self.edit);
                                 info!(component = "gui", "applied metadata conflict auto-fix");
                             }
                         });
@@ -3786,38 +3808,18 @@ impl LibraryView {
             ui.ctx().copy_text(self.edit.identifiers.clone());
         }
         if request_normalize {
-            self.edit.authors = normalize_csv_list(&self.edit.authors, false);
-            self.edit.tags = normalize_csv_list(&self.edit.tags, false);
-            self.edit.languages = normalize_csv_list(&self.edit.languages, true);
-            self.edit.identifiers = normalize_identifier_lines(&self.edit.identifiers);
-            self.edit.publisher = self.edit.publisher.trim().to_string();
-            self.edit.imprint = self.edit.imprint.trim().to_string();
-            self.edit.edition = self.edit.edition.trim().to_string();
-            self.edit.rights = self.edit.rights.trim().to_string();
-            self.edit.comment = self.edit.comment.trim().to_string();
-            info!(component = "gui", "normalized metadata fields from shortcut");
+            normalize_edit_fields(&mut self.edit);
+            info!(
+                component = "gui",
+                "normalized metadata fields from shortcut"
+            );
         }
         if request_resolve {
-            self.edit.identifiers = dedupe_identifier_lines(&self.edit.identifiers);
-            if !is_loose_date_or_datetime(self.edit.pubdate.trim()) {
-                self.edit.pubdate = current_date_ymd();
-            }
-            if !is_loose_date_or_datetime(self.edit.timestamp.trim()) {
-                self.edit.timestamp = current_date_ymd();
-            }
-            if !is_loose_date_or_datetime(self.edit.last_modified.trim()) {
-                if let Ok(now) = now_timestamp() {
-                    self.edit.last_modified = now;
-                }
-            }
-            if uuid::Uuid::parse_str(self.edit.uuid.trim()).is_err() {
-                self.edit.uuid = uuid::Uuid::new_v4().to_string();
-            }
-            if self.edit.series_index < 0.0 {
-                self.edit.series_index = 1.0;
-            }
-            self.edit.rating = self.edit.rating.clamp(0, 10);
-            info!(component = "gui", "applied metadata conflict auto-fix from shortcut");
+            auto_fix_edit_conflicts(&mut self.edit);
+            info!(
+                component = "gui",
+                "applied metadata conflict auto-fix from shortcut"
+            );
         }
         if request_undo {
             self.edit = baseline.clone();
@@ -5521,12 +5523,7 @@ impl LibraryView {
                             ui.colored_label(egui::Color32::from_rgb(180, 40, 40), err);
                         }
                         if !plugin.dependencies.is_empty() {
-                            let missing = plugin
-                                .dependencies
-                                .iter()
-                                .filter(|dep| !installed_ids.contains(*dep))
-                                .cloned()
-                                .collect::<Vec<_>>();
+                            let missing = plugin_missing_dependencies(plugin, &installed_ids);
                             ui.label(format!("Dependencies: {}", plugin.dependencies.join(", ")));
                             if !missing.is_empty() {
                                 ui.colored_label(
@@ -6396,9 +6393,9 @@ impl LibraryView {
                     ui.add(egui::DragValue::new(&mut page_chars).range(600..=6000));
                 });
                 if matches!(self.reader.fit_mode, ReaderFitMode::FitPage) {
-                    page_chars = page_chars.clamp(600, 1800);
+                    page_chars = clamp_page_chars_for_fit_mode(page_chars, ReaderFitMode::FitPage);
                 } else {
-                    page_chars = page_chars.clamp(1200, 6000);
+                    page_chars = clamp_page_chars_for_fit_mode(page_chars, ReaderFitMode::FitWidth);
                 }
                 self.reader.update_page_chars(page_chars);
                 ui.horizontal(|ui| {
@@ -11589,6 +11586,75 @@ fn dedupe_identifier_lines(text: &str) -> String {
     normalize_identifier_lines(text)
 }
 
+fn normalize_edit_fields(edit: &mut EditState) {
+    edit.authors = normalize_csv_list(&edit.authors, false);
+    edit.tags = normalize_csv_list(&edit.tags, false);
+    edit.languages = normalize_csv_list(&edit.languages, true);
+    edit.identifiers = normalize_identifier_lines(&edit.identifiers);
+    edit.publisher = edit.publisher.trim().to_string();
+    edit.imprint = edit.imprint.trim().to_string();
+    edit.edition = edit.edition.trim().to_string();
+    edit.rights = edit.rights.trim().to_string();
+    edit.comment = edit.comment.trim().to_string();
+}
+
+fn current_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
+}
+
+fn choose_random_index(total: usize, seed_nanos: u128) -> Option<usize> {
+    if total == 0 {
+        return None;
+    }
+    Some((seed_nanos as usize) % total)
+}
+
+fn auto_fix_edit_conflicts(edit: &mut EditState) {
+    edit.identifiers = dedupe_identifier_lines(&edit.identifiers);
+    if !is_loose_date_or_datetime(edit.pubdate.trim()) {
+        edit.pubdate = current_date_ymd();
+    }
+    if !is_loose_date_or_datetime(edit.timestamp.trim()) {
+        edit.timestamp = current_date_ymd();
+    }
+    if !is_loose_date_or_datetime(edit.last_modified.trim()) {
+        if let Ok(now) = now_timestamp() {
+            edit.last_modified = now;
+        } else {
+            edit.last_modified = current_date_ymd();
+        }
+    }
+    if uuid::Uuid::parse_str(edit.uuid.trim()).is_err() {
+        edit.uuid = uuid::Uuid::new_v4().to_string();
+    }
+    if edit.series_index < 0.0 {
+        edit.series_index = 1.0;
+    }
+    edit.rating = edit.rating.clamp(0, 10);
+}
+
+fn clamp_page_chars_for_fit_mode(page_chars: usize, fit_mode: ReaderFitMode) -> usize {
+    match fit_mode {
+        ReaderFitMode::FitPage => page_chars.clamp(600, 1800),
+        ReaderFitMode::FitWidth => page_chars.clamp(1200, 6000),
+    }
+}
+
+fn plugin_missing_dependencies(
+    plugin: &PluginEntry,
+    installed_ids: &HashSet<String>,
+) -> Vec<String> {
+    plugin
+        .dependencies
+        .iter()
+        .filter(|dep| !installed_ids.contains(*dep))
+        .cloned()
+        .collect::<Vec<_>>()
+}
+
 fn find_identifier_value(text: &str, id_type: &str) -> Option<String> {
     text.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -12803,6 +12869,84 @@ mod tests {
     #[test]
     fn format_date_cell_returns_dash_for_empty() {
         assert_eq!(format_date_cell(""), "-");
+    }
+
+    #[test]
+    fn normalize_edit_fields_trims_publish_slots_and_comment() {
+        let mut edit = EditState::default();
+        edit.imprint = "  test imprint  ".to_string();
+        edit.edition = " 2nd ".to_string();
+        edit.rights = " all rights ".to_string();
+        edit.comment = " note ".to_string();
+        normalize_edit_fields(&mut edit);
+        assert_eq!(edit.imprint, "test imprint");
+        assert_eq!(edit.edition, "2nd");
+        assert_eq!(edit.rights, "all rights");
+        assert_eq!(edit.comment, "note");
+    }
+
+    #[test]
+    fn auto_fix_edit_conflicts_clamps_rating_and_series_index() {
+        let mut edit = EditState::default();
+        edit.rating = 42;
+        edit.series_index = -5.0;
+        auto_fix_edit_conflicts(&mut edit);
+        assert_eq!(edit.rating, 10);
+        assert_eq!(edit.series_index, 1.0);
+    }
+
+    #[test]
+    fn clamp_page_chars_for_fit_mode_enforces_limits() {
+        assert_eq!(
+            clamp_page_chars_for_fit_mode(100, ReaderFitMode::FitPage),
+            600
+        );
+        assert_eq!(
+            clamp_page_chars_for_fit_mode(9000, ReaderFitMode::FitPage),
+            1800
+        );
+        assert_eq!(
+            clamp_page_chars_for_fit_mode(100, ReaderFitMode::FitWidth),
+            1200
+        );
+        assert_eq!(
+            clamp_page_chars_for_fit_mode(9000, ReaderFitMode::FitWidth),
+            6000
+        );
+    }
+
+    #[test]
+    fn plugin_missing_dependencies_returns_only_missing() {
+        let plugin = PluginEntry {
+            id: "p".to_string(),
+            name: "P".to_string(),
+            version: "1".to_string(),
+            latest_version: "1".to_string(),
+            author: "a".to_string(),
+            description: "d".to_string(),
+            enabled: true,
+            dependencies: vec!["a".to_string(), "b".to_string()],
+            status: "ok".to_string(),
+            error: None,
+            setting_key: "k".to_string(),
+            setting_value: "v".to_string(),
+            logs: vec![],
+        };
+        let installed = HashSet::from(["a".to_string()]);
+        let missing = plugin_missing_dependencies(&plugin, &installed);
+        assert_eq!(missing, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn choose_random_index_returns_none_for_empty_collection() {
+        assert_eq!(choose_random_index(0, 123), None);
+    }
+
+    #[test]
+    fn choose_random_index_uses_seed_modulo_total() {
+        assert_eq!(choose_random_index(5, 0), Some(0));
+        assert_eq!(choose_random_index(5, 6), Some(1));
+        assert_eq!(choose_random_index(5, 14), Some(4));
     }
 }
 

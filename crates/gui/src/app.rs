@@ -37,6 +37,7 @@ pub struct CaliberateApp {
     open_library_input: String,
     create_library_dialog_open: bool,
     create_library_dir_input: String,
+    about_dialog_open: bool,
     pane_browser_visible: bool,
     pane_browser_side: PaneSide,
     pane_details_visible: bool,
@@ -144,6 +145,7 @@ impl CaliberateApp {
             open_library_input: String::new(),
             create_library_dialog_open: false,
             create_library_dir_input: String::new(),
+            about_dialog_open: false,
             pane_browser_visible,
             pane_browser_side,
             pane_details_visible,
@@ -237,6 +239,7 @@ impl eframe::App for CaliberateApp {
         self.library_switcher(ui);
         self.open_library_dialog(ui);
         self.create_library_dialog(ui);
+        self.about_dialog(ui);
         self.drag_drop_hint(ui);
         self.sync_shell_config();
         self.error_dialog(ui);
@@ -1061,11 +1064,10 @@ impl CaliberateApp {
                 self.library.open_manage_virtual_libraries();
             }
             AppAction::OpenFetchMetadata => {
-                self.library
-                    .notify_unimplemented("Fetch metadata by ID is not implemented yet");
+                self.library.open_download_metadata();
                 info!(
                     component = "gui_shell",
-                    "triggered fetch metadata placeholder action"
+                    "opened fetch metadata dialog from shell"
                 );
             }
             AppAction::OpenDownloadMetadata => {
@@ -1078,14 +1080,16 @@ impl CaliberateApp {
                 self.library.open_bulk_edit();
             }
             AppAction::OpenViewBook => {
-                self.library.notify_unimplemented(
-                    "View book from shell menu is not implemented yet; use row context menu",
-                );
+                if let Err(err) = self.library.open_selected_book_in_reader() {
+                    self.preferences.set_error(err.to_string());
+                    warn!(component = "gui_shell", error = %err, "open selected book failed");
+                }
             }
             AppAction::OpenRandomBook => {
-                self.library.notify_unimplemented(
-                    "Random book selection from shell is not implemented yet",
-                );
+                if let Err(err) = self.library.open_random_book_in_reader() {
+                    self.preferences.set_error(err.to_string());
+                    warn!(component = "gui_shell", error = %err, "open random book failed");
+                }
             }
             AppAction::OpenPreferencesInterface => {
                 self.switch_view(AppView::Preferences);
@@ -1108,12 +1112,16 @@ impl CaliberateApp {
                 self.preferences.open_section_system();
             }
             AppAction::OpenHelpAbout => {
-                self.library
-                    .notify_unimplemented("About dialog is not implemented yet");
+                self.about_dialog_open = true;
             }
             AppAction::OpenHelpUserManual => {
-                self.library
-                    .notify_unimplemented("User manual entry point is not implemented yet");
+                if let Err(err) = self
+                    .library
+                    .open_external_url(&self.config.gui.user_manual_url)
+                {
+                    self.preferences.set_error(err.to_string());
+                    warn!(component = "gui_shell", error = %err, "open user manual failed");
+                }
             }
             AppAction::OpenHelpKeyboardShortcuts => {
                 self.shortcut_editor_open = true;
@@ -1530,6 +1538,56 @@ impl CaliberateApp {
             }
         }
         self.create_library_dialog_open = open;
+    }
+
+    fn about_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.about_dialog_open {
+            return;
+        }
+        let mut open = self.about_dialog_open;
+        egui::Window::new("About Caliberate")
+            .open(&mut open)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.heading("Caliberate");
+                ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
+                ui.label(format!("Mode: {:?}", self.config.app.mode));
+                ui.label(format!(
+                    "Database: {}",
+                    self.config.db.sqlite_path.display()
+                ));
+                ui.label(format!(
+                    "Cache root: {}",
+                    self.config.paths.cache_dir.display()
+                ));
+                ui.label(format!("Log dir: {}", self.config.paths.log_dir.display()));
+                ui.separator();
+                if ui.button("Open User Manual").clicked() {
+                    if let Err(err) = self
+                        .library
+                        .open_external_url(&self.config.gui.user_manual_url)
+                    {
+                        self.preferences.set_error(err.to_string());
+                    }
+                }
+                if ui.button("Open Project Homepage").clicked() {
+                    if let Err(err) = self
+                        .library
+                        .open_external_url(&self.config.gui.project_home_url)
+                    {
+                        self.preferences.set_error(err.to_string());
+                    }
+                }
+                if ui.button("Report Issue").clicked() {
+                    if let Err(err) = self
+                        .library
+                        .open_external_url(&self.config.gui.report_issue_url)
+                    {
+                        self.preferences.set_error(err.to_string());
+                    }
+                }
+            });
+        self.about_dialog_open = open;
     }
 
     fn switch_library(&mut self, sqlite_path: String) -> CoreResult<()> {

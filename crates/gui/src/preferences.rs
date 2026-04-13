@@ -1525,4 +1525,13 @@ mod tests {
             assert!(!PrefPane::for_section(section).is_empty());
         }
     }
+
+    #[test]
+    fn pref_pane_labels_are_non_empty() {
+        for section in PrefSection::all() {
+            for pane in PrefPane::for_section(section) {
+                assert!(!pane.label().trim().is_empty());
+            }
+        }
+    }
 }

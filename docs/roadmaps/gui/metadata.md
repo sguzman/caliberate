@@ -68,3 +68,20 @@
 - [x] Add identifier dedupe helper used by auto-fix workflow
 - [x] Add unit tests for identifier normalize/dedupe helpers
 - [x] Add unit tests for metadata helper utilities used by editor flows
+
+## Metadata Regression Hardening
+- [x] Extract normalize action logic into reusable helper
+- [x] Extract auto-fix action logic into reusable helper
+- [x] Reuse normalize helper for shortcut and button paths
+- [x] Reuse auto-fix helper for shortcut and button paths
+- [x] Add helper tests for normalize helper behavior
+- [x] Add helper tests for auto-fix helper behavior
+- [x] Add helper tests for page-char fit-mode clamp behavior
+- [x] Add helper tests for plugin dependency helper used in GUI state rendering
+- [x] Add helper tests for view-mode scope key mapping
+- [x] Add helper tests for group-mode parser behavior
+- [x] Add helper tests for view-density parser behavior
+- [x] Add helper tests for saved-search split grouped-path behavior
+- [x] Add helper tests for saved-search split fallback behavior
+- [x] Add helper tests for date-cell formatting fallback behavior
+- [x] Add baseline helper for publish-slot diff/reset hydration
