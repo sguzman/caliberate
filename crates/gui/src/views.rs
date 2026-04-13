@@ -1,5 +1,6 @@
 //! GUI views and models.
 
+use arboard::Clipboard;
 use caliberate_assets::compression::decompress_file;
 use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode};
 use caliberate_conversion::pipeline::convert_file;
@@ -583,6 +584,7 @@ pub struct LibraryView {
     manage_virtual_libraries: ManageVirtualLibrariesDialogState,
     metadata_download_config: MetadataDownloadConfig,
     metadata_download: MetadataDownloadDialogState,
+    edit_custom_fields: Vec<CustomEditField>,
     inline_edit: InlineEditState,
 }
 
@@ -762,6 +764,7 @@ impl LibraryView {
             metadata_download: MetadataDownloadDialogState::default_from_config(
                 &config.metadata_download,
             ),
+            edit_custom_fields: Vec::new(),
             inline_edit: InlineEditState::default(),
         };
         if let Some(active) = &view.active_virtual_library {
@@ -954,6 +957,21 @@ impl LibraryView {
         self.metadata_download.queue_rows.clear();
         self.metadata_download.last_error = None;
         self.metadata_download.selected_book_id = self.selected_ids.first().copied();
+        self.metadata_download.merge_tags = self.metadata_download_config.merge_tags_default;
+        self.metadata_download.merge_identifiers =
+            self.metadata_download_config.merge_identifiers_default;
+        self.metadata_download.overwrite_title =
+            self.metadata_download_config.overwrite_title_default;
+        self.metadata_download.overwrite_authors =
+            self.metadata_download_config.overwrite_authors_default;
+        self.metadata_download.overwrite_publisher =
+            self.metadata_download_config.overwrite_publisher_default;
+        self.metadata_download.overwrite_language =
+            self.metadata_download_config.overwrite_language_default;
+        self.metadata_download.overwrite_pubdate =
+            self.metadata_download_config.overwrite_pubdate_default;
+        self.metadata_download.overwrite_comment =
+            self.metadata_download_config.overwrite_comment_default;
         if let Some(source) = first_enabled_source(&self.metadata_download_config) {
             self.metadata_download.source = source;
         }
@@ -968,6 +986,21 @@ impl LibraryView {
         self.metadata_download.queue_rows.clear();
         self.metadata_download.last_error = None;
         self.metadata_download.selected_book_id = self.selected_ids.first().copied();
+        self.metadata_download.merge_tags = self.metadata_download_config.merge_tags_default;
+        self.metadata_download.merge_identifiers =
+            self.metadata_download_config.merge_identifiers_default;
+        self.metadata_download.overwrite_title =
+            self.metadata_download_config.overwrite_title_default;
+        self.metadata_download.overwrite_authors =
+            self.metadata_download_config.overwrite_authors_default;
+        self.metadata_download.overwrite_publisher =
+            self.metadata_download_config.overwrite_publisher_default;
+        self.metadata_download.overwrite_language =
+            self.metadata_download_config.overwrite_language_default;
+        self.metadata_download.overwrite_pubdate =
+            self.metadata_download_config.overwrite_pubdate_default;
+        self.metadata_download.overwrite_comment =
+            self.metadata_download_config.overwrite_comment_default;
         if let Some(source) = first_enabled_source(&self.metadata_download_config) {
             self.metadata_download.source = source;
         }
@@ -988,10 +1021,14 @@ impl LibraryView {
     }
 
     pub fn begin_edit(&mut self) {
-        if self.details.is_some() {
+        if let Some(details) = self.details.as_ref() {
+            let book_id = details.book.id;
             self.show_edit_dialog = true;
             self.edit_mode = true;
-            self.edit = EditState::from_details(self.details.as_ref().expect("details"));
+            self.edit = EditState::from_details(details);
+            if let Err(err) = self.load_edit_custom_fields(book_id) {
+                self.set_error(err);
+            }
         }
     }
 
@@ -2874,6 +2911,9 @@ impl LibraryView {
                     if ui.button("Set cover").clicked() {
                         action = DetailAction::SetCover;
                     }
+                    if ui.button("Paste cover").clicked() {
+                        action = DetailAction::PasteCoverClipboard;
+                    }
                     if ui.button("Remove cover").clicked() {
                         action = DetailAction::RemoveCover;
                     }
@@ -3137,6 +3177,16 @@ impl LibraryView {
                     }
                 }
             }
+            DetailAction::PasteCoverClipboard => {
+                if let Some(details) = &details_snapshot {
+                    if let Err(err) = self.apply_cover_from_clipboard(details.book.id) {
+                        self.set_error(err);
+                    } else {
+                        let _ = self.load_details(details.book.id);
+                        self.push_toast("Cover updated from clipboard", ToastLevel::Info);
+                    }
+                }
+            }
             DetailAction::RemoveCover => {
                 if let Some(details) = &details_snapshot {
                     if let Err(err) = self.remove_cover(details.book.id) {
@@ -3225,6 +3275,13 @@ impl LibraryView {
                     );
                     if ui.small_button("+").clicked() {
                         self.edit.series_index += 0.1;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Series sort");
+                    ui.text_edit_singleline(&mut self.edit.series_sort);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.series_sort = baseline.series_sort.clone();
                     }
                 });
                 ui.label("Identifiers (one per line, type:value)");
@@ -3346,6 +3403,23 @@ impl LibraryView {
                         render_markdown(ui, &self.edit.comment);
                     }
                 }
+                egui::CollapsingHeader::new("Custom metadata fields")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if self.edit_custom_fields.is_empty() {
+                            ui.label("No custom columns defined.");
+                        } else {
+                            for field in &mut self.edit_custom_fields {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("{} ({})", field.name, field.datatype));
+                                    ui.text_edit_singleline(&mut field.value);
+                                    if ui.small_button("Clear").clicked() {
+                                        field.value.clear();
+                                    }
+                                });
+                            }
+                        }
+                    });
                 egui::CollapsingHeader::new("Diff view (before/after)")
                     .default_open(false)
                     .show(ui, |ui| {
@@ -3361,6 +3435,11 @@ impl LibraryView {
                 ui.horizontal(|ui| {
                     if ui.button("Undo all").clicked() {
                         self.edit = baseline.clone();
+                        if let Some(details) = &self.details {
+                            if let Err(err) = self.load_edit_custom_fields(details.book.id) {
+                                self.set_error(err);
+                            }
+                        }
                     }
                     if ui.button("Save").clicked() {
                         self.pending_save = true;
@@ -4103,6 +4182,8 @@ impl LibraryView {
         if enabled_sources.is_empty() {
             self.metadata_download.last_error =
                 Some("No metadata providers enabled in config.".to_string());
+        } else if !enabled_sources.contains(&self.metadata_download.source) {
+            self.metadata_download.source = enabled_sources[0].clone();
         }
         egui::Window::new(if self.metadata_download.cover_only {
             "Download Cover"
@@ -4139,6 +4220,39 @@ impl LibraryView {
                 ui.checkbox(&mut self.metadata_download.source_amazon, "Amazon");
                 ui.checkbox(&mut self.metadata_download.source_isbndb, "ISBNdb");
             });
+            egui::CollapsingHeader::new("Merge rules")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.checkbox(&mut self.metadata_download.merge_tags, "Merge tags");
+                    ui.checkbox(
+                        &mut self.metadata_download.merge_identifiers,
+                        "Merge identifiers",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_title,
+                        "Overwrite title",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_authors,
+                        "Overwrite authors",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_publisher,
+                        "Overwrite publisher",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_language,
+                        "Overwrite language",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_pubdate,
+                        "Overwrite publication date",
+                    );
+                    ui.checkbox(
+                        &mut self.metadata_download.overwrite_comment,
+                        "Overwrite comments",
+                    );
+                });
             if !self.metadata_download.cover_only {
                 ui.horizontal(|ui| {
                     if ui.button("Queue selected").clicked() {
@@ -4496,55 +4610,60 @@ impl LibraryView {
             ));
         };
         self.edit = EditState::from_details(details);
-        if self.metadata_download.merge_mode {
-            if let Some(title) = &metadata.title {
-                if self.edit.title.trim().is_empty() {
-                    self.edit.title = title.clone();
-                }
-            }
-            if self.edit.authors.trim().is_empty() && !metadata.authors.is_empty() {
-                self.edit.authors = metadata.authors.join(", ");
-            }
-            if self.edit.publisher.trim().is_empty() {
-                if let Some(publisher) = &metadata.publisher {
-                    self.edit.publisher = publisher.clone();
-                }
-            }
-            if self.edit.languages.trim().is_empty() {
-                if let Some(language) = &metadata.language {
-                    self.edit.languages = language.clone();
-                }
-            }
-            if self.edit.pubdate.trim().is_empty() {
-                if let Some(pubdate) = &metadata.pubdate {
-                    self.edit.pubdate = pubdate.clone();
-                }
-            }
-            if self.edit.comment.trim().is_empty() {
-                if let Some(description) = &metadata.description {
-                    self.edit.comment = description.clone();
-                }
-            }
-        } else {
-            if let Some(title) = &metadata.title {
+        if let Some(title) = &metadata.title {
+            if self.metadata_download.overwrite_title
+                || self.edit.title.trim().is_empty()
+                || !self.metadata_download.merge_mode
+            {
                 self.edit.title = title.clone();
             }
+        }
+        if !metadata.authors.is_empty()
+            && (self.metadata_download.overwrite_authors
+                || self.edit.authors.trim().is_empty()
+                || !self.metadata_download.merge_mode)
+        {
             self.edit.authors = metadata.authors.join(", ");
-            self.edit.publisher = metadata.publisher.clone().unwrap_or_default();
-            self.edit.languages = metadata.language.clone().unwrap_or_default();
-            self.edit.pubdate = metadata.pubdate.clone().unwrap_or_default();
-            self.edit.comment = metadata.description.clone().unwrap_or_default();
-            self.edit.tags.clear();
+        }
+        if let Some(publisher) = &metadata.publisher {
+            if self.metadata_download.overwrite_publisher || self.edit.publisher.trim().is_empty() {
+                self.edit.publisher = publisher.clone();
+            }
+        } else if !self.metadata_download.merge_mode && self.metadata_download.overwrite_publisher {
+            self.edit.publisher.clear();
+        }
+        if let Some(language) = &metadata.language {
+            if self.metadata_download.overwrite_language || self.edit.languages.trim().is_empty() {
+                self.edit.languages = language.clone();
+            }
+        } else if !self.metadata_download.merge_mode && self.metadata_download.overwrite_language {
+            self.edit.languages.clear();
+        }
+        if let Some(pubdate) = &metadata.pubdate {
+            if self.metadata_download.overwrite_pubdate || self.edit.pubdate.trim().is_empty() {
+                self.edit.pubdate = pubdate.clone();
+            }
+        } else if !self.metadata_download.merge_mode && self.metadata_download.overwrite_pubdate {
+            self.edit.pubdate.clear();
+        }
+        if let Some(description) = &metadata.description {
+            if self.metadata_download.overwrite_comment || self.edit.comment.trim().is_empty() {
+                self.edit.comment = description.clone();
+            }
+        } else if !self.metadata_download.merge_mode && self.metadata_download.overwrite_comment {
+            self.edit.comment.clear();
         }
         merge_tags_into_edit(
             &mut self.edit,
             &metadata.tags,
             self.metadata_download.merge_mode,
+            self.metadata_download.merge_tags,
         );
         merge_identifiers_into_edit(
             &mut self.edit,
             &metadata.identifiers,
             self.metadata_download.merge_mode,
+            self.metadata_download.merge_identifiers,
         );
         self.save_edit()?;
         self.load_details(book_id)?;
@@ -4856,6 +4975,39 @@ impl LibraryView {
         self.clear_cover_cache(book_id);
         self.record_cover_history(cover_path.display().to_string());
         Ok(())
+    }
+
+    fn apply_cover_from_clipboard(&mut self, book_id: i64) -> CoreResult<()> {
+        let mut clipboard = Clipboard::new()
+            .map_err(|err| CoreError::ConfigValidate(format!("open clipboard: {err}")))?;
+        if let Ok(image_data) = clipboard.get_image() {
+            let width = image_data.width as u32;
+            let height = image_data.height as u32;
+            let bytes = image_data.bytes.into_owned();
+            let image = image::RgbaImage::from_raw(width, height, bytes).ok_or_else(|| {
+                CoreError::ConfigValidate("invalid image payload from clipboard".to_string())
+            })?;
+            let dynamic = DynamicImage::ImageRgba8(image);
+            self.ensure_cover_dirs()?;
+            let cover_path = self.cover_path(book_id);
+            dynamic
+                .save_with_format(&cover_path, ImageFormat::Png)
+                .map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+            self.generate_cover_thumb_from_image(book_id, &dynamic)?;
+            self.db.update_book_has_cover(book_id, true)?;
+            self.clear_cover_cache(book_id);
+            self.record_cover_history(cover_path.display().to_string());
+            return Ok(());
+        }
+        if let Ok(text) = clipboard.get_text() {
+            let path = PathBuf::from(text.trim());
+            if path.is_file() && is_image_path(&path) {
+                return self.apply_cover_from_path(book_id, &path);
+            }
+        }
+        Err(CoreError::ConfigValidate(
+            "clipboard does not contain a usable image or image file path".to_string(),
+        ))
     }
 
     fn generate_cover(&mut self, book_id: i64, title: &str) -> CoreResult<()> {
@@ -5845,7 +5997,11 @@ impl LibraryView {
 
     fn cancel_edit(&mut self) {
         if let Some(details) = &self.details {
+            let book_id = details.book.id;
             self.edit = EditState::from_details(details);
+            if let Err(err) = self.load_edit_custom_fields(book_id) {
+                self.set_error(err);
+            }
         }
         self.edit_mode = false;
         self.status = "Edit cancelled".to_string();
@@ -5893,11 +6049,17 @@ impl LibraryView {
         }
         self.db.set_book_rating(book_id, self.edit.rating)?;
         self.db
+            .update_book_sort(book_id, self.edit.series_sort.trim())?;
+        self.db
             .update_book_author_sort(book_id, self.edit.author_sort.trim())?;
         self.db
             .update_book_timestamp(book_id, self.edit.timestamp.trim())?;
         self.db
             .update_book_pubdate(book_id, self.edit.pubdate.trim())?;
+        for field in &self.edit_custom_fields {
+            self.db
+                .set_custom_value(book_id, field.label.as_str(), field.value.as_str())?;
+        }
         let languages = parse_list(&self.edit.languages);
         self.db.set_book_languages(book_id, &languages)?;
         self.status = "Metadata saved".to_string();
@@ -5905,6 +6067,28 @@ impl LibraryView {
         self.refresh_books()?;
         self.load_details(book_id)?;
         info!(component = "gui", book_id, "saved metadata edits");
+        Ok(())
+    }
+
+    fn load_edit_custom_fields(&mut self, book_id: i64) -> CoreResult<()> {
+        let columns = self.db.list_custom_columns()?;
+        let mut fields = Vec::new();
+        for column in columns {
+            if column.mark_for_delete || !column.editable {
+                continue;
+            }
+            let value = self
+                .db
+                .get_custom_value(book_id, column.label.as_str())?
+                .unwrap_or_default();
+            fields.push(CustomEditField {
+                label: column.label,
+                name: column.name,
+                datatype: column.datatype,
+                value,
+            });
+        }
+        self.edit_custom_fields = fields;
         Ok(())
     }
 
@@ -6176,6 +6360,7 @@ struct EditState {
     authors: String,
     tags: String,
     author_sort: String,
+    series_sort: String,
     series_name: String,
     series_index: f64,
     identifiers: String,
@@ -6187,6 +6372,14 @@ struct EditState {
     pubdate: String,
     rating: i64,
     uuid: String,
+}
+
+#[derive(Debug, Clone)]
+struct CustomEditField {
+    label: String,
+    name: String,
+    datatype: String,
+    value: String,
 }
 
 #[derive(Debug, Clone)]
@@ -6790,6 +6983,14 @@ struct MetadataDownloadDialogState {
     cover_only: bool,
     source: String,
     merge_mode: bool,
+    merge_tags: bool,
+    merge_identifiers: bool,
+    overwrite_title: bool,
+    overwrite_authors: bool,
+    overwrite_publisher: bool,
+    overwrite_language: bool,
+    overwrite_pubdate: bool,
+    overwrite_comment: bool,
     progress: f32,
     failed: bool,
     results: Vec<MetadataDownloadResult>,
@@ -6812,6 +7013,14 @@ impl MetadataDownloadDialogState {
             cover_only: false,
             source,
             merge_mode: true,
+            merge_tags: config.merge_tags_default,
+            merge_identifiers: config.merge_identifiers_default,
+            overwrite_title: config.overwrite_title_default,
+            overwrite_authors: config.overwrite_authors_default,
+            overwrite_publisher: config.overwrite_publisher_default,
+            overwrite_language: config.overwrite_language_default,
+            overwrite_pubdate: config.overwrite_pubdate_default,
+            overwrite_comment: config.overwrite_comment_default,
             progress: 0.0,
             failed: false,
             results: Vec::new(),
@@ -6892,6 +7101,7 @@ enum DetailAction {
     Save,
     Cancel,
     SetCover,
+    PasteCoverClipboard,
     RemoveCover,
     GenerateCover,
     OpenReader,
@@ -6961,6 +7171,7 @@ impl Default for EditState {
             authors: String::new(),
             tags: String::new(),
             author_sort: String::new(),
+            series_sort: String::new(),
             series_name: String::new(),
             series_index: 1.0,
             identifiers: String::new(),
@@ -6989,6 +7200,7 @@ impl EditState {
             authors: details.authors.join(", "),
             tags: details.tags.join(", "),
             author_sort: details.extras.author_sort.clone().unwrap_or_default(),
+            series_sort: details.extras.sort.clone().unwrap_or_default(),
             series_name: details
                 .series
                 .as_ref()
@@ -7194,7 +7406,18 @@ fn first_identifier_from_details(details: &BookDetails, id_type: &str) -> Option
         .map(|entry| entry.value.clone())
 }
 
-fn merge_tags_into_edit(edit: &mut EditState, incoming_tags: &[String], merge_mode: bool) {
+fn merge_tags_into_edit(
+    edit: &mut EditState,
+    incoming_tags: &[String],
+    merge_mode: bool,
+    merge_enabled: bool,
+) {
+    if incoming_tags.is_empty() {
+        return;
+    }
+    if !merge_enabled && merge_mode {
+        return;
+    }
     let mut tags: Vec<String> = if merge_mode {
         parse_list(&edit.tags)
     } else {
@@ -7219,7 +7442,14 @@ fn merge_identifiers_into_edit(
     edit: &mut EditState,
     incoming_identifiers: &[(String, String)],
     merge_mode: bool,
+    merge_enabled: bool,
 ) {
+    if incoming_identifiers.is_empty() {
+        return;
+    }
+    if !merge_enabled && merge_mode {
+        return;
+    }
     let mut identifiers = if merge_mode {
         parse_identifiers(&edit.identifiers, &edit.isbn)
     } else {
@@ -7339,6 +7569,7 @@ fn edit_diff_rows(before: &EditState, after: &EditState) -> Vec<(&'static str, S
     push_diff!("title", before.title, after.title);
     push_diff!("authors", before.authors, after.authors);
     push_diff!("author_sort", before.author_sort, after.author_sort);
+    push_diff!("series_sort", before.series_sort, after.series_sort);
     push_diff!("tags", before.tags, after.tags);
     push_diff!("series", before.series_name, after.series_name);
     push_diff!("series_index", before.series_index, after.series_index);

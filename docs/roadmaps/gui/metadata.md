@@ -5,12 +5,12 @@
 - [x] Add per-field reset controls for primary metadata fields
 - [x] Add global undo-all reset in metadata editor dialog
 - [x] Add metadata diff view (before/after)
-- [ ] Add bulk metadata merge rules UI
+- [x] Add bulk metadata merge rules UI
 - [x] Add author sort field editing and persistence
-- [ ] Add series sort field editing and persistence
+- [x] Add series sort field editing and persistence
 - [x] Add publication date and timestamp fields with persistence
 - [x] Add rating editor with half-star increments
-- [ ] Add custom metadata fields editor (custom columns)
+- [x] Add custom metadata fields editor (custom columns)
 
 ## Metadata Download
 - [x] Add metadata download dialog with source selection
@@ -30,7 +30,7 @@
 - [x] Add cover download + replace workflow
 - [x] Add comment markdown editor toolbar
 - [x] Add markdown/HTML preview toggle in editor
-- [ ] Add cover paste from clipboard
+- [x] Add cover paste from clipboard
 - [x] Add cover remove/restore history list
 
 ## Identifiers + Links

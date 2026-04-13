@@ -118,6 +118,14 @@ googlebooks_enabled = true
 googlebooks_base_url = "https://www.googleapis.com/books/v1"
 googlebooks_api_key = ""
 prefer_isbn_lookup = false
+merge_tags_default = true
+merge_identifiers_default = true
+overwrite_title_default = true
+overwrite_authors_default = true
+overwrite_publisher_default = false
+overwrite_language_default = false
+overwrite_pubdate_default = false
+overwrite_comment_default = false
 
 [gui]
 list_view_mode = "table"

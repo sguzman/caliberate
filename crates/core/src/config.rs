@@ -245,6 +245,19 @@ impl ControlPlane {
                 ));
             }
         }
+        if !self.metadata_download.merge_tags_default
+            && !self.metadata_download.merge_identifiers_default
+            && !self.metadata_download.overwrite_title_default
+            && !self.metadata_download.overwrite_authors_default
+            && !self.metadata_download.overwrite_publisher_default
+            && !self.metadata_download.overwrite_language_default
+            && !self.metadata_download.overwrite_pubdate_default
+            && !self.metadata_download.overwrite_comment_default
+        {
+            return Err(CoreError::ConfigValidate(
+                "metadata_download merge/overwrite defaults cannot all be disabled".to_string(),
+            ));
+        }
         if !(40.0..=600.0).contains(&self.gui.table_row_height) {
             return Err(CoreError::ConfigValidate(
                 "gui.table_row_height must be between 40 and 600".to_string(),
@@ -812,6 +825,22 @@ pub struct MetadataDownloadConfig {
     pub googlebooks_api_key: String,
     #[serde(default)]
     pub prefer_isbn_lookup: bool,
+    #[serde(default = "default_metadata_download_merge_tags_default")]
+    pub merge_tags_default: bool,
+    #[serde(default = "default_metadata_download_merge_identifiers_default")]
+    pub merge_identifiers_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_title_default")]
+    pub overwrite_title_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_authors_default")]
+    pub overwrite_authors_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_publisher_default")]
+    pub overwrite_publisher_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_language_default")]
+    pub overwrite_language_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_pubdate_default")]
+    pub overwrite_pubdate_default: bool,
+    #[serde(default = "default_metadata_download_overwrite_comment_default")]
+    pub overwrite_comment_default: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1122,6 +1151,14 @@ impl Default for MetadataDownloadConfig {
             googlebooks_base_url: default_metadata_download_googlebooks_base_url(),
             googlebooks_api_key: String::new(),
             prefer_isbn_lookup: false,
+            merge_tags_default: default_metadata_download_merge_tags_default(),
+            merge_identifiers_default: default_metadata_download_merge_identifiers_default(),
+            overwrite_title_default: default_metadata_download_overwrite_title_default(),
+            overwrite_authors_default: default_metadata_download_overwrite_authors_default(),
+            overwrite_publisher_default: default_metadata_download_overwrite_publisher_default(),
+            overwrite_language_default: default_metadata_download_overwrite_language_default(),
+            overwrite_pubdate_default: default_metadata_download_overwrite_pubdate_default(),
+            overwrite_comment_default: default_metadata_download_overwrite_comment_default(),
         }
     }
 }
@@ -1678,6 +1715,38 @@ fn default_metadata_download_googlebooks_enabled() -> bool {
 
 fn default_metadata_download_googlebooks_base_url() -> String {
     "https://www.googleapis.com/books/v1".to_string()
+}
+
+fn default_metadata_download_merge_tags_default() -> bool {
+    true
+}
+
+fn default_metadata_download_merge_identifiers_default() -> bool {
+    true
+}
+
+fn default_metadata_download_overwrite_title_default() -> bool {
+    true
+}
+
+fn default_metadata_download_overwrite_authors_default() -> bool {
+    true
+}
+
+fn default_metadata_download_overwrite_publisher_default() -> bool {
+    false
+}
+
+fn default_metadata_download_overwrite_language_default() -> bool {
+    false
+}
+
+fn default_metadata_download_overwrite_pubdate_default() -> bool {
+    false
+}
+
+fn default_metadata_download_overwrite_comment_default() -> bool {
+    false
 }
 
 fn default_server_host() -> String {

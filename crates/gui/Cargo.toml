@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arboard = "3.6.1"
 caliberate-assets = { path = "../assets" }
 caliberate-conversion = { path = "../conversion" }
 caliberate-core = { path = "../core" }
