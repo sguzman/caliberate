@@ -3278,10 +3278,24 @@ impl LibraryView {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Series sort");
+                    ui.label("Title sort");
                     ui.text_edit_singleline(&mut self.edit.series_sort);
                     if ui.small_button("Reset").clicked() {
                         self.edit.series_sort = baseline.series_sort.clone();
+                    }
+                    if ui.small_button("Derive").clicked() {
+                        self.edit.series_sort = derive_title_sort(&self.edit.title);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Normalize authors").clicked() {
+                        self.edit.authors = normalize_csv_list(&self.edit.authors, false);
+                    }
+                    if ui.button("Normalize tags").clicked() {
+                        self.edit.tags = normalize_csv_list(&self.edit.tags, false);
+                    }
+                    if ui.button("Normalize languages").clicked() {
+                        self.edit.languages = normalize_csv_list(&self.edit.languages, true);
                     }
                 });
                 ui.label("Identifiers (one per line, type:value)");
@@ -3301,6 +3315,9 @@ impl LibraryView {
                     }
                     if ui.button("Dedupe").clicked() {
                         self.edit.identifiers = cleanup_identifier_lines(&self.edit.identifiers);
+                    }
+                    if ui.button("Normalize IDs").clicked() {
+                        self.edit.identifiers = normalize_identifier_lines(&self.edit.identifiers);
                     }
                     if ui.button("Copy IDs").clicked() {
                         ui.ctx().copy_text(self.edit.identifiers.clone());
@@ -3363,6 +3380,34 @@ impl LibraryView {
                     if ui.small_button("Reset").clicked() {
                         self.edit.pubdate = baseline.pubdate.clone();
                     }
+                    if ui.small_button("Today").clicked() {
+                        self.edit.pubdate = current_date_ymd();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Last modified");
+                    ui.text_edit_singleline(&mut self.edit.last_modified);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.last_modified = baseline.last_modified.clone();
+                    }
+                    if ui.small_button("Now").clicked() {
+                        if let Ok(now) = now_timestamp() {
+                            self.edit.last_modified = now;
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("UUID");
+                    ui.text_edit_singleline(&mut self.edit.uuid);
+                    if ui.small_button("Reset").clicked() {
+                        self.edit.uuid = baseline.uuid.clone();
+                    }
+                    if ui.small_button("Generate").clicked() {
+                        self.edit.uuid = uuid::Uuid::new_v4().to_string();
+                    }
+                    if ui.small_button("Copy").clicked() {
+                        ui.ctx().copy_text(self.edit.uuid.clone());
+                    }
                 });
                 ui.label("Rating");
                 rating_stars(ui, &mut self.edit.rating);
@@ -3412,12 +3457,22 @@ impl LibraryView {
                             for field in &mut self.edit_custom_fields {
                                 ui.horizontal(|ui| {
                                     ui.label(format!("{} ({})", field.name, field.datatype));
-                                    ui.text_edit_singleline(&mut field.value);
+                                    custom_field_editor_widget(ui, field);
                                     if ui.small_button("Clear").clicked() {
                                         field.value.clear();
                                     }
                                 });
                             }
+                        }
+                    });
+                egui::CollapsingHeader::new("Validation summary")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        for issue in collect_edit_validation_issues(&self.edit) {
+                            ui.colored_label(egui::Color32::from_rgb(180, 40, 40), issue);
+                        }
+                        if collect_edit_validation_issues(&self.edit).is_empty() {
+                            ui.colored_label(egui::Color32::from_rgb(40, 140, 60), "No issues");
                         }
                     });
                 egui::CollapsingHeader::new("Diff view (before/after)")
@@ -4252,6 +4307,49 @@ impl LibraryView {
                         &mut self.metadata_download.overwrite_comment,
                         "Overwrite comments",
                     );
+                    ui.horizontal(|ui| {
+                        if ui.button("Preset: Conservative").clicked() {
+                            self.metadata_download.merge_mode = true;
+                            self.metadata_download.merge_tags = true;
+                            self.metadata_download.merge_identifiers = true;
+                            self.metadata_download.overwrite_title = false;
+                            self.metadata_download.overwrite_authors = false;
+                            self.metadata_download.overwrite_publisher = false;
+                            self.metadata_download.overwrite_language = false;
+                            self.metadata_download.overwrite_pubdate = false;
+                            self.metadata_download.overwrite_comment = false;
+                        }
+                        if ui.button("Preset: Balanced").clicked() {
+                            self.metadata_download.merge_mode = true;
+                            self.metadata_download.merge_tags =
+                                self.metadata_download_config.merge_tags_default;
+                            self.metadata_download.merge_identifiers =
+                                self.metadata_download_config.merge_identifiers_default;
+                            self.metadata_download.overwrite_title =
+                                self.metadata_download_config.overwrite_title_default;
+                            self.metadata_download.overwrite_authors =
+                                self.metadata_download_config.overwrite_authors_default;
+                            self.metadata_download.overwrite_publisher =
+                                self.metadata_download_config.overwrite_publisher_default;
+                            self.metadata_download.overwrite_language =
+                                self.metadata_download_config.overwrite_language_default;
+                            self.metadata_download.overwrite_pubdate =
+                                self.metadata_download_config.overwrite_pubdate_default;
+                            self.metadata_download.overwrite_comment =
+                                self.metadata_download_config.overwrite_comment_default;
+                        }
+                        if ui.button("Preset: Replace").clicked() {
+                            self.metadata_download.merge_mode = false;
+                            self.metadata_download.merge_tags = false;
+                            self.metadata_download.merge_identifiers = false;
+                            self.metadata_download.overwrite_title = true;
+                            self.metadata_download.overwrite_authors = true;
+                            self.metadata_download.overwrite_publisher = true;
+                            self.metadata_download.overwrite_language = true;
+                            self.metadata_download.overwrite_pubdate = true;
+                            self.metadata_download.overwrite_comment = true;
+                        }
+                    });
                 });
             if !self.metadata_download.cover_only {
                 ui.horizontal(|ui| {
@@ -5732,7 +5830,10 @@ impl LibraryView {
             notes,
             extras,
         });
-        self.edit = EditState::from_details(self.details.as_ref().expect("details"));
+        if let Some(details) = &self.details {
+            self.edit = EditState::from_details(details);
+            self.load_edit_custom_fields(id)?;
+        }
         self.edit_mode = false;
         self.note_input.clear();
         info!(component = "gui", book_id = id, "loaded book details");
@@ -6018,6 +6119,10 @@ impl LibraryView {
                 "title cannot be empty".to_string(),
             ));
         }
+        let issues = collect_edit_validation_issues(&self.edit);
+        if !issues.is_empty() {
+            return Err(CoreError::ConfigValidate(issues.join("; ")));
+        }
         self.validate_identifiers()?;
         self.db.update_book_title(book_id, title)?;
         let authors = parse_list(&self.edit.authors);
@@ -6056,6 +6161,9 @@ impl LibraryView {
             .update_book_timestamp(book_id, self.edit.timestamp.trim())?;
         self.db
             .update_book_pubdate(book_id, self.edit.pubdate.trim())?;
+        self.db
+            .update_book_last_modified(book_id, self.edit.last_modified.trim())?;
+        self.db.update_book_uuid(book_id, self.edit.uuid.trim())?;
         for field in &self.edit_custom_fields {
             self.db
                 .set_custom_value(book_id, field.label.as_str(), field.value.as_str())?;
@@ -6370,6 +6478,7 @@ struct EditState {
     languages: String,
     timestamp: String,
     pubdate: String,
+    last_modified: String,
     rating: i64,
     uuid: String,
 }
@@ -7181,6 +7290,7 @@ impl Default for EditState {
             languages: String::new(),
             timestamp: String::new(),
             pubdate: String::new(),
+            last_modified: String::new(),
             rating: 0,
             uuid: String::new(),
         }
@@ -7223,6 +7333,7 @@ impl EditState {
             languages: details.extras.languages.join(", "),
             timestamp: details.extras.timestamp.clone().unwrap_or_default(),
             pubdate: details.extras.pubdate.clone().unwrap_or_default(),
+            last_modified: details.extras.last_modified.clone().unwrap_or_default(),
             rating: details.extras.rating.unwrap_or(0),
             uuid: details.extras.uuid.clone().unwrap_or_default(),
         }
@@ -7235,6 +7346,136 @@ fn parse_list(text: &str) -> Vec<String> {
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
         .collect()
+}
+
+fn normalize_csv_list(text: &str, lowercase: bool) -> String {
+    let mut seen = BTreeSet::new();
+    let mut values = Vec::new();
+    for item in text.split(',') {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let normalized = if lowercase {
+            trimmed.to_lowercase()
+        } else {
+            trimmed.to_string()
+        };
+        let key = normalized.to_lowercase();
+        if seen.insert(key) {
+            values.push(normalized);
+        }
+    }
+    values.join(", ")
+}
+
+fn normalize_identifier_lines(text: &str) -> String {
+    let mut normalized = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some((id_type, value)) = trimmed.split_once(':') {
+            let id_type = id_type.trim().to_lowercase();
+            let value = value.trim();
+            if !id_type.is_empty() && !value.is_empty() {
+                normalized.push(format!("{id_type}:{value}"));
+            }
+        }
+    }
+    cleanup_identifier_lines(&normalized.join("\n"))
+}
+
+fn derive_title_sort(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let lower = trimmed.to_lowercase();
+    for prefix in ["the ", "a ", "an "] {
+        if lower.starts_with(prefix) && trimmed.len() > prefix.len() {
+            return format!(
+                "{}, {}",
+                trimmed[prefix.len()..].trim(),
+                &trimmed[..prefix.len() - 1]
+            );
+        }
+    }
+    trimmed.to_string()
+}
+
+fn current_date_ymd() -> String {
+    let Ok(format) = time::format_description::parse("[year]-[month]-[day]") else {
+        return String::new();
+    };
+    OffsetDateTime::now_utc()
+        .format(&format)
+        .unwrap_or_else(|_| String::new())
+}
+
+fn collect_edit_validation_issues(edit: &EditState) -> Vec<String> {
+    let mut issues = Vec::new();
+    if edit.title.trim().is_empty() {
+        issues.push("title cannot be empty".to_string());
+    }
+    if !edit.uuid.trim().is_empty() && uuid::Uuid::parse_str(edit.uuid.trim()).is_err() {
+        issues.push("uuid must be a valid UUID".to_string());
+    }
+    if !is_loose_date_or_datetime(edit.pubdate.trim()) {
+        issues.push("publication date must be YYYY-MM-DD or RFC3339 datetime".to_string());
+    }
+    if !is_loose_date_or_datetime(edit.timestamp.trim()) {
+        issues.push("timestamp must be YYYY-MM-DD or RFC3339 datetime".to_string());
+    }
+    if !is_loose_date_or_datetime(edit.last_modified.trim()) {
+        issues.push("last_modified must be YYYY-MM-DD or RFC3339 datetime".to_string());
+    }
+    issues
+}
+
+fn is_loose_date_or_datetime(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if time::OffsetDateTime::parse(trimmed, &time::format_description::well_known::Rfc3339).is_ok()
+    {
+        return true;
+    }
+    if let Ok(format) = time::format_description::parse("[year]-[month]-[day]") {
+        return time::Date::parse(trimmed, &format).is_ok();
+    }
+    false
+}
+
+fn custom_field_editor_widget(ui: &mut egui::Ui, field: &mut CustomEditField) {
+    match field.datatype.as_str() {
+        "bool" | "boolean" => {
+            let mut value = matches!(
+                field.value.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "y"
+            );
+            if ui.checkbox(&mut value, "").changed() {
+                field.value = if value { "true" } else { "false" }.to_string();
+            }
+        }
+        "int" | "integer" => {
+            let mut value = field.value.trim().parse::<i64>().unwrap_or_default();
+            if ui.add(egui::DragValue::new(&mut value)).changed() {
+                field.value = value.to_string();
+            }
+        }
+        "float" | "double" | "number" => {
+            let mut value = field.value.trim().parse::<f64>().unwrap_or_default();
+            if ui
+                .add(egui::DragValue::new(&mut value).speed(0.1))
+                .changed()
+            {
+                field.value = value.to_string();
+            }
+        }
+        _ => {
+            ui.text_edit_singleline(&mut field.value);
+        }
+    }
 }
 
 fn is_archive_path(path: &Path, formats: &caliberate_core::config::FormatsConfig) -> bool {
@@ -7579,7 +7820,9 @@ fn edit_diff_rows(before: &EditState, after: &EditState) -> Vec<(&'static str, S
     push_diff!("languages", before.languages, after.languages);
     push_diff!("timestamp", before.timestamp, after.timestamp);
     push_diff!("pubdate", before.pubdate, after.pubdate);
+    push_diff!("last_modified", before.last_modified, after.last_modified);
     push_diff!("rating", before.rating, after.rating);
+    push_diff!("uuid", before.uuid, after.uuid);
     push_diff!("comment", before.comment, after.comment);
     rows
 }

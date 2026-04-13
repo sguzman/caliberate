@@ -2,6 +2,15 @@
 
 ## Metadata Editor
 - [ ] Implement full Calibre metadata editor field set
+- [x] Add title-sort derive/reset controls in metadata editor
+- [x] Add UUID edit/regenerate/copy workflow with validation
+- [x] Add last-modified edit control with quick-set helper
+- [x] Add metadata normalization actions for authors/tags/languages/identifiers
+- [x] Add datatype-aware widgets for custom metadata fields
+- [x] Add validation summary panel for metadata edit inputs
+- [ ] Add calibre-parity publish metadata fields beyond current core set
+- [ ] Add metadata editor keyboard navigation parity and shortcut coverage
+- [ ] Add metadata editor field-level help text and inline conflict hints
 - [x] Add per-field reset controls for primary metadata fields
 - [x] Add global undo-all reset in metadata editor dialog
 - [x] Add metadata diff view (before/after)
