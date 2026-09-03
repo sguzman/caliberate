@@ -20,11 +20,17 @@ Task `0001-windows-path-identity` fixed the failing `ebook_convert_rejects_input
 
 Accepted commit: `3bbc5f10a45ec68ab9f4ff8f556432c44cae1268`.
 
-`main` has been fast-forwarded to include the fix and task report.
+## Cross-platform CI — integrated
+
+Task `0002-cross-platform-ci` added `.github/workflows/cross-platform-ci.yml` with a Windows/Linux GitHub Actions matrix. Each job runs formatting, locked workspace checking, and locked workspace tests.
+
+Luna/Codex validated the commands natively on Windows before handoff. The workflow itself will provide hosted Windows/Linux evidence on subsequent GitHub runs.
+
+Accepted commit: `bb21ab25babfe01e7094ea49c13918ee5c896347`.
 
 ## Current product priority
 
-The near-term product is now explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
+The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
 
 P0:
 
@@ -56,8 +62,11 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 The existing library/asset code already has meaningful ingest and copy/reference behavior, but the reusable service/source model is not yet established end-to-end.
 
+The database already exposes read primitives including `Database::list_books`, `Database::get_book`, and `Database::search_books`, but those return database-layer `BookRecord` values directly.
+
 Not yet first-class:
 
+- a library-domain facade over those database primitives;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
@@ -100,12 +109,12 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0002-cross-platform-ci` — add Windows + Linux CI baseline.
-2. Define and introduce the first read-only library/query/content service seam.
-3. Inventory/refactor direct DB usage from OPDS/GUI into that service incrementally.
-4. Build the Calibre-like visual library shell against the service.
-5. Add HTTP/JSON API over the same semantics and refactor OPDS to the same service.
-6. Deepen library-source support and search/facet/virtual-library behavior.
+1. `0003-library-catalog-facade` — introduce the smallest read-only library-domain facade over existing database list/get/search behavior.
+2. Refactor OPDS read paths onto that facade without changing protocol behavior.
+3. Introduce library-domain structured query/facet semantics needed by visual browsing and APIs.
+4. Add HTTP/JSON adapter over the same library service.
+5. Move the Calibre-like GUI browsing/search path onto the common service and decompose the relevant GUI seams as needed.
+6. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
