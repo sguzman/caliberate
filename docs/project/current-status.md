@@ -64,6 +64,20 @@ The server still owns download authorization, external/reference path policy, fi
 
 Accepted commit: `3f7c47a526d39c78ee7b7dab5e3c9fb80d70a928`.
 
+## Library structured query and facets — integrated
+
+Task `0007-library-query-facets` added library-domain query/facet APIs over the existing database behavior:
+
+- `caliberate_library::query::LibraryQuery`
+- `caliberate_library::query::LibraryFacetKind`
+- `caliberate_library::query::LibraryFacetValue`
+- `LibraryCatalog::query_books`
+- `LibraryCatalog::list_facets`
+
+Structured title/author/tag/series/publisher/language/identifier/format filters and limit map internally to the existing DB `BookQuery`. Author/tag/series/publisher/rating/language category counts map to library-domain facet values. No new SQL or schema behavior was added.
+
+Accepted commit: `2f43fc15853820d23eb117783ec6837ec9261f84`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -96,16 +110,16 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 ## Library reality
 
-The first reusable read-only library-domain facade now exists for basic catalog operations and content resolution.
+The reusable read-only library-domain facade now exists for basic catalog operations, content resolution, structured filtering, and category facets.
 
 OPDS list/get/search/download storage selection consume that library facade. Protocol-specific authorization and wire behavior remain in the server.
 
-The database already exposes structured `BookQuery` filtering plus category counts for authors, tags, series, publishers, ratings, and languages. Task `0007-library-query-facets` is queued to lift those existing capabilities into library-domain types without adding SQL.
+Task `0008-library-query-pages` is queued to add database-backed deterministic sorting, limit/offset pagination, and filtered total-count semantics. The existing DB query currently hardcodes ID ordering and supports only an optional limit, so this is the next required seam for a large-library visual browser.
 
 Still not first-class:
 
-- library-domain sorting, offset/pagination, and total-count semantics;
 - an efficient rich `BookSummary` suitable for the central Calibre-like table/grid;
+- broader sort fields such as author/series/rating/date;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
@@ -146,12 +160,11 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0007-library-query-facets` — lift existing structured filters and author/tag/series/publisher/rating/language category counts into library-domain APIs without new SQL.
-2. Add deterministic sorting, offset/pagination, and total-count semantics beneath the library query API.
-3. Add an efficient rich book-summary read model for the Calibre-like central list/grid.
-4. Move the Calibre-like GUI browsing/search/category-browser path onto the common library service.
-5. Add HTTP/JSON adapter over the same service semantics.
-6. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0008-library-query-pages` — add database-backed deterministic sorting, offset pagination, and filtered total counts beneath the library query API.
+2. Add an efficient rich book-summary read model for the Calibre-like central list/grid.
+3. Move the Calibre-like GUI browsing/search/category-browser path onto the common library service.
+4. Add HTTP/JSON adapter over the same service semantics.
+5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
