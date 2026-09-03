@@ -5,24 +5,38 @@ This file is the entry point for coding agents. Keep it short. The repository do
 ## Read before changing code
 
 1. `docs/project/philosophy.md`
-2. `ARCHITECTURE.md`
-3. `docs/project/current-status.md`
-4. `docs/project/roles-and-workflow.md`
-5. The single assigned work item under `docs/work/ready/` or `docs/work/active/`
+2. `docs/project/product-scope.md`
+3. `ARCHITECTURE.md`
+4. `docs/project/current-status.md`
+5. `docs/project/roles-and-workflow.md`
+6. The single assigned work item under `docs/work/ready/` or `docs/work/active/`
 
 Do not infer authority from old tranche or parity documents when they conflict with the files above. Historical roadmaps and tranches are useful context, not permission to broaden scope.
 
 ## Roles
 
-- **ChatGPT / architect** owns high-level architecture, project philosophy, roadmap ordering, work-item definitions, and acceptance/rejection of architectural changes.
-- **Codex / implementation agent** owns bounded implementation work explicitly delegated through `docs/work/`.
-- **Human maintainer** owns local runtime testing, merge decisions, and observations that cannot be reproduced in the agent environment.
+- **ChatGPT / architect** owns high-level architecture, project philosophy, roadmap ordering, work-item definitions, review, and integrating accepted implementation into `main`.
+- **Codex / implementation agent** owns bounded implementation work explicitly delegated through `docs/work/` and commits/pushes that work to the repository.
+- **Human maintainer** owns local runtime testing and operating the local checkout. The human is not the communication courier between agents and is not responsible for reviewing/merging agent code.
+
+## Assume bounded implementation intelligence
+
+Implementation tasks must be executable by a relatively weak/cheap coding model without requiring it to reconstruct architecture from inference.
+
+Therefore:
+
+- Follow the work item literally.
+- Prefer explicit file/function targets when the task provides them.
+- Respect every non-goal.
+- Do not guess at cross-subsystem architecture.
+- Do not bundle "helpful" cleanup.
+- If two plausible implementations would change architecture differently, stop and report the choice instead of improvising.
 
 ## Scope discipline
 
 - Implement only the assigned work item.
 - Do not perform opportunistic refactors outside that scope.
-- Do not alter `ARCHITECTURE.md`, `docs/project/philosophy.md`, or roadmap priority unless the work item explicitly asks for it.
+- Do not alter `ARCHITECTURE.md`, `docs/project/philosophy.md`, `docs/project/product-scope.md`, or roadmap priority unless the work item explicitly asks for it.
 - Do not silently change public behavior, persistence formats, config semantics, or database schemas.
 - Do not replace a real implementation with a mock, shell, placeholder, or UI-only parity surface.
 - Do not weaken or delete a failing test merely to make the suite green.
@@ -36,12 +50,13 @@ If the task exposes a design conflict, stop broadening the patch. Record the con
 - Prefer small modules with a single responsibility. Do not create new god files.
 - Existing very large files are migration targets, not patterns to copy.
 - Files above roughly 1,000 lines deserve active scrutiny; do not grow multi-thousand-line hand-maintained modules without explicit architectural approval.
-- Platform-specific behavior must live behind explicit abstractions and `cfg` boundaries rather than leaking through the reader/UI code.
+- Platform-specific behavior must live behind explicit abstractions and `cfg` boundaries rather than leaking through reader/UI code.
 - Windows and Linux are first-class targets.
 - Prefer deterministic, local tests. Add regression tests for bugs when practical.
 - Use `tracing` for meaningful runtime diagnostics rather than ad-hoc prints.
 - Avoid new dependencies unless they materially simplify a bounded problem. Use current compatible releases when adding one is justified.
 - Avoid external-process dependencies for core functionality. Compatibility bridges must remain optional and isolated.
+- Caliberate must remain useful without Calibre installed or running.
 
 ## Work-item protocol
 
@@ -59,6 +74,7 @@ Work state lives under `docs/work/`.
    - deviations from the task, if any
 6. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied.
 7. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
+8. Commit and push the result so the architect can inspect it directly from the repository. Do not require the human maintainer to relay patches, reports, or explanations between agents.
 
 Never claim Windows runtime behavior was verified unless it actually ran on Windows. A Linux compile or test is not a substitute for a Windows observation.
 
@@ -83,6 +99,10 @@ The long-term reader architecture is defined in `ARCHITECTURE.md`. In particular
 - TTS belongs behind a speech-engine abstraction.
 - Windows speech APIs must not be called directly from generic reader widgets/state.
 
+## Library-specific boundary
+
+The product must support standalone library workflows described in `docs/project/product-scope.md`, including Caliberate-managed libraries, arbitrary directory-backed libraries, and existing Calibre-library attachment/compatibility without requiring Calibre to run.
+
 ## Handoff
 
-The repository is the communication conduit. Leave enough committed evidence that another agent can understand what happened without chat history.
+The repository is the communication conduit. Leave enough committed evidence that the architect can understand and integrate the work without chat history or a human-delivered explanation.
