@@ -24,9 +24,22 @@ Accepted commit: `3bbc5f10a45ec68ab9f4ff8f556432c44cae1268`.
 
 Task `0002-cross-platform-ci` added `.github/workflows/cross-platform-ci.yml` with a Windows/Linux GitHub Actions matrix. Each job runs formatting, locked workspace checking, and locked workspace tests.
 
-Luna/Codex validated the commands natively on Windows before handoff. The workflow itself will provide hosted Windows/Linux evidence on subsequent GitHub runs.
+Luna/Codex validated the commands natively on Windows before handoff. The workflow itself provides hosted Windows/Linux evidence on subsequent GitHub runs.
 
 Accepted commit: `bb21ab25babfe01e7094ea49c13918ee5c896347`.
+
+## Library catalog facade — integrated
+
+Task `0003-library-catalog-facade` introduced the first read-only library-domain seam:
+
+- `caliberate_library::catalog::LibraryBook`
+- `caliberate_library::catalog::LibraryCatalog`
+
+The facade delegates list/get/search operations to the existing database and maps database records into library-domain DTOs. No SQL or database behavior was duplicated in the library crate.
+
+Luna/Codex added focused temporary-database tests and passed formatting, library-package tests, locked workspace check, and locked workspace tests on native Windows.
+
+Accepted commit: `2d8a5dc7a213c946389913477794d7af67456d14`.
 
 ## Current product priority
 
@@ -60,20 +73,19 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 ## Library reality
 
-The existing library/asset code already has meaningful ingest and copy/reference behavior, but the reusable service/source model is not yet established end-to-end.
+The existing library/asset code already has meaningful ingest and copy/reference behavior, and the first library-domain facade now exists for basic read catalog operations.
 
-The database already exposes read primitives including `Database::list_books`, `Database::get_book`, and `Database::search_books`, but those return database-layer `BookRecord` values directly.
+Still not first-class:
 
-Not yet first-class:
-
-- a library-domain facade over those database primitives;
+- structured library-domain query/facet/sort/pagination semantics;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
 - clean separation between externally owned source data and Caliberate overlay state;
-- a shared library/query/content facade consumed by GUI/server/other projects.
+- content-resolution APIs for protocol/reader consumers;
+- common facade adoption by GUI/server/other projects.
 
-The current OPDS implementation still opens `caliberate_db::Database` directly inside protocol handlers. This is P0 architectural debt: protocol adapters should consume the shared library service instead.
+The current OPDS implementation still opens `caliberate_db::Database` directly inside protocol handlers. Task `0004-opds-use-library-catalog` is queued to route catalog list/get/search behavior through `LibraryCatalog` while deliberately leaving download/asset resolution unchanged for a later content-service task.
 
 ## Visual GUI reality
 
@@ -109,9 +121,9 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0003-library-catalog-facade` — introduce the smallest read-only library-domain facade over existing database list/get/search behavior.
-2. Refactor OPDS read paths onto that facade without changing protocol behavior.
-3. Introduce library-domain structured query/facet semantics needed by visual browsing and APIs.
+1. `0004-opds-use-library-catalog` — migrate OPDS list/get/search reads to the library facade without protocol behavior changes.
+2. Introduce the next library-domain seam for content/format resolution so downloads and future readers do not reach through protocol/UI layers into database asset internals.
+3. Introduce structured query/facet/sort/pagination semantics needed by visual browsing and APIs.
 4. Add HTTP/JSON adapter over the same library service.
 5. Move the Calibre-like GUI browsing/search path onto the common service and decompose the relevant GUI seams as needed.
 6. Deepen library-source support: directory-backed and attached-Calibre modes.
