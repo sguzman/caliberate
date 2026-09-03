@@ -274,10 +274,25 @@ fn ensure_distinct_paths(
     input: &PathBuf,
     output: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if input == output {
+    if paths_refer_to_same_file(input, output)? {
         return Err("input and output paths are identical".into());
     }
     Ok(())
+}
+
+fn paths_refer_to_same_file(
+    input: &PathBuf,
+    output: &PathBuf,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if input == output {
+        return Ok(true);
+    }
+
+    if !output.exists() {
+        return Ok(false);
+    }
+
+    Ok(std::fs::canonicalize(input)? == std::fs::canonicalize(output)?)
 }
 
 fn ensure_output_parent(output: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
