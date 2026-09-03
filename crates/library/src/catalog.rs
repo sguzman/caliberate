@@ -1,6 +1,7 @@
 use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage};
+use crate::summary::{LibraryBookSummary, LibrarySeriesSummary, LibrarySummaryPage};
 use caliberate_core::error::CoreResult;
-use caliberate_db::database::{BookRecord, Database};
+use caliberate_db::database::{BookRecord, BookSummaryRecord, Database};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryBook {
@@ -71,6 +72,17 @@ impl<'a> LibraryCatalog<'a> {
         })
     }
 
+    pub fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
+        let records = self.db.search_book_summaries_query(&query.to_db_query())?;
+        let total = self.db.count_books_query(&query.to_db_query())?;
+        Ok(LibrarySummaryPage {
+            books: records.into_iter().map(LibraryBookSummary::from).collect(),
+            total,
+            offset: query.offset.unwrap_or(0),
+            limit: query.limit,
+        })
+    }
+
     pub fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
         let values = match kind {
             LibraryFacetKind::Authors => self.db.list_author_categories()?,
@@ -116,6 +128,30 @@ impl<'a> LibraryCatalog<'a> {
             path: book.path,
             storage_mode: None,
         }))
+    }
+}
+
+impl From<BookSummaryRecord> for LibraryBookSummary {
+    fn from(record: BookSummaryRecord) -> Self {
+        Self {
+            id: record.id,
+            title: record.title,
+            format: record.format,
+            path: record.path,
+            authors: record.authors,
+            tags: record.tags,
+            series: record.series.map(|series| LibrarySeriesSummary {
+                name: series.name,
+                index: series.index,
+            }),
+            rating: record.rating,
+            publisher: record.publisher,
+            languages: record.languages,
+            has_cover: record.has_cover,
+            date_added: record.timestamp,
+            date_modified: record.last_modified,
+            pubdate: record.pubdate,
+        }
     }
 }
 

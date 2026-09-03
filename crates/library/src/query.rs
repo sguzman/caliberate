@@ -238,6 +238,43 @@ mod tests {
         assert_eq!(page.limit, Some(1));
     }
 
+    #[test]
+    fn query_summary_page_maps_domain_summary_and_dates() {
+        let (_temp_dir, mut db) = seeded_database();
+        db.set_book_series(1, "Earthsea", 1.5).expect("set series");
+        db.set_book_publisher(1, "Ace").expect("set publisher");
+        db.set_book_rating(1, 7).expect("set rating");
+        db.set_book_languages(1, &["en".to_string()])
+            .expect("set language");
+        db.update_book_timestamp(1, "2026-04-02T00:00:00Z")
+            .expect("set timestamp");
+        db.update_book_last_modified(1, "2026-04-03T00:00:00Z")
+            .expect("set modified");
+        db.update_book_pubdate(1, "2026-01-01")
+            .expect("set pubdate");
+        db.update_book_has_cover(1, true).expect("set cover");
+
+        let page = LibraryCatalog::new(&db)
+            .query_summary_page(&LibraryQuery::new().with_title("Earthsea"))
+            .expect("summary page");
+        let book = &page.books[0];
+        assert_eq!(book.title, "A Wizard of Earthsea");
+        assert_eq!(
+            book.series
+                .as_ref()
+                .map(|series| (&series.name, series.index)),
+            Some((&"Earthsea".to_string(), 1.5))
+        );
+        assert_eq!(book.publisher.as_deref(), Some("Ace"));
+        assert_eq!(book.rating, Some(7));
+        assert_eq!(book.languages, ["en"]);
+        assert!(book.has_cover);
+        assert_eq!(book.date_added.as_deref(), Some("2026-04-02T00:00:00Z"));
+        assert_eq!(book.date_modified.as_deref(), Some("2026-04-03T00:00:00Z"));
+        assert_eq!(book.pubdate.as_deref(), Some("2026-01-01"));
+        assert_eq!(page.total, 1);
+    }
+
     fn seeded_database() -> (TempDir, Database) {
         let temp_dir = tempfile::Builder::new()
             .prefix("caliberate-library-query-")

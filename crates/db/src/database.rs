@@ -7,6 +7,7 @@ use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::info;
 
@@ -24,6 +25,24 @@ pub struct BookRecord {
     pub title: String,
     pub format: String,
     pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookSummaryRecord {
+    pub id: i64,
+    pub title: String,
+    pub format: String,
+    pub path: String,
+    pub authors: Vec<String>,
+    pub tags: Vec<String>,
+    pub series: Option<SeriesEntry>,
+    pub rating: Option<i64>,
+    pub publisher: Option<String>,
+    pub languages: Vec<String>,
+    pub has_cover: bool,
+    pub timestamp: Option<String>,
+    pub last_modified: Option<String>,
+    pub pubdate: Option<String>,
 }
 
 fn query_parts(query: &BookQuery) -> (Vec<&'static str>, Vec<String>, Vec<Value>) {
@@ -88,7 +107,21 @@ fn query_parts(query: &BookQuery) -> (Vec<&'static str>, Vec<String>, Vec<Value>
     (joins, conditions, params)
 }
 
-#[derive(Debug, Clone)]
+fn id_placeholders(ids: &[i64]) -> String {
+    (1..=ids.len())
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn sqlite_error(label: &str, err: rusqlite::Error) -> CoreError {
+    CoreError::Io(
+        label.to_string(),
+        std::io::Error::new(std::io::ErrorKind::Other, err),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SeriesEntry {
     pub name: String,
     pub index: f64,
@@ -2749,6 +2782,154 @@ impl Database {
                     std::io::Error::new(std::io::ErrorKind::Other, err),
                 )
             })
+    }
+
+    pub fn search_book_summaries_query(
+        &self,
+        query: &BookQuery,
+    ) -> CoreResult<Vec<BookSummaryRecord>> {
+        let books = self.search_books_query(query)?;
+        if books.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<i64> = books.iter().map(|book| book.id).collect();
+        let placeholders = id_placeholders(&ids);
+        let bind_ids = || params_from_iter(ids.iter().copied().map(Value::from));
+
+        let mut extras = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, timestamp, last_modified, pubdate, has_cover FROM books WHERE id IN ({placeholders})"
+        )).map_err(|err| sqlite_error("prepare summary extras", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                ))
+            })
+            .map_err(|err| sqlite_error("query summary extras", err))?;
+        for row in rows {
+            let (id, timestamp, last_modified, pubdate, has_cover) =
+                row.map_err(|err| sqlite_error("read summary extras", err))?;
+            extras.insert(id, (timestamp, last_modified, pubdate, has_cover));
+        }
+
+        let mut authors: HashMap<i64, Vec<String>> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT bal.book, a.name FROM books_authors_link bal JOIN authors a ON a.id = bal.author WHERE bal.book IN ({placeholders}) ORDER BY bal.book, a.name"
+        )).map_err(|err| sqlite_error("prepare summary authors", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|err| sqlite_error("query summary authors", err))?;
+        for row in rows {
+            let (id, name) = row.map_err(|err| sqlite_error("read summary authors", err))?;
+            authors.entry(id).or_default().push(name);
+        }
+
+        let mut tags: HashMap<i64, Vec<String>> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT btl.book, t.name FROM books_tags_link btl JOIN tags t ON t.id = btl.tag WHERE btl.book IN ({placeholders}) ORDER BY btl.book, t.name"
+        )).map_err(|err| sqlite_error("prepare summary tags", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|err| sqlite_error("query summary tags", err))?;
+        for row in rows {
+            let (id, name) = row.map_err(|err| sqlite_error("read summary tags", err))?;
+            tags.entry(id).or_default().push(name);
+        }
+
+        let mut series: HashMap<i64, SeriesEntry> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT bsl.book, s.name, b.series_index FROM books_series_link bsl JOIN series s ON s.id = bsl.series JOIN books b ON b.id = bsl.book WHERE bsl.book IN ({placeholders}) ORDER BY bsl.book, bsl.id"
+        )).map_err(|err| sqlite_error("prepare summary series", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((
+                    row.get(0)?,
+                    SeriesEntry {
+                        name: row.get(1)?,
+                        index: row.get(2)?,
+                    },
+                ))
+            })
+            .map_err(|err| sqlite_error("query summary series", err))?;
+        for row in rows {
+            let (id, value) = row.map_err(|err| sqlite_error("read summary series", err))?;
+            series.entry(id).or_insert(value);
+        }
+
+        let mut publishers: HashMap<i64, String> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT bpl.book, p.name FROM books_publishers_link bpl JOIN publishers p ON p.id = bpl.publisher WHERE bpl.book IN ({placeholders}) ORDER BY bpl.book, bpl.id"
+        )).map_err(|err| sqlite_error("prepare summary publishers", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|err| sqlite_error("query summary publishers", err))?;
+        for row in rows {
+            let (id, name) = row.map_err(|err| sqlite_error("read summary publishers", err))?;
+            publishers.entry(id).or_insert(name);
+        }
+
+        let mut ratings: HashMap<i64, i64> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT brl.book, r.rating FROM books_ratings_link brl JOIN ratings r ON r.id = brl.rating WHERE brl.book IN ({placeholders}) ORDER BY brl.book, brl.id"
+        )).map_err(|err| sqlite_error("prepare summary ratings", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|err| sqlite_error("query summary ratings", err))?;
+        for row in rows {
+            let (id, rating) = row.map_err(|err| sqlite_error("read summary ratings", err))?;
+            ratings.entry(id).or_insert(rating);
+        }
+
+        let mut languages: HashMap<i64, Vec<String>> = HashMap::new();
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT bll.book, l.lang_code FROM books_languages_link bll JOIN languages l ON l.id = bll.lang_code WHERE bll.book IN ({placeholders}) ORDER BY bll.book, bll.item_order, bll.id"
+        )).map_err(|err| sqlite_error("prepare summary languages", err))?;
+        let rows = stmt
+            .query_map(bind_ids(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|err| sqlite_error("query summary languages", err))?;
+        for row in rows {
+            let (id, language) = row.map_err(|err| sqlite_error("read summary languages", err))?;
+            languages.entry(id).or_default().push(language);
+        }
+
+        Ok(books
+            .into_iter()
+            .map(|book| {
+                let (timestamp, last_modified, pubdate, has_cover) =
+                    extras.remove(&book.id).unwrap_or((None, None, None, false));
+                BookSummaryRecord {
+                    id: book.id,
+                    title: book.title,
+                    format: book.format,
+                    path: book.path,
+                    authors: authors.remove(&book.id).unwrap_or_default(),
+                    tags: tags.remove(&book.id).unwrap_or_default(),
+                    series: series.remove(&book.id),
+                    rating: ratings.remove(&book.id),
+                    publisher: publishers.remove(&book.id),
+                    languages: languages.remove(&book.id).unwrap_or_default(),
+                    has_cover,
+                    timestamp,
+                    last_modified,
+                    pubdate,
+                }
+            })
+            .collect())
     }
 
     pub fn search_books_like(&self, query: &str) -> CoreResult<Vec<BookRecord>> {
