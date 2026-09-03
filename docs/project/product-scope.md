@@ -2,7 +2,7 @@
 
 ## Product definition
 
-Caliberate is intended to become a practical Rust-native Calibre replacement: a standalone desktop ebook library, reader, metadata manager, converter, content server, and device-management application.
+Caliberate is intended to become a practical Rust-native Calibre replacement: a standalone desktop ebook library, reader, metadata manager, converter, content server, device-management application, and ebook utility suite.
 
 It does **not** need to reproduce every historical Calibre feature or every plugin ecosystem detail before it is useful. The target is broad functional coverage of the parts that make Calibre valuable, implemented deeply enough that Caliberate can be used as the primary application rather than as a companion shell around Calibre.
 
@@ -67,6 +67,7 @@ These are durable product areas even if their implementation order changes.
 - multiple formats per book;
 - covers and extra assets;
 - library integrity checking and repair;
+- backup/restore and portable export workflows;
 - large-library performance.
 
 ### Metadata
@@ -92,7 +93,8 @@ These are durable product areas even if their implementation order changes.
 - category browser/facets;
 - sorting and filtering;
 - book-details inspection;
-- duplicate and quality checks.
+- duplicate and quality checks;
+- reusable template/filter concepts where they materially improve library workflows.
 
 ### Reader
 
@@ -122,7 +124,23 @@ These are durable product areas even if their implementation order changes.
 - format-specific options and profiles over time;
 - batch conversion;
 - conversion jobs/progress/logging;
+- metadata/cover preservation where possible;
 - optional external compatibility bridges are permitted during development, but final core conversion must not require Calibre.
+
+### Ebook editing and polishing
+
+Calibre includes a real editor for EPUB/AZW3-family books with HTML/CSS editing, live preview, search/replace, resource management, and automated cleanup. Caliberate does not need this early, but ebook editing/repair is part of the long-term Calibre-class scope.
+
+Possible capability set:
+
+- inspect/edit internal HTML/CSS/resources;
+- live preview;
+- search/replace across book files;
+- rename/merge/reorder internal files;
+- add/remove/replace images/fonts/stylesheets;
+- validate/fix common EPUB structure problems;
+- compare ebook revisions;
+- non-destructive polish operations such as metadata/cover/font cleanup where practical.
 
 ### Devices
 
@@ -132,26 +150,75 @@ These are durable product areas even if their implementation order changes.
 - platform-specific discovery behind explicit abstractions;
 - no Unix-only mount-root assumptions in generic code.
 
+### Sharing and delivery
+
+- copy/export books to chosen destinations;
+- send-to-device workflows;
+- optional email/SMTP delivery where useful;
+- preserve a clean abstraction so delivery is not tied to one provider or device family.
+
 ### Content server / OPDS
 
 - serve library catalogs and book files;
 - search/browse endpoints;
 - authentication/access control;
-- useful local-network workflow without requiring a cloud service.
+- browser-based book reading where practical;
+- useful local-network workflow without requiring a cloud service;
+- eventually support library mutations through the server only if access control and consistency are sound.
+
+### Catalog generation
+
+- export library catalogs in useful formats such as CSV/JSON/XML and, where worthwhile, ebook catalog formats;
+- filter catalogs by search/selection;
+- expose catalog generation through GUI and CLI surfaces.
 
 ### Jobs and background work
 
-- background ingest, conversion, metadata download, indexing, and device operations;
+- background ingest, conversion, metadata download, indexing, news acquisition, and device operations;
 - observable job state and failures;
 - cancellation where meaningful.
+
+### Command-line interface
+
+Calibre exposes a comprehensive CLI across most of its functionality. Caliberate should preserve a serious CLI as a first-class automation/testing surface rather than treating the GUI as the only product.
+
+The exact executable names do not need perfect one-for-one compatibility, but major domains should remain scriptable:
+
+- library/database management;
+- conversion;
+- metadata inspection/editing;
+- server management;
+- ebook viewing/editing/polishing where practical;
+- metadata fetching;
+- device operations;
+- catalog/export helpers.
+
+CLI coverage is especially valuable because it provides deterministic integration points for tests and agent-driven development.
 
 ### Plugins / extensibility
 
 Caliberate should retain an extensibility boundary, but exact Calibre plugin API compatibility is not a requirement. Native Caliberate extensions should use explicit permissions/interfaces rather than allowing plugin concerns to infect core architecture.
 
-### News / acquisition helpers
+Useful extension families may include:
 
-Existing news-related scaffolding may evolve into useful feed/article acquisition functionality, but it is lower priority than library, reader, metadata, conversion, TTS, and device workflows.
+- metadata/cover providers;
+- format import/export adapters;
+- device drivers;
+- catalog generators;
+- acquisition/news recipes;
+- UI actions where a safe extension boundary exists.
+
+### News / web acquisition
+
+Calibre has a mature recipe-based news acquisition system. Existing Caliberate news scaffolding may evolve into:
+
+- RSS/feed/article acquisition;
+- recipe/declarative source definitions;
+- webpage-to-ebook generation;
+- scheduled/background acquisition;
+- optional automatic library import and delivery.
+
+This remains lower priority than core library, reader, metadata, conversion, TTS, and device workflows.
 
 ## Compatibility principle
 
@@ -162,3 +229,5 @@ Interoperability with Calibre data is valuable; dependency on Calibre executable
 ## Scope principle
 
 The project should implement **most high-value Calibre capability families**, but does not promise exhaustive one-for-one parity. Features earn priority by user value, architectural fit, and implementation depth rather than by checkbox count.
+
+Calibre's current documentation remains a useful reference inventory for capability discovery, but Caliberate is free to provide cleaner Rust-native architecture and different UX where that is better.
