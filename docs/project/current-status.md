@@ -88,6 +88,23 @@ The summary loader preserves base query order and uses a fixed set of metadata q
 
 Accepted commit: `929456348f4c1471ae6bdb7c8875b6ceff0577fd`.
 
+## Visible GUI library-service read path — integrated
+
+Task `0010-gui-library-service-read-path` moved the actual visible library browse read path onto the common library service:
+
+- central table/grid/shelf rows are built from `LibraryBookSummary` values returned by bounded `LibraryCatalog::query_summary_page` chunks;
+- summary chunks are capped at 500 books and loaded in deterministic ID order while the GUI still requires a full in-memory working set;
+- the main Authors/Tags/Series/Publishers/Ratings/Languages browser lists now use `LibraryFacetValue` returned by `LibraryCatalog::list_facets`;
+- non-empty All-search candidate IDs now come through `LibraryCatalog::search_books`;
+- tag/language/publisher autocomplete values reuse the service-backed facets;
+- the old `MetadataCache` dependency and per-book `build_row` enrichment path were removed from `LibraryView`.
+
+Details, editing, mutations, management dialogs, saved-search persistence, device/news flows, advanced include/exclude filtering, and richer GUI sorts deliberately remain outside this first read-path migration.
+
+Native Windows cargo validation passed, including GUI tests and the workspace suite. Luna could not perform an interactive desktop smoke test in its environment, so runtime GUI interaction after this migration remains to be checked manually on the user's Windows desktop.
+
+Accepted commit: `84dcf6d88674e515425367ffd573e173c80b42b4`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -126,16 +143,17 @@ The reusable read-only library-domain facade now exists for:
 - content resolution;
 - structured filtering;
 - category facets;
-- deterministic sorting;
+- deterministic sorting by ID/title/format;
 - database-backed pagination and filtered totals;
 - rich batched book-summary pages.
 
-OPDS list/get/search/download storage selection consume the library facade. Protocol-specific authorization and wire behavior remain in the server.
+OPDS list/get/search/download storage selection consume the library facade. The visible GUI book-row and category-browser read path now consumes the same service. Protocol-specific authorization and wire behavior remain in the server.
 
 Still not first-class:
 
-- broader sort fields such as author/series/rating/date;
+- broader sort fields matching the visible browser (`0011` queued);
 - compound positive/negative filter semantics matching every current GUI control;
+- true service-backed GUI pagination;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
@@ -146,18 +164,16 @@ Still not first-class:
 
 The GUI already has a substantial Calibre-like shell and rich presentation behavior, but `crates/gui/src/views.rs` remains a large DB-coupled god file.
 
-Current inspection shows:
+Current state:
 
-- `crates/gui/src/views.rs` is roughly 493 KB;
-- `crates/gui/src/app.rs` is roughly 65 KB;
-- `crates/gui/src/preferences.rs` is roughly 68 KB;
-- `BookRow` already displays title, authors, series, tags, format, rating, publisher, languages, cover presence, added/modified/pubdate, ID, and path;
-- `LibraryView::refresh_books` still obtains base books directly from `Database`, then performs per-row presentation enrichment through `MetadataCache`/`build_row`;
-- the main category browser still stores raw DB `CategoryCount` values and calls raw DB category-count methods;
-- advanced browser include/exclude filtering and many sort modes are currently local/in-memory behavior;
-- details/editing/mutations/device/news/management dialogs remain directly DB-backed and are deliberately outside the first read-path migration.
+- the main visible book-row source is now `LibraryCatalog::query_summary_page`, not direct `Database::list_books` plus `MetadataCache` enrichment;
+- the main category browser now uses library-domain facet values;
+- `BookRow` remains a GUI presentation type that formats structured summary data for the table/grid/shelf;
+- the GUI still maintains a full `all_books` working set in memory because advanced include/exclude filters, many sorts, grouping, stats, and reader-library-search are still local;
+- service sort support currently covers only ID/title/format, so paging cannot yet replace the full working set without breaking the other visible sort modes;
+- details/editing/mutations/device/news/management dialogs remain directly DB-backed and are deliberately outside this read-path phase.
 
-Task `0010-gui-library-service-read-path` is queued to move the visible central book rows and category-browser facets onto `LibraryCatalog` using bounded summary pages while preserving current local advanced filtering/sorting semantics. It will not fake full service parity for controls the library query model does not yet support.
+The next work is specifically to close the remaining query-semantic gap rather than add fake pagination over a locally filtered page.
 
 The P0 visual target remains recognizably Calibre-like information architecture: action toolbar, global/advanced search, left category/tag browser, central list/cover-grid browsing, optional cover browser, right book-details panel, virtual libraries, and persistent layout controls.
 
@@ -175,9 +191,9 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0010-gui-library-service-read-path` — move the actual visible book-row enrichment/search candidate path and main category-browser facets onto the common library service, preserving existing GUI behavior with bounded summary chunks.
-2. Expand service query semantics only as required to replace the GUI's remaining local search/include/exclude/sort behavior without regressions.
-3. Introduce real GUI pagination once filtering/sorting semantics can operate on the full result set rather than one local page.
+1. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
+2. Extend structured positive/negative filter semantics required by the GUI's browser filters.
+3. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
 4. Add an HTTP/JSON adapter over the same service semantics.
 5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
