@@ -38,6 +38,14 @@ Prefer a smaller number of end-to-end features that genuinely work over a broad 
 
 Build reliable parsing, persistence, path handling, library operations, and state transitions before optimizing polish. Once foundations are trustworthy, quality-of-life should become a major differentiator.
 
+### Primary content owns the viewport
+
+The application's primary work surface must never be treated as leftover space after auxiliary chrome is allocated.
+
+For the library, the book browser is the primary surface. For the reader, the document is the primary surface. Auxiliary panes such as category browsers, details, jobs, inspectors, navigation, and tool panels must be resizable and directly collapsible where persistent. Their saved geometry must be clamped against the current window so stale or oversized values cannot make the primary surface unusable.
+
+A pane being technically `resizable(true)` is not sufficient if content, minimum widths, persisted state, or layout ordering still prevents the user from reclaiming useful space.
+
 ### Windows and Linux are peers
 
 The application should not be "Linux code that happens to compile on Windows" or vice versa. Platform-specific capabilities belong behind explicit boundaries and both desktop targets should remain buildable throughout development.
