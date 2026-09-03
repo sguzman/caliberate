@@ -56,6 +56,14 @@ The locator preserves the existing storage-selection rule: prefer the first `cop
 
 Accepted commit: `7748255c04d812208221ff62704513694431b098`.
 
+## OPDS content-locator adoption — integrated
+
+Task `0006-opds-download-use-content-locator` routed OPDS download storage selection through `LibraryCatalog::resolve_content`.
+
+The server still owns download authorization, external/reference path policy, filesystem metadata/open operations, maximum download size, MIME mapping, response status, and streaming. OPDS no longer duplicates the database asset-selection rule.
+
+Accepted commit: `3f7c47a526d39c78ee7b7dab5e3c9fb80d70a928`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -90,11 +98,14 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 The first reusable read-only library-domain facade now exists for basic catalog operations and content resolution.
 
-OPDS list/get/search reads consume the facade rather than direct database catalog methods. The remaining OPDS download path still opens the database and duplicates asset selection; task `0006-opds-download-use-content-locator` is queued to remove that duplication while retaining server-side authorization and filesystem policy.
+OPDS list/get/search/download storage selection consume that library facade. Protocol-specific authorization and wire behavior remain in the server.
+
+The database already exposes structured `BookQuery` filtering plus category counts for authors, tags, series, publishers, ratings, and languages. Task `0007-library-query-facets` is queued to lift those existing capabilities into library-domain types without adding SQL.
 
 Still not first-class:
 
-- structured library-domain query/facet/sort/pagination semantics;
+- library-domain sorting, offset/pagination, and total-count semantics;
+- an efficient rich `BookSummary` suitable for the central Calibre-like table/grid;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
@@ -135,11 +146,12 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0006-opds-download-use-content-locator` — route OPDS download content selection through `LibraryCatalog::resolve_content` while keeping HTTP/server policy in the server.
-2. Introduce structured library-domain query/facet/sort/pagination semantics needed by visual browsing and APIs.
-3. Add HTTP/JSON adapter over the same library service.
-4. Move the Calibre-like GUI browsing/search path onto the common service and decompose the relevant GUI seams as needed.
-5. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0007-library-query-facets` — lift existing structured filters and author/tag/series/publisher/rating/language category counts into library-domain APIs without new SQL.
+2. Add deterministic sorting, offset/pagination, and total-count semantics beneath the library query API.
+3. Add an efficient rich book-summary read model for the Calibre-like central list/grid.
+4. Move the Calibre-like GUI browsing/search/category-browser path onto the common library service.
+5. Add HTTP/JSON adapter over the same service semantics.
+6. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
