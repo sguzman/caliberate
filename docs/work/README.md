@@ -6,13 +6,14 @@ The repository itself is the agent-to-agent communication channel. Codex must co
 
 ## States
 
-- `ready/`: architect-approved tasks that may be implemented.
+- `queued/`: architect-defined future tasks whose identity/scope should be preserved but which are not yet authorized for implementation.
+- `ready/`: the single architect-approved task that may be implemented now.
 - `active/`: a task currently being implemented.
 - `blocked/`: implementation stopped because the contract cannot be completed safely within scope.
 - `done/`: acceptance criteria satisfied.
 - `reports/`: implementation and validation reports keyed by task ID.
 
-Only tasks in `ready/` are authorization to begin new implementation work.
+Only tasks in `ready/` are authorization to begin new implementation work. Keep at most one task in `ready/` at a time. Moving a task between queue states does not change its identity or scope.
 
 ## Task IDs
 
@@ -20,7 +21,7 @@ Use monotonically increasing four-digit IDs such as `0001`, `0002`, etc. Keep th
 
 **Task identity is immutable once assigned.** Do not reuse an existing task ID for a different objective, even if priorities change before implementation.
 
-If runtime acceptance of a completed task reveals an urgent bounded fix that should happen before the next already-assigned numbered task, use an interstitial patch ID based on the task that exposed it, for example `0010.1`. The next normal numbered task keeps its original ID, title, scope, report name, and branch name.
+If runtime acceptance of a completed task reveals an urgent bounded fix that should happen before the next already-assigned numbered task, use an interstitial patch ID based on the task that exposed it, for example `0010.1`. The next normal numbered task keeps its original ID, title, scope, report name, and branch name and remains in `queued/` until the patch is complete.
 
 Examples:
 
@@ -29,10 +30,9 @@ ready/0007-extract-reader-navigation.md
 reports/0007.md
 
 ready/0010.1-gui-pane-layout-ergonomics.md
+queued/0011-library-query-sort-parity.md
 reports/0010.1.md
 ```
-
-When an interstitial patch task temporarily coexists with the next numbered ready task, the human/architect must give Codex the exact task path and Codex must execute only that explicitly named task.
 
 ## Task design for Codex/Luna-class workers
 
