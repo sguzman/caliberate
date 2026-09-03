@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 caliberate-core = { path = "../core" }
+caliberate-db = { path = "../db" }
 caliberate-assets = { path = "../assets" }
 caliberate-metadata = { path = "../metadata" }
 crossbeam-channel = "0.5.15"
