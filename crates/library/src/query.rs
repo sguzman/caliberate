@@ -1,0 +1,199 @@
+use caliberate_db::query::BookQuery;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LibraryQuery {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub tag: Option<String>,
+    pub series: Option<String>,
+    pub publisher: Option<String>,
+    pub language: Option<String>,
+    pub identifier: Option<String>,
+    pub format: Option<String>,
+    pub limit: Option<usize>,
+}
+
+impl LibraryQuery {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn with_title(mut self, value: &str) -> Self {
+        self.title = Some(value.to_string());
+        self
+    }
+    pub fn with_author(mut self, value: &str) -> Self {
+        self.author = Some(value.to_string());
+        self
+    }
+    pub fn with_tag(mut self, value: &str) -> Self {
+        self.tag = Some(value.to_string());
+        self
+    }
+    pub fn with_series(mut self, value: &str) -> Self {
+        self.series = Some(value.to_string());
+        self
+    }
+    pub fn with_publisher(mut self, value: &str) -> Self {
+        self.publisher = Some(value.to_string());
+        self
+    }
+    pub fn with_language(mut self, value: &str) -> Self {
+        self.language = Some(value.to_string());
+        self
+    }
+    pub fn with_identifier(mut self, value: &str) -> Self {
+        self.identifier = Some(value.to_string());
+        self
+    }
+    pub fn with_format(mut self, value: &str) -> Self {
+        self.format = Some(value.to_string());
+        self
+    }
+    pub fn with_limit(mut self, value: usize) -> Self {
+        self.limit = Some(value);
+        self
+    }
+
+    pub(crate) fn to_db_query(&self) -> BookQuery {
+        BookQuery {
+            title: self.title.clone(),
+            author: self.author.clone(),
+            tag: self.tag.clone(),
+            series: self.series.clone(),
+            publisher: self.publisher.clone(),
+            language: self.language.clone(),
+            identifier: self.identifier.clone(),
+            format: self.format.clone(),
+            limit: self.limit,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryFacetKind {
+    Authors,
+    Tags,
+    Series,
+    Publishers,
+    Ratings,
+    Languages,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryFacetValue {
+    pub id: i64,
+    pub name: String,
+    pub count: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LibraryFacetKind, LibraryQuery};
+    use crate::catalog::LibraryCatalog;
+    use caliberate_db::database::Database;
+    use tempfile::TempDir;
+
+    #[test]
+    fn query_filters_by_title_format_author_tag_and_limit() {
+        let (_temp_dir, mut db) = seeded_database();
+        let author = vec!["Ursula Le Guin".to_string()];
+        let tag = vec!["classic".to_string()];
+        db.add_book_authors(1, &author).expect("add author");
+        db.add_book_tags(1, &tag).expect("add tag");
+        db.add_book_authors(2, &author).expect("add author");
+        db.add_book_tags(2, &tag).expect("add tag");
+        let catalog = LibraryCatalog::new(&db);
+
+        assert_eq!(
+            catalog
+                .query_books(&LibraryQuery::new().with_title("Earthsea"))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            catalog
+                .query_books(&LibraryQuery::new().with_format("epub"))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            catalog
+                .query_books(&LibraryQuery::new().with_author("Le Guin"))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            catalog
+                .query_books(&LibraryQuery::new().with_tag("classic"))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            catalog
+                .query_books(&LibraryQuery::new().with_limit(1))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn facets_return_library_values_with_names_and_counts() {
+        let (_temp_dir, mut db) = seeded_database();
+        let author = vec!["Ursula Le Guin".to_string()];
+        let tag = vec!["classic".to_string()];
+        db.add_book_authors(1, &author).expect("add author");
+        db.add_book_authors(2, &author).expect("add author");
+        db.add_book_tags(1, &tag).expect("add tag");
+        db.add_book_tags(2, &tag).expect("add tag");
+        let catalog = LibraryCatalog::new(&db);
+
+        let authors = catalog
+            .list_facets(LibraryFacetKind::Authors)
+            .expect("list authors");
+        let tags = catalog
+            .list_facets(LibraryFacetKind::Tags)
+            .expect("list tags");
+        assert_eq!(
+            authors
+                .iter()
+                .find(|value| value.name == "Ursula Le Guin")
+                .map(|value| value.count),
+            Some(2)
+        );
+        assert_eq!(
+            tags.iter()
+                .find(|value| value.name == "classic")
+                .map(|value| value.count),
+            Some(2)
+        );
+    }
+
+    fn seeded_database() -> (TempDir, Database) {
+        let temp_dir = tempfile::Builder::new()
+            .prefix("caliberate-library-query-")
+            .tempdir()
+            .expect("create temp directory");
+        let db =
+            Database::open_path(temp_dir.path().join("library.db"), 100).expect("open database");
+        db.add_book(
+            "A Wizard of Earthsea",
+            "epub",
+            "/library/earthsea.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add Earthsea");
+        db.add_book(
+            "The Left Hand of Darkness",
+            "epub",
+            "/library/left-hand.epub",
+            "2026-04-02T00:00:00Z",
+        )
+        .expect("add Left Hand");
+        (temp_dir, db)
+    }
+}

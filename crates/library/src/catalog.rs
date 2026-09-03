@@ -1,3 +1,4 @@
+use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery};
 use caliberate_core::error::CoreResult;
 use caliberate_db::database::{BookRecord, Database};
 
@@ -51,6 +52,32 @@ impl<'a> LibraryCatalog<'a> {
         self.db
             .search_books(query)
             .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    pub fn query_books(&self, query: &LibraryQuery) -> CoreResult<Vec<LibraryBook>> {
+        self.db
+            .search_books_query(&query.to_db_query())
+            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    pub fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
+        let values = match kind {
+            LibraryFacetKind::Authors => self.db.list_author_categories()?,
+            LibraryFacetKind::Tags => self.db.list_tag_categories()?,
+            LibraryFacetKind::Series => self.db.list_series_categories()?,
+            LibraryFacetKind::Publishers => self.db.list_publisher_categories()?,
+            LibraryFacetKind::Ratings => self.db.list_rating_categories()?,
+            LibraryFacetKind::Languages => self.db.list_language_categories()?,
+        };
+
+        Ok(values
+            .into_iter()
+            .map(|value| LibraryFacetValue {
+                id: value.id,
+                name: value.name,
+                count: value.count,
+            })
+            .collect())
     }
 
     pub fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
