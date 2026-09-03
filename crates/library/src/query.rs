@@ -1,4 +1,4 @@
-use caliberate_db::query::BookQuery;
+use caliberate_db::query::{BookQuery, BookSortField};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LibraryQuery {
@@ -10,6 +10,30 @@ pub struct LibraryQuery {
     pub language: Option<String>,
     pub identifier: Option<String>,
     pub format: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub sort: LibrarySortField,
+    pub descending: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibrarySortField {
+    Id,
+    Title,
+    Format,
+}
+
+impl Default for LibrarySortField {
+    fn default() -> Self {
+        Self::Id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryQueryPage {
+    pub books: Vec<crate::catalog::LibraryBook>,
+    pub total: usize,
+    pub offset: usize,
     pub limit: Option<usize>,
 }
 
@@ -65,7 +89,29 @@ impl LibraryQuery {
             identifier: self.identifier.clone(),
             format: self.format.clone(),
             limit: self.limit,
+            offset: self.offset,
+            sort: match self.sort {
+                LibrarySortField::Id => BookSortField::Id,
+                LibrarySortField::Title => BookSortField::Title,
+                LibrarySortField::Format => BookSortField::Format,
+            },
+            descending: self.descending,
         }
+    }
+
+    pub fn with_offset(mut self, value: usize) -> Self {
+        self.offset = Some(value);
+        self
+    }
+
+    pub fn with_sort(mut self, field: LibrarySortField) -> Self {
+        self.sort = field;
+        self
+    }
+
+    pub fn descending(mut self) -> Self {
+        self.descending = true;
+        self
     }
 }
 
@@ -88,7 +134,7 @@ pub struct LibraryFacetValue {
 
 #[cfg(test)]
 mod tests {
-    use super::{LibraryFacetKind, LibraryQuery};
+    use super::{LibraryFacetKind, LibraryQuery, LibrarySortField};
     use crate::catalog::LibraryCatalog;
     use caliberate_db::database::Database;
     use tempfile::TempDir;
@@ -171,6 +217,25 @@ mod tests {
                 .map(|value| value.count),
             Some(2)
         );
+    }
+
+    #[test]
+    fn query_page_maps_sort_pagination_and_total() {
+        let (_temp_dir, db) = seeded_database();
+        let catalog = LibraryCatalog::new(&db);
+        let query = LibraryQuery::new()
+            .with_sort(LibrarySortField::Title)
+            .descending()
+            .with_limit(1)
+            .with_offset(1);
+
+        let page = catalog.query_page(&query).expect("query page");
+
+        assert_eq!(page.books.len(), 1);
+        assert_eq!(page.books[0].title, "A Wizard of Earthsea");
+        assert_eq!(page.total, 2);
+        assert_eq!(page.offset, 1);
+        assert_eq!(page.limit, Some(1));
     }
 
     fn seeded_database() -> (TempDir, Database) {

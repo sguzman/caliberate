@@ -1,5 +1,5 @@
 use caliberate_db::database::Database;
-use caliberate_db::query::BookQuery;
+use caliberate_db::query::{BookQuery, BookSortField};
 use tempfile::TempDir;
 
 #[test]
@@ -73,6 +73,92 @@ fn query_without_filters_returns_all() {
     let query = BookQuery::new();
     let results = db.search_books_query(&query).expect("query");
     assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn query_sorts_case_insensitively_with_deterministic_ties() {
+    let (db, _tmp) = ordered_db();
+    let ascending = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Title))
+        .expect("ascending query");
+    assert_eq!(
+        ascending.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [2, 3, 1]
+    );
+
+    let descending = db
+        .search_books_query(
+            &BookQuery::new()
+                .with_sort(BookSortField::Title)
+                .descending(),
+        )
+        .expect("descending query");
+    assert_eq!(
+        descending.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+}
+
+#[test]
+fn query_supports_limit_and_offset() {
+    let (db, _tmp, first_id, second_id) = seeded_db();
+    let page = db
+        .search_books_query(&BookQuery::new().with_limit(1).with_offset(1))
+        .expect("page query");
+    assert_eq!(
+        page.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [second_id]
+    );
+
+    let remaining = db
+        .search_books_query(&BookQuery::new().with_offset(1))
+        .expect("remaining query");
+    assert_eq!(
+        remaining.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [second_id]
+    );
+    assert_ne!(first_id, second_id);
+}
+
+#[test]
+fn count_query_ignores_page_and_counts_distinct_filtered_books() {
+    let (mut db, _tmp, first_id, second_id) = seeded_db();
+    db.add_book_authors(second_id, &vec!["Alice".to_string()])
+        .expect("add shared author");
+    let query = BookQuery::new()
+        .with_author("Alice")
+        .with_limit(1)
+        .with_offset(10)
+        .with_sort(BookSortField::Title)
+        .descending();
+    assert_eq!(db.count_books_query(&query).expect("count query"), 2);
+    assert_eq!(first_id, 1);
+}
+
+fn ordered_db() -> (Database, TempDir) {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("caliberate-test-query-order-")
+        .tempdir()
+        .expect("tempdir");
+    let path = temp_dir.path().join("query.db");
+    let db = Database::open_path(&path, 100).expect("open db");
+    db.add_book("zeta", "epub", "/library/zeta.epub", "2026-04-01T00:00:00Z")
+        .expect("add zeta");
+    db.add_book(
+        "Alpha",
+        "epub",
+        "/library/alpha.epub",
+        "2026-04-01T00:00:00Z",
+    )
+    .expect("add Alpha");
+    db.add_book(
+        "alpha",
+        "epub",
+        "/library/alpha-2.epub",
+        "2026-04-01T00:00:00Z",
+    )
+    .expect("add alpha");
+    (db, temp_dir)
 }
 
 fn seeded_db() -> (Database, TempDir, i64, i64) {

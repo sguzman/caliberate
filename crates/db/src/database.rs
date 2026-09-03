@@ -1,7 +1,7 @@
 //! Database API with migrations and basic operations.
 
 use crate::backend;
-use crate::query::BookQuery;
+use crate::query::{BookQuery, BookSortField};
 use caliberate_core::config::{DbConfig, FtsConfig};
 use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::types::Value;
@@ -24,6 +24,68 @@ pub struct BookRecord {
     pub title: String,
     pub format: String,
     pub path: String,
+}
+
+fn query_parts(query: &BookQuery) -> (Vec<&'static str>, Vec<String>, Vec<Value>) {
+    let mut joins = Vec::new();
+    let mut conditions = Vec::new();
+    let mut params = Vec::new();
+
+    if query.author.is_some() {
+        joins.push("LEFT JOIN books_authors_link bal ON bal.book = b.id LEFT JOIN authors a ON a.id = bal.author");
+    }
+    if query.tag.is_some() {
+        joins.push(
+            "LEFT JOIN books_tags_link btl ON btl.book = b.id LEFT JOIN tags t ON t.id = btl.tag",
+        );
+    }
+    if query.series.is_some() {
+        joins.push("LEFT JOIN books_series_link bsl ON bsl.book = b.id LEFT JOIN series s ON s.id = bsl.series");
+    }
+    if query.publisher.is_some() {
+        joins.push("LEFT JOIN books_publishers_link bpl ON bpl.book = b.id LEFT JOIN publishers p ON p.id = bpl.publisher");
+    }
+    if query.language.is_some() {
+        joins.push("LEFT JOIN books_languages_link bll ON bll.book = b.id LEFT JOIN languages l ON l.id = bll.lang_code");
+    }
+    if query.identifier.is_some() {
+        joins.push("LEFT JOIN identifiers i ON i.book = b.id");
+    }
+    if let Some(title) = &query.title {
+        conditions.push("b.title LIKE ?".to_string());
+        params.push(Value::from(format!("%{title}%")));
+    }
+    if let Some(author) = &query.author {
+        conditions.push("a.name LIKE ?".to_string());
+        params.push(Value::from(format!("%{author}%")));
+    }
+    if let Some(tag) = &query.tag {
+        conditions.push("t.name LIKE ?".to_string());
+        params.push(Value::from(format!("%{tag}%")));
+    }
+    if let Some(series) = &query.series {
+        conditions.push("s.name LIKE ?".to_string());
+        params.push(Value::from(format!("%{series}%")));
+    }
+    if let Some(publisher) = &query.publisher {
+        conditions.push("p.name LIKE ?".to_string());
+        params.push(Value::from(format!("%{publisher}%")));
+    }
+    if let Some(language) = &query.language {
+        conditions.push("l.lang_code LIKE ?".to_string());
+        params.push(Value::from(format!("%{language}%")));
+    }
+    if let Some(identifier) = &query.identifier {
+        conditions.push("(i.val LIKE ? OR i.type LIKE ?)".to_string());
+        let pattern = Value::from(format!("%{identifier}%"));
+        params.push(pattern.clone());
+        params.push(pattern);
+    }
+    if let Some(format) = &query.format {
+        conditions.push("b.format LIKE ?".to_string());
+        params.push(Value::from(format!("%{format}%")));
+    }
+    (joins, conditions, params)
 }
 
 #[derive(Debug, Clone)]
@@ -2600,78 +2662,7 @@ impl Database {
 
     pub fn search_books_query(&self, query: &BookQuery) -> CoreResult<Vec<BookRecord>> {
         let mut sql = String::from("SELECT DISTINCT b.id, b.title, b.format, b.path FROM books b");
-        let mut joins: Vec<&str> = Vec::new();
-        let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<Value> = Vec::new();
-
-        if query.author.is_some() {
-            joins.push(
-                "LEFT JOIN books_authors_link bal ON bal.book = b.id \
-                 LEFT JOIN authors a ON a.id = bal.author",
-            );
-        }
-        if query.tag.is_some() {
-            joins.push(
-                "LEFT JOIN books_tags_link btl ON btl.book = b.id \
-                 LEFT JOIN tags t ON t.id = btl.tag",
-            );
-        }
-        if query.series.is_some() {
-            joins.push(
-                "LEFT JOIN books_series_link bsl ON bsl.book = b.id \
-                 LEFT JOIN series s ON s.id = bsl.series",
-            );
-        }
-        if query.publisher.is_some() {
-            joins.push(
-                "LEFT JOIN books_publishers_link bpl ON bpl.book = b.id \
-                 LEFT JOIN publishers p ON p.id = bpl.publisher",
-            );
-        }
-        if query.language.is_some() {
-            joins.push(
-                "LEFT JOIN books_languages_link bll ON bll.book = b.id \
-                 LEFT JOIN languages l ON l.id = bll.lang_code",
-            );
-        }
-        if query.identifier.is_some() {
-            joins.push("LEFT JOIN identifiers i ON i.book = b.id");
-        }
-
-        if let Some(title) = &query.title {
-            conditions.push("b.title LIKE ?".to_string());
-            params.push(Value::from(format!("%{title}%")));
-        }
-        if let Some(author) = &query.author {
-            conditions.push("a.name LIKE ?".to_string());
-            params.push(Value::from(format!("%{author}%")));
-        }
-        if let Some(tag) = &query.tag {
-            conditions.push("t.name LIKE ?".to_string());
-            params.push(Value::from(format!("%{tag}%")));
-        }
-        if let Some(series) = &query.series {
-            conditions.push("s.name LIKE ?".to_string());
-            params.push(Value::from(format!("%{series}%")));
-        }
-        if let Some(publisher) = &query.publisher {
-            conditions.push("p.name LIKE ?".to_string());
-            params.push(Value::from(format!("%{publisher}%")));
-        }
-        if let Some(language) = &query.language {
-            conditions.push("l.lang_code LIKE ?".to_string());
-            params.push(Value::from(format!("%{language}%")));
-        }
-        if let Some(identifier) = &query.identifier {
-            conditions.push("(i.val LIKE ? OR i.type LIKE ?)".to_string());
-            let pattern = Value::from(format!("%{identifier}%"));
-            params.push(pattern.clone());
-            params.push(pattern);
-        }
-        if let Some(format) = &query.format {
-            conditions.push("b.format LIKE ?".to_string());
-            params.push(Value::from(format!("%{format}%")));
-        }
+        let (joins, conditions, mut params) = query_parts(query);
 
         if !joins.is_empty() {
             sql.push(' ');
@@ -2681,10 +2672,26 @@ impl Database {
             sql.push_str(" WHERE ");
             sql.push_str(&conditions.join(" AND "));
         }
-        sql.push_str(" ORDER BY b.id");
+        let sort_expression = match query.sort {
+            BookSortField::Id => "b.id",
+            BookSortField::Title => "b.title COLLATE NOCASE",
+            BookSortField::Format => "b.format COLLATE NOCASE",
+        };
+        let direction = if query.descending { "DESC" } else { "ASC" };
+        sql.push_str(&format!(" ORDER BY {sort_expression} {direction}"));
+        if !matches!(query.sort, BookSortField::Id) {
+            sql.push_str(", b.id ASC");
+        }
         if let Some(limit) = query.limit {
             sql.push_str(" LIMIT ?");
             params.push(Value::from(limit as i64));
+            if let Some(offset) = query.offset {
+                sql.push_str(" OFFSET ?");
+                params.push(Value::from(offset as i64));
+            }
+        } else if let Some(offset) = query.offset {
+            sql.push_str(" LIMIT -1 OFFSET ?");
+            params.push(Value::from(offset as i64));
         }
 
         let mut stmt = self.conn.prepare(&sql).map_err(|err| {
@@ -2719,6 +2726,29 @@ impl Database {
             })?);
         }
         Ok(results)
+    }
+
+    pub fn count_books_query(&self, query: &BookQuery) -> CoreResult<usize> {
+        let (joins, conditions, params) = query_parts(query);
+        let mut sql = String::from("SELECT COUNT(DISTINCT b.id) FROM books b");
+        if !joins.is_empty() {
+            sql.push(' ');
+            sql.push_str(&joins.join(" "));
+        }
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        self.conn
+            .query_row(&sql, params_from_iter(params), |row| row.get::<_, i64>(0))
+            .map(|count| count as usize)
+            .map_err(|err| {
+                CoreError::Io(
+                    "count search query".to_string(),
+                    std::io::Error::new(std::io::ErrorKind::Other, err),
+                )
+            })
     }
 
     pub fn search_books_like(&self, query: &str) -> CoreResult<Vec<BookRecord>> {

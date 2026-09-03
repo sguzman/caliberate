@@ -1,6 +1,19 @@
 //! Query and search interfaces.
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookSortField {
+    Id,
+    Title,
+    Format,
+}
+
+impl Default for BookSortField {
+    fn default() -> Self {
+        Self::Id
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct BookQuery {
     pub title: Option<String>,
     pub author: Option<String>,
@@ -11,6 +24,28 @@ pub struct BookQuery {
     pub identifier: Option<String>,
     pub format: Option<String>,
     pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub sort: BookSortField,
+    pub descending: bool,
+}
+
+impl Default for BookQuery {
+    fn default() -> Self {
+        Self {
+            title: None,
+            author: None,
+            tag: None,
+            series: None,
+            publisher: None,
+            language: None,
+            identifier: None,
+            format: None,
+            limit: None,
+            offset: None,
+            sort: BookSortField::Id,
+            descending: false,
+        }
+    }
 }
 
 impl BookQuery {
@@ -60,6 +95,21 @@ impl BookQuery {
 
     pub fn with_limit(mut self, value: usize) -> Self {
         self.limit = Some(value);
+        self
+    }
+
+    pub fn with_offset(mut self, value: usize) -> Self {
+        self.offset = Some(value);
+        self
+    }
+
+    pub fn with_sort(mut self, field: BookSortField) -> Self {
+        self.sort = field;
+        self
+    }
+
+    pub fn descending(mut self) -> Self {
+        self.descending = true;
         self
     }
 }

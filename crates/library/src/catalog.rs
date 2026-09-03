@@ -1,4 +1,4 @@
-use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery};
+use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage};
 use caliberate_core::error::CoreResult;
 use caliberate_db::database::{BookRecord, Database};
 
@@ -58,6 +58,17 @@ impl<'a> LibraryCatalog<'a> {
         self.db
             .search_books_query(&query.to_db_query())
             .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    pub fn query_page(&self, query: &LibraryQuery) -> CoreResult<LibraryQueryPage> {
+        let books = self.query_books(query)?;
+        let total = self.db.count_books_query(&query.to_db_query())?;
+        Ok(LibraryQueryPage {
+            books,
+            total,
+            offset: query.offset.unwrap_or(0),
+            limit: query.limit,
+        })
     }
 
     pub fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
