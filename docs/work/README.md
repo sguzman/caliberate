@@ -83,11 +83,25 @@ Unless a task explicitly says otherwise, Codex should:
 3. write `docs/work/reports/<task-id>.md`;
 4. move the task to `done/` or `blocked/`;
 5. commit all task code/docs/report state;
-6. push the result to a remote branch named `codex/<task-id>-<slug>`.
+6. push the result to a remote branch named `codex/<task-id>-<slug>`;
+7. after the push succeeds, switch the shared local checkout back to `main` without merging the implementation branch locally.
 
 ChatGPT reviews that pushed branch directly and is responsible for integrating accepted work into `main`.
 
 A pull request is optional plumbing. The human maintainer should not be asked to create, review, or merge one as routine workflow.
+
+### Shared-checkout branch safety
+
+Codex/Luna and the human maintainer use the same working tree. Checking out `codex/<task-id>-<slug>` changes the branch seen by the human too.
+
+A fetch or `git pull` does **not** automatically switch that checkout back to `main`. If the working tree remains on a Codex branch, Git may fetch a newer `origin/main` while the files visible on disk still come from the old Codex branch. This can make valid newly-added files on `main` appear to be missing.
+
+Therefore:
+
+- the implementation worker must switch back to `main` after pushing its branch;
+- if it cannot switch because of local changes, it must report that explicitly;
+- the normal human delivery command is `git switch main` followed by `git pull --ff-only`;
+- when anything appears inconsistent, verify `git branch --show-current`, `git rev-parse HEAD`, and `git rev-parse origin/main` before diagnosing sparse checkout or missing repository files.
 
 ## Reports
 
@@ -113,9 +127,10 @@ Exact command output can be summarized in the report, but failures and platform 
 
 The normal human loop is intentionally small:
 
-1. `git pull` accepted `main` changes;
-2. launch/feed Codex the repository task;
-3. run local GUI/Windows/device/TTS verification only when the architect asks for it;
-4. report observed runtime behavior.
+1. `git switch main`;
+2. `git pull --ff-only` to receive accepted `main` changes;
+3. launch/feed Codex the repository task;
+4. run local GUI/Windows/device/TTS verification only when the architect asks for it;
+5. report observed runtime behavior.
 
 The human is operating and testing the software, not delivering messages between the agents.
