@@ -16,13 +16,13 @@ Observed on Windows 11 with the stable MSVC Rust toolchain:
 
 ### Windows path regression — resolved
 
-Task `0001-windows-path-identity` fixed the failing `ebook_convert_rejects_input_equals_output` case by comparing canonical paths when the output already exists. Luna/Codex ran the focused test plus the full workspace suite in its native Windows environment; all passed.
+Task `0001-windows-path-identity` fixed the failing `ebook_convert_rejects_input_equals_output` case by comparing canonical paths when the output already exists.
 
 Accepted commit: `3bbc5f10a45ec68ab9f4ff8f556432c44cae1268`.
 
 ## Cross-platform CI — integrated
 
-Task `0002-cross-platform-ci` added `.github/workflows/cross-platform-ci.yml` with a Windows/Linux GitHub Actions matrix. Each job runs formatting, locked workspace checking, and locked workspace tests.
+Task `0002-cross-platform-ci` added `.github/workflows/cross-platform-ci.yml` with a Windows/Linux GitHub Actions matrix. Each job runs formatting, locked workspace checking, and locked workspace tests. Subsequent hosted `main` runs have demonstrated that the workflow is active; individual future run status should still be checked before making a claim about that run.
 
 Accepted commit: `bb21ab25babfe01e7094ea49c13918ee5c896347`.
 
@@ -73,6 +73,21 @@ The DB count and result queries share the same filter/join construction. Sorting
 
 Accepted commit: `d3f4d21399064d811236324fb724aa6edc236163`.
 
+## Rich library book summaries — integrated
+
+Task `0009-library-book-summaries` added the read model needed by the central Calibre-like list/grid:
+
+- `BookSummaryRecord` in the DB layer;
+- page-wide batched loading for authors, tags, series/index, publisher, rating, languages, cover presence, and dates;
+- `LibrarySeriesSummary`;
+- `LibraryBookSummary`;
+- `LibrarySummaryPage`;
+- `LibraryCatalog::query_summary_page`.
+
+The summary loader preserves base query order and uses a fixed set of metadata queries for the requested page rather than calling per-book metadata getters in the result loop. GUI callers should keep summary page sizes bounded because the batch queries bind the page's book IDs in `IN (...)` clauses.
+
+Accepted commit: `929456348f4c1471ae6bdb7c8875b6ceff0577fd`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -105,37 +120,46 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 ## Library reality
 
-The reusable read-only library-domain facade now exists for basic catalog operations, content resolution, structured filtering, category facets, deterministic sorting, database-backed pagination, and filtered totals.
+The reusable read-only library-domain facade now exists for:
 
-OPDS list/get/search/download storage selection consume that library facade. Protocol-specific authorization and wire behavior remain in the server.
+- basic catalog list/get/search;
+- content resolution;
+- structured filtering;
+- category facets;
+- deterministic sorting;
+- database-backed pagination and filtered totals;
+- rich batched book-summary pages.
 
-The next missing seam is an efficient rich book-summary page matching the metadata already displayed by the GUI. Task `0009-library-book-summaries` is queued to provide structured authors/tags/series/publisher/rating/languages/cover/date metadata with fixed-count page-wide batch queries rather than N+1 per-book lookups.
+OPDS list/get/search/download storage selection consume the library facade. Protocol-specific authorization and wire behavior remain in the server.
 
 Still not first-class:
 
-- the rich `LibraryBookSummary` read model (`0009` queued);
 - broader sort fields such as author/series/rating/date;
+- compound positive/negative filter semantics matching every current GUI control;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
 - clean separation between externally owned source data and Caliberate overlay state;
-- common facade adoption by the GUI and future HTTP/JSON consumers.
+- HTTP/JSON consumers over the same service.
 
 ## Visual GUI reality
 
-The GUI already has a substantial Calibre-like shell and a rich central `BookRow`, but it is strongly coupled to `caliberate-db` and source is highly concentrated.
+The GUI already has a substantial Calibre-like shell and rich presentation behavior, but `crates/gui/src/views.rs` remains a large DB-coupled god file.
 
-At restart/current inspection:
+Current inspection shows:
 
 - `crates/gui/src/views.rs` is roughly 493 KB;
 - `crates/gui/src/app.rs` is roughly 65 KB;
 - `crates/gui/src/preferences.rs` is roughly 68 KB;
-- `BookRow` already carries title, authors, series, tags, format, rating, publisher, languages, cover presence, added/modified/pubdate, ID, and path;
-- `LibraryView` directly stores `Database`, DB category values, and DB detail DTOs.
+- `BookRow` already displays title, authors, series, tags, format, rating, publisher, languages, cover presence, added/modified/pubdate, ID, and path;
+- `LibraryView::refresh_books` still obtains base books directly from `Database`, then performs per-row presentation enrichment through `MetadataCache`/`build_row`;
+- the main category browser still stores raw DB `CategoryCount` values and calls raw DB category-count methods;
+- advanced browser include/exclude filtering and many sort modes are currently local/in-memory behavior;
+- details/editing/mutations/device/news/management dialogs remain directly DB-backed and are deliberately outside the first read-path migration.
 
-The immediate goal after `0009` is to begin moving visible browse/search/category-browser reads onto the common library service without rewriting the entire GUI.
+Task `0010-gui-library-service-read-path` is queued to move the visible central book rows and category-browser facets onto `LibraryCatalog` using bounded summary pages while preserving current local advanced filtering/sorting semantics. It will not fake full service parity for controls the library query model does not yet support.
 
-The P0 visual target is recognizably Calibre-like information architecture: action toolbar, global/advanced search, left category/tag browser, central list/cover-grid browsing, optional cover browser, right book-details panel, virtual libraries, and persistent layout controls.
+The P0 visual target remains recognizably Calibre-like information architecture: action toolbar, global/advanced search, left category/tag browser, central list/cover-grid browsing, optional cover browser, right book-details panel, virtual libraries, and persistent layout controls.
 
 ## Reader reality
 
@@ -151,9 +175,9 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0009-library-book-summaries` — add an efficient rich library-domain summary page matching the central Calibre-like table/grid, using fixed-count batched metadata queries rather than N+1 lookups.
-2. Begin migrating the visible Calibre-like GUI browse/search/category-browser read path onto the common library service.
-3. Extend library sorting only as required by that GUI migration (authors/series/rating/date/etc.).
+1. `0010-gui-library-service-read-path` — move the actual visible book-row enrichment/search candidate path and main category-browser facets onto the common library service, preserving existing GUI behavior with bounded summary chunks.
+2. Expand service query semantics only as required to replace the GUI's remaining local search/include/exclude/sort behavior without regressions.
+3. Introduce real GUI pagination once filtering/sorting semantics can operate on the full result set rather than one local page.
 4. Add an HTTP/JSON adapter over the same service semantics.
 5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
