@@ -2,7 +2,8 @@ param(
     [int]$Limit = 100,
     [switch]$All,
     [string]$SourceRoot = '\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\calibre\en_nonfiction',
-    [string]$ConfigPath = 'config/control-plane.toml'
+    [string]$BaseConfigPath = 'config/control-plane.toml',
+    [string]$DevConfigPath = '.cache/caliberate/control-plane-en-nonfiction.toml'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,14 +12,14 @@ if (-not (Test-Path -LiteralPath $SourceRoot)) {
     throw "Library source does not exist or is not reachable: $SourceRoot"
 }
 
-if (-not (Test-Path -LiteralPath $ConfigPath)) {
-    throw "Config file not found: $ConfigPath"
+if (-not (Test-Path -LiteralPath $BaseConfigPath)) {
+    throw "Base config file not found: $BaseConfigPath"
 }
 
 Write-Host "Configuring Caliberate for reference-backed development library:"
 Write-Host "  $SourceRoot"
 
-$config = Get-Content -LiteralPath $ConfigPath -Raw
+$config = Get-Content -LiteralPath $BaseConfigPath -Raw
 $tomlPath = $SourceRoot.Replace('\', '\\')
 
 $config = [regex]::Replace(
@@ -37,7 +38,12 @@ $config = [regex]::Replace(
     'active_library_label = "en_nonfiction (reference index)"'
 )
 
-Set-Content -LiteralPath $ConfigPath -Value $config -Encoding UTF8
+$devConfigParent = Split-Path -Parent $DevConfigPath
+if ($devConfigParent) {
+    New-Item -ItemType Directory -Force -Path $devConfigParent | Out-Null
+}
+Set-Content -LiteralPath $DevConfigPath -Value $config -Encoding UTF8
+Write-Host "Local dev config written to $DevConfigPath"
 
 Write-Host 'Building calibredb...'
 & cargo build -p caliberate-app --bin calibredb
@@ -69,7 +75,7 @@ $addedOrSkipped = 0
 $failed = 0
 foreach ($file in $files) {
     Write-Host "[$($addedOrSkipped + $failed + 1)/$($files.Count)] $($file.FullName)"
-    & $calibredb --config $ConfigPath add --path $file.FullName --mode reference
+    & $calibredb --config $DevConfigPath add --path $file.FullName --mode reference
     if ($LASTEXITCODE -eq 0) {
         $addedOrSkipped++
     } else {
@@ -81,7 +87,7 @@ foreach ($file in $files) {
 Write-Host ''
 Write-Host "Index complete: $addedOrSkipped successful/skipped, $failed failed."
 Write-Host 'Launch the GUI with:'
-Write-Host '  cargo run -p caliberate-app --bin caliberate-gui'
+Write-Host "  cargo run -p caliberate-app --bin caliberate-gui -- --config $DevConfigPath"
 
 if ($failed -gt 0) {
     exit 1
