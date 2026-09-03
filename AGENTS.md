@@ -82,8 +82,19 @@ Work state lives under `docs/work/`.
 6. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied.
 7. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
 8. Commit and push the result so the architect can inspect it directly from the repository. Do not require the human maintainer to relay patches, reports, or explanations between agents.
+9. **Because Codex/Luna and the human share the same local checkout, do not leave that checkout on the implementation branch.** After the implementation commit/report has been pushed successfully, switch the local checkout back to `main` as the final repository action. Do not merge the implementation branch into local `main`; the architect owns integration. If local changes prevent switching back to `main`, report that explicitly instead of hiding it.
 
 Never claim Windows runtime behavior was verified unless it actually ran on Windows. A Linux compile or test is not a substitute for a Windows observation.
+
+## Shared-checkout branch safety
+
+A successful remote fetch does not change the currently checked-out branch. A bare `git pull` while the checkout is still on `codex/<task>` can fetch newer `origin/main` commits while leaving the working tree on the old implementation branch. This makes newly integrated files appear to be missing even though they exist on `main`.
+
+Therefore:
+
+- Codex/Luna must return the shared checkout to `main` after pushing its task branch.
+- The human/architect handoff should use `git switch main` followed by `git pull --ff-only`, not assume that `git pull` implicitly changes branches.
+- When repository state looks inconsistent, check `git branch --show-current`, `git rev-parse HEAD`, and `git rev-parse origin/main` before diagnosing missing files or sparse checkout.
 
 ## Validation baseline
 
