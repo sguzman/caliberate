@@ -18,12 +18,21 @@ Only tasks in `ready/` are authorization to begin new implementation work.
 
 Use monotonically increasing four-digit IDs such as `0001`, `0002`, etc. Keep the same ID through every state transition and use it for the report file.
 
-Example:
+**Task identity is immutable once assigned.** Do not reuse an existing task ID for a different objective, even if priorities change before implementation.
+
+If runtime acceptance of a completed task reveals an urgent bounded fix that should happen before the next already-assigned numbered task, use an interstitial patch ID based on the task that exposed it, for example `0010.1`. The next normal numbered task keeps its original ID, title, scope, report name, and branch name.
+
+Examples:
 
 ```text
 ready/0007-extract-reader-navigation.md
 reports/0007.md
+
+ready/0010.1-gui-pane-layout-ergonomics.md
+reports/0010.1.md
 ```
+
+When an interstitial patch task temporarily coexists with the next numbered ready task, the human/architect must give Codex the exact task path and Codex must execute only that explicitly named task.
 
 ## Task design for Codex/Luna-class workers
 
