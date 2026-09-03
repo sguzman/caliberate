@@ -4,7 +4,11 @@ This document defines the current architectural direction. It is intentionally h
 
 ## System goal
 
-Caliberate is a native Rust, cross-platform, Calibre-class ebook library and reader. It is not a pixel-for-pixel Calibre clone and it is not a collection of parity checkboxes. The architecture should make real reading, library management, conversion, metadata, device, and speech behavior possible without concentrating the system in one application crate or GUI file.
+Caliberate is a native Rust, cross-platform, standalone Calibre-class ebook platform. It should eventually cover most high-value Calibre capability families deeply enough to serve as the primary application for an ebook library.
+
+It is not a pixel-for-pixel Calibre clone and it is not a collection of parity checkboxes. The architecture should make real library management, metadata, search, reading, text-to-speech, conversion, server, device, and background-job behavior possible without concentrating the system in one application crate or GUI file.
+
+Caliberate must work without Calibre installed or running. Existing Calibre data is an interoperability target, not a runtime dependency.
 
 Windows and Linux are first-class desktop targets.
 
@@ -29,7 +33,57 @@ The existing crates remain meaningful boundaries:
 
 These boundaries should be improved incrementally rather than replaced wholesale.
 
-## New reader architecture
+## Library architecture
+
+Library storage and library indexing must be decoupled enough to support multiple first-class workflows.
+
+### Library modes
+
+Caliberate should converge on an explicit library-source/storage abstraction that can represent at least:
+
+1. **Caliberate-managed library**
+   - Caliberate owns layout, metadata persistence, file lifecycle, and assets.
+   - Copy/move ingest is normal.
+
+2. **Directory-backed/reference library**
+   - User points at an arbitrary directory tree of ebooks.
+   - Source files remain in place.
+   - Caliberate keeps its own index/metadata/reading state separately.
+   - Rescan/reconciliation discovers additions, removals, and moves where practical.
+   - A flat directory of ebook files is valid.
+
+3. **Existing Calibre-library source**
+   - User points at a Calibre library root containing `metadata.db` and its book directory tree.
+   - Caliberate can discover/index/read the library with Calibre completely absent.
+   - Initial compatibility should be attach/read/index only, then overlay Caliberate-owned state, then carefully tested writable compatibility if desirable.
+
+Generic library-domain code should operate over logical books/formats/metadata rather than assuming every file lives in Caliberate's managed asset store.
+
+### Library source vs Caliberate state
+
+External source trees must not be mutated merely because they are indexed.
+
+Caliberate-owned state may include:
+
+- normalized/indexed metadata;
+- search indexes;
+- reading position;
+- bookmarks/highlights/notes;
+- user tags/overrides;
+- cached covers/resources;
+- reconciliation identity needed to track source files.
+
+For directory-backed or attached Calibre libraries, this state should live in Caliberate-controlled storage unless an explicit writable-compatibility mode authorizes source mutation.
+
+### Calibre interoperability boundary
+
+Calibre library compatibility must not mean shelling out to Calibre.
+
+If Caliberate reads `metadata.db`, it should do so through its own compatibility adapter. Calibre-specific schema/layout details should be isolated behind a library-source adapter rather than leaking through generic library, GUI, or reader code.
+
+Writable Calibre compatibility is higher risk than read/index compatibility and should be a separate architectural milestone with fixtures and corruption/recovery tests before normal use.
+
+## Reader architecture
 
 The reader should converge on four distinct layers.
 
@@ -129,7 +183,7 @@ Preferred direction for reader work:
 formats  ---> document
 speech   ---> document (only if stable text/range types are needed)
 gui      ---> document
- gui     ---> speech
+gui      ---> speech
 app      ---> gui / formats / speech for composition
 ```
 
@@ -139,9 +193,20 @@ Format parsers must not depend on GUI types.
 
 Platform speech implementations must not leak platform-specific types into GUI state.
 
+Preferred direction for library compatibility work:
+
+```text
+calibre-compat adapter ---> generic library/domain types
+directory scanner      ---> generic library/domain types
+managed storage        ---> generic library/domain types
+gui/app                ---> library/domain API
+```
+
+The exact crate placement of Calibre compatibility can be decided when implemented, but Calibre-specific SQLite/layout knowledge must remain isolated from generic GUI and reader code.
+
 ## Persistence
 
-Reader persistence belongs in the database/domain layers, not ad-hoc GUI serialization.
+Reader persistence belongs in database/domain layers, not ad-hoc GUI serialization.
 
 Eventually persist:
 
@@ -152,6 +217,8 @@ Eventually persist:
 - reader profile/preferences where appropriate
 
 Persistent anchors should refer to normalized/source document locations and survive ordinary pagination, font-size, margin, and viewport changes.
+
+Library persistence must distinguish Caliberate-owned state from externally owned source data. Reference/compatibility modes should never silently convert into managed-storage semantics.
 
 ## Cross-platform policy
 
@@ -166,7 +233,7 @@ Persistent anchors should refer to normalized/source document locations and surv
 Caliberate deliberately rejects god files and catch-all modules.
 
 - A module should represent one coherent responsibility.
-- Independent state machines, loaders, backends, and dialogs deserve separate modules.
+- Independent state machines, loaders, backends, adapters, and dialogs deserve separate modules.
 - Hand-maintained files crossing roughly 1,000 lines require scrutiny and a reason not to split.
 - Multi-thousand-line hand-maintained files are architectural debt and should shrink as nearby work occurs.
 - Refactors should be staged so behavior remains testable after each step.
@@ -175,10 +242,18 @@ Caliberate deliberately rejects god files and catch-all modules.
 
 Core conversion should ultimately be native/owned by Caliberate. An external Calibre `ebook-convert` invocation may be used only as an explicitly optional compatibility bridge during development; it must not become an architectural dependency for the finished application.
 
+The program must remain able to launch, manage libraries, read supported formats, and use native TTS with no Calibre executable present.
+
+## Server and device boundaries
+
+The content server/OPDS layer should consume generic library APIs, not know whether books come from managed storage, a referenced directory, or an attached Calibre library.
+
+Device synchronization should likewise operate on logical book/format selections while platform-specific device discovery remains isolated behind OS-specific adapters.
+
 ## Observability
 
-Meaningful operations should emit structured `tracing` events with enough context to diagnose failures without attaching a debugger. Platform/backend selection, document loading, reader navigation failures, speech lifecycle transitions, and conversion jobs are especially important.
+Meaningful operations should emit structured `tracing` events with enough context to diagnose failures without attaching a debugger. Platform/backend selection, library-source reconciliation, Calibre-library compatibility, document loading, reader navigation failures, speech lifecycle transitions, and conversion jobs are especially important.
 
 ## Change rule
 
-Changes to these architectural boundaries are architect-owned. Implementation tasks may expose a needed change, but Codex should report the conflict rather than silently redesign the system.
+Changes to these architectural boundaries are architect-owned. Implementation tasks may expose a needed change, but Codex should report the conflict rather than silently redesigning the system.
