@@ -961,6 +961,7 @@ dependencies = [
  "bytes",
  "caliberate-core",
  "caliberate-db",
+ "caliberate-library",
  "http-body-util",
  "hyper",
  "serde",

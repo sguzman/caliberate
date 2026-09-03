@@ -6,6 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use caliberate_db::database::Database;
+use caliberate_library::catalog::LibraryCatalog;
 use serde::Deserialize;
 use std::fmt::Write as _;
 use tokio_util::io::ReaderStream;
@@ -43,7 +44,8 @@ pub async fn opds_books(State(state): State<ServerState>) -> Response {
         }
     };
 
-    match db.list_books() {
+    let catalog = LibraryCatalog::new(&db);
+    match catalog.list_books() {
         Ok(books) => {
             let entries = books
                 .into_iter()
@@ -81,7 +83,8 @@ pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i6
         }
     };
 
-    let Some(book) = (match db.get_book(id) {
+    let catalog = LibraryCatalog::new(&db);
+    let Some(book) = (match catalog.get_book(id) {
         Ok(book) => book,
         Err(err) => {
             warn!(component = "server", error = %err, "failed to fetch book");
@@ -206,7 +209,8 @@ pub async fn opds_search(
         }
     };
 
-    match db.search_books(&term) {
+    let catalog = LibraryCatalog::new(&db);
+    match catalog.search_books(&term) {
         Ok(books) => {
             let entries = books
                 .into_iter()
