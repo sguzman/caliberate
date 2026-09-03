@@ -2,11 +2,33 @@
 
 ## What Caliberate is
 
-Caliberate is a Rust-native, cross-platform ebook library and reader intended to grow into a practical Calibre-class desktop application with unusually strong reading and text-to-speech capabilities.
+Caliberate is a Rust-native, cross-platform ebook platform intended to become a practical **Calibre replacement**, not merely a reader inspired by Calibre.
+
+Its core product is the complete lifecycle around an ebook library: own/index books, manage metadata, organize/search them, read them, speak them, convert them, serve them, and send/synchronize them to devices.
+
+It does not need exhaustive one-for-one parity with every historical Calibre feature before it is useful, but it should cover most high-value Calibre capability families deeply enough that a user can choose Caliberate as the primary application.
 
 The goal is not superficial feature-count parity. A button, menu item, or state field does not count as a feature unless the underlying behavior actually works.
 
 ## Core beliefs
+
+### Standalone first
+
+Caliberate must work without Calibre installed and without a Calibre process running.
+
+Compatibility with Calibre libraries is valuable because users already own data in that ecosystem. Runtime dependence on Calibre executables is not acceptable as the finished architecture.
+
+### Respect existing files and libraries
+
+A user should not be forced to surrender an existing directory layout merely to use Caliberate.
+
+First-class workflows include:
+
+- a Caliberate-managed library;
+- an arbitrary directory-backed/reference library where files remain in place;
+- attaching to an existing Calibre library directory and reading/indexing its contents without launching Calibre.
+
+Writable Calibre-library compatibility should be introduced cautiously after read/index/overlay behavior is reliable.
 
 ### Real behavior over parity theater
 
@@ -46,7 +68,7 @@ Core library management and reading should not require network services. Online 
 
 ### Own the core product
 
-Caliberate may temporarily use compatibility bridges while incomplete, but the finished architecture should not depend on a local Calibre installation for core reading or conversion behavior.
+Caliberate may temporarily use compatibility bridges while incomplete, but the finished architecture should own its core reader, library, metadata, persistence, and conversion behavior.
 
 ## Engineering style
 
@@ -57,17 +79,23 @@ Caliberate may temporarily use compatibility bridges while incomplete, but the f
 - Small, reviewable iterations with preserved behavior during structural refactors.
 - No broad rewrite merely because legacy code is ugly.
 - No architectural drift hidden inside implementation chores.
+- Implementation work should be decomposed enough that a low-cost/low-reasoning coding agent can execute it without reconstructing architecture by guesswork.
+
+## Product scope authority
+
+`docs/project/product-scope.md` defines the durable capability families and supported library workflows. Roadmaps choose implementation order; they do not narrow that product scope unless the project explicitly changes direction.
 
 ## Near-term product direction
 
 The next major product arc is:
 
-1. establish reliable native Windows parity for the existing codebase;
-2. dismantle GUI concentration without changing behavior;
-3. introduce a normalized document model;
-4. make EPUB a real reader format;
-5. add HTML and DOCX;
-6. add a native Windows speech backend through a generic speech abstraction;
-7. synchronize speech, navigation, and highlighting through stable document anchors;
-8. tackle PDF as a distinct fixed-layout/text-extraction problem rather than pretending it is reflowable EPUB;
-9. continue deeper Calibre/library/conversion parity from a cleaner base.
+1. establish reliable native Windows/Linux baseline for the existing codebase;
+2. make standalone library modes and existing-library compatibility explicit architectural targets;
+3. dismantle GUI concentration without changing behavior;
+4. introduce a normalized document model;
+5. make EPUB a real reader format;
+6. add HTML and DOCX;
+7. add native Windows speech through a generic speech abstraction;
+8. synchronize speech, navigation, and highlighting through stable document anchors;
+9. tackle PDF as a distinct fixed-layout/text-extraction problem;
+10. deepen library/metadata/conversion/device/server behavior until Caliberate is genuinely useful as the primary Calibre-class application.
