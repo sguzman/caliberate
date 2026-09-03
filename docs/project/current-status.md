@@ -24,8 +24,6 @@ Accepted commit: `3bbc5f10a45ec68ab9f4ff8f556432c44cae1268`.
 
 Task `0002-cross-platform-ci` added `.github/workflows/cross-platform-ci.yml` with a Windows/Linux GitHub Actions matrix. Each job runs formatting, locked workspace checking, and locked workspace tests.
 
-Luna/Codex validated the commands natively on Windows before handoff. The workflow itself provides hosted Windows/Linux evidence on subsequent GitHub runs.
-
 Accepted commit: `bb21ab25babfe01e7094ea49c13918ee5c896347`.
 
 ## Library catalog facade — integrated
@@ -34,8 +32,6 @@ Task `0003-library-catalog-facade` introduced the first read-only library-domain
 
 - `caliberate_library::catalog::LibraryBook`
 - `caliberate_library::catalog::LibraryCatalog`
-
-The facade delegates list/get/search operations to the existing database and maps database records into library-domain DTOs. No SQL or database behavior was duplicated in the library crate.
 
 Accepted commit: `2d8a5dc7a213c946389913477794d7af67456d14`.
 
@@ -47,36 +43,35 @@ Accepted commit: `61ae4917855bb64f6d1aee41c2abfca226542a0e`.
 
 ## Library content locator — integrated
 
-Task `0005-library-content-locator` added:
-
-- `caliberate_library::catalog::LibraryContent`
-- `LibraryCatalog::resolve_content(book_id)`
-
-The locator preserves the existing storage-selection rule: prefer the first `copy` asset, otherwise the first asset in database order, otherwise the logical book path. Missing logical books return `None`. Server authorization, external-path policy, MIME handling, size limits, and filesystem checks remain outside the library crate.
+Task `0005-library-content-locator` added `LibraryContent` and `LibraryCatalog::resolve_content(book_id)`. The locator preserves copy -> first asset -> logical book path selection while leaving HTTP/filesystem policy outside the library crate.
 
 Accepted commit: `7748255c04d812208221ff62704513694431b098`.
 
 ## OPDS content-locator adoption — integrated
 
-Task `0006-opds-download-use-content-locator` routed OPDS download storage selection through `LibraryCatalog::resolve_content`.
-
-The server still owns download authorization, external/reference path policy, filesystem metadata/open operations, maximum download size, MIME mapping, response status, and streaming. OPDS no longer duplicates the database asset-selection rule.
+Task `0006-opds-download-use-content-locator` routed OPDS download storage selection through `LibraryCatalog::resolve_content`. Server authorization, filesystem checks, size limits, MIME mapping, response status, and streaming remain server-owned.
 
 Accepted commit: `3f7c47a526d39c78ee7b7dab5e3c9fb80d70a928`.
 
 ## Library structured query and facets — integrated
 
-Task `0007-library-query-facets` added library-domain query/facet APIs over the existing database behavior:
-
-- `caliberate_library::query::LibraryQuery`
-- `caliberate_library::query::LibraryFacetKind`
-- `caliberate_library::query::LibraryFacetValue`
-- `LibraryCatalog::query_books`
-- `LibraryCatalog::list_facets`
-
-Structured title/author/tag/series/publisher/language/identifier/format filters and limit map internally to the existing DB `BookQuery`. Author/tag/series/publisher/rating/language category counts map to library-domain facet values. No new SQL or schema behavior was added.
+Task `0007-library-query-facets` added library-domain structured filters and author/tag/series/publisher/rating/language facet values over the existing database behavior.
 
 Accepted commit: `2f43fc15853820d23eb117783ec6837ec9261f84`.
+
+## Library sorting, pagination, and totals — integrated
+
+Task `0008-library-query-pages` extended structured queries with:
+
+- deterministic ID/title/format sorting;
+- ascending/descending direction;
+- database-backed limit/offset pagination, including offset without limit;
+- filtered `COUNT(DISTINCT b.id)` totals;
+- `LibraryQueryPage` and `LibraryCatalog::query_page`.
+
+The DB count and result queries share the same filter/join construction. Sorting is selected through enums mapped to hard-coded SQL expressions, and non-ID sorts use ID as a deterministic tie-breaker.
+
+Accepted commit: `d3f4d21399064d811236324fb724aa6edc236163`.
 
 ## Current product priority
 
@@ -110,45 +105,41 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 ## Library reality
 
-The reusable read-only library-domain facade now exists for basic catalog operations, content resolution, structured filtering, and category facets.
+The reusable read-only library-domain facade now exists for basic catalog operations, content resolution, structured filtering, category facets, deterministic sorting, database-backed pagination, and filtered totals.
 
 OPDS list/get/search/download storage selection consume that library facade. Protocol-specific authorization and wire behavior remain in the server.
 
-Task `0008-library-query-pages` is queued to add database-backed deterministic sorting, limit/offset pagination, and filtered total-count semantics. The existing DB query currently hardcodes ID ordering and supports only an optional limit, so this is the next required seam for a large-library visual browser.
+The next missing seam is an efficient rich book-summary page matching the metadata already displayed by the GUI. Task `0009-library-book-summaries` is queued to provide structured authors/tags/series/publisher/rating/languages/cover/date metadata with fixed-count page-wide batch queries rather than N+1 per-book lookups.
 
 Still not first-class:
 
-- an efficient rich `BookSummary` suitable for the central Calibre-like table/grid;
+- the rich `LibraryBookSummary` read model (`0009` queued);
 - broader sort fields such as author/series/rating/date;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
 - clean separation between externally owned source data and Caliberate overlay state;
-- common facade adoption by GUI and future HTTP/JSON consumers.
+- common facade adoption by the GUI and future HTTP/JSON consumers.
 
 ## Visual GUI reality
 
-The GUI already contains substantial library shell/state work, but source is highly concentrated and should not be treated as the target architecture.
+The GUI already has a substantial Calibre-like shell and a rich central `BookRow`, but it is strongly coupled to `caliberate-db` and source is highly concentrated.
 
-At restart:
+At restart/current inspection:
 
 - `crates/gui/src/views.rs` is roughly 493 KB;
 - `crates/gui/src/app.rs` is roughly 65 KB;
-- `crates/gui/src/preferences.rs` is roughly 68 KB.
+- `crates/gui/src/preferences.rs` is roughly 68 KB;
+- `BookRow` already carries title, authors, series, tags, format, rating, publisher, languages, cover presence, added/modified/pubdate, ID, and path;
+- `LibraryView` directly stores `Database`, DB category values, and DB detail DTOs.
+
+The immediate goal after `0009` is to begin moving visible browse/search/category-browser reads onto the common library service without rewriting the entire GUI.
 
 The P0 visual target is recognizably Calibre-like information architecture: action toolbar, global/advanced search, left category/tag browser, central list/cover-grid browsing, optional cover browser, right book-details panel, virtual libraries, and persistent layout controls.
 
 ## Reader reality
 
-The current GUI contains a large amount of reader shell/state behavior, but `ReaderContent::from_path` meaningfully loads only:
-
-- `txt`
-- `md`
-- `markdown`
-
-EPUB, PDF, DOCX, MOBI/AZW, and HTML are not real GUI reader loaders yet.
-
-Reader expansion remains P1 behind the visual library/service platform.
+The current GUI reader meaningfully loads only `txt`, `md`, and `markdown`. EPUB, PDF, DOCX, MOBI/AZW, and HTML are not real GUI reader loaders yet. Reader expansion remains P1 behind the visual library/service platform.
 
 ## TTS reality
 
@@ -160,10 +151,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0008-library-query-pages` — add database-backed deterministic sorting, offset pagination, and filtered total counts beneath the library query API.
-2. Add an efficient rich book-summary read model for the Calibre-like central list/grid.
-3. Move the Calibre-like GUI browsing/search/category-browser path onto the common library service.
-4. Add HTTP/JSON adapter over the same service semantics.
+1. `0009-library-book-summaries` — add an efficient rich library-domain summary page matching the central Calibre-like table/grid, using fixed-count batched metadata queries rather than N+1 lookups.
+2. Begin migrating the visible Calibre-like GUI browse/search/category-browser read path onto the common library service.
+3. Extend library sorting only as required by that GUI migration (authors/series/rating/date/etc.).
+4. Add an HTTP/JSON adapter over the same service semantics.
 5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
