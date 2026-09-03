@@ -6,16 +6,18 @@ This file is the entry point for coding agents. Keep it short. The repository do
 
 1. `docs/project/philosophy.md`
 2. `docs/project/product-scope.md`
-3. `ARCHITECTURE.md`
-4. `docs/project/current-status.md`
-5. `docs/project/roles-and-workflow.md`
-6. The single assigned work item under `docs/work/ready/` or `docs/work/active/`
+3. `docs/project/priorities.md`
+4. `ARCHITECTURE.md`
+5. `docs/project/library-platform-architecture.md`
+6. `docs/project/current-status.md`
+7. `docs/project/roles-and-workflow.md`
+8. The single assigned work item under `docs/work/ready/` or `docs/work/active/`
 
 Do not infer authority from old tranche or parity documents when they conflict with the files above. Historical roadmaps and tranches are useful context, not permission to broaden scope.
 
 ## Roles
 
-- **ChatGPT / architect** owns high-level architecture, project philosophy, roadmap ordering, work-item definitions, review, and integrating accepted implementation into `main`.
+- **ChatGPT / architect** owns high-level architecture, product priorities, roadmap ordering, work-item definitions, review, and integrating accepted implementation into `main`.
 - **Codex / implementation agent** owns bounded implementation work explicitly delegated through `docs/work/` and commits/pushes that work to the repository.
 - **Human maintainer** owns local runtime testing and operating the local checkout. The human is not the communication courier between agents and is not responsible for reviewing/merging agent code.
 
@@ -36,7 +38,7 @@ Therefore:
 
 - Implement only the assigned work item.
 - Do not perform opportunistic refactors outside that scope.
-- Do not alter `ARCHITECTURE.md`, `docs/project/philosophy.md`, `docs/project/product-scope.md`, or roadmap priority unless the work item explicitly asks for it.
+- Do not alter architecture, philosophy, product scope, priorities, or roadmap ordering unless the work item explicitly asks for it.
 - Do not silently change public behavior, persistence formats, config semantics, or database schemas.
 - Do not replace a real implementation with a mock, shell, placeholder, or UI-only parity surface.
 - Do not weaken or delete a failing test merely to make the suite green.
@@ -58,6 +60,16 @@ If the task exposes a design conflict, stop broadening the patch. Record the con
 - Avoid external-process dependencies for core functionality. Compatibility bridges must remain optional and isolated.
 - Caliberate must remain useful without Calibre installed or running.
 
+## Current P0 boundary
+
+Current P0 is the **visual library platform**, not exhaustive Calibre parity.
+
+- Build a reusable library/query/content service.
+- Make the egui GUI a Calibre-like visual client of that service.
+- Make HTTP/JSON and OPDS thin adapters over the same service semantics.
+- Preserve managed, arbitrary-directory, and attached-Calibre source workflows.
+- Do not expand low-priority editor/news/email/plugin/device work unless a task explicitly says to.
+
 ## Work-item protocol
 
 Work state lives under `docs/work/`.
@@ -66,12 +78,7 @@ Work state lives under `docs/work/`.
 2. Move it to `docs/work/active/` when implementation begins.
 3. Implement the smallest patch that satisfies its acceptance criteria.
 4. Run every validation command listed in the work item, plus any directly relevant tests.
-5. Write `docs/work/reports/<task-id>.md` with:
-   - summary of changes
-   - files changed
-   - exact validation commands and results
-   - remaining risks or unverified platform behavior
-   - deviations from the task, if any
+5. Write `docs/work/reports/<task-id>.md` with summary, files changed, exact validation results, risks/unverified behavior, and deviations.
 6. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied.
 7. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
 8. Commit and push the result so the architect can inspect it directly from the repository. Do not require the human maintainer to relay patches, reports, or explanations between agents.
@@ -89,19 +96,6 @@ cargo test --workspace
 ```
 
 Run Clippy when the task changes enough code for it to be informative. Do not convert the existing warning backlog into unrelated scope unless the task says to.
-
-## Reader-specific boundary
-
-The long-term reader architecture is defined in `ARCHITECTURE.md`. In particular:
-
-- GUI reader code should consume a normalized document model.
-- Format parsing belongs outside the GUI.
-- TTS belongs behind a speech-engine abstraction.
-- Windows speech APIs must not be called directly from generic reader widgets/state.
-
-## Library-specific boundary
-
-The product must support standalone library workflows described in `docs/project/product-scope.md`, including Caliberate-managed libraries, arbitrary directory-backed libraries, and existing Calibre-library attachment/compatibility without requiring Calibre to run.
 
 ## Handoff
 
