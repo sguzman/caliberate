@@ -135,39 +135,23 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         }
     };
 
-    let Some(book) = (match db.get_book(id) {
-        Ok(book) => book,
-        Err(err) => {
-            warn!(component = "server", error = %err, "failed to fetch book");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-
-    let assets = match db.list_assets_for_book(id) {
-        Ok(assets) => assets,
-        Err(err) => {
-            warn!(component = "server", error = %err, "failed to list assets");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    let content = {
+        let catalog = LibraryCatalog::new(&db);
+        match catalog.resolve_content(id) {
+            Ok(Some(content)) => content,
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+            Err(err) => {
+                warn!(component = "server", error = %err, "failed to resolve book content");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         }
     };
 
-    let (path, storage_mode) = if let Some(asset) = assets
-        .iter()
-        .find(|asset| asset.storage_mode == "copy")
-        .or_else(|| assets.first())
-    {
-        (asset.stored_path.clone(), Some(asset.storage_mode.clone()))
-    } else {
-        (book.path.clone(), None)
-    };
-
-    if !is_path_allowed(&state, &path, storage_mode.as_deref()) {
+    if !is_path_allowed(&state, &content.path, content.storage_mode.as_deref()) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let metadata = match tokio::fs::metadata(&path).await {
+    let metadata = match tokio::fs::metadata(&content.path).await {
         Ok(metadata) => metadata,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
@@ -175,14 +159,14 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
 
-    let file = match tokio::fs::File::open(&path).await {
+    let file = match tokio::fs::File::open(&content.path).await {
         Ok(file) => file,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
     let mut response = body.into_response();
-    let content_type = content_type_for_format(&book.format);
+    let content_type = content_type_for_format(&content.format);
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
