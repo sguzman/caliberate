@@ -21,6 +21,7 @@ The CLI must reject conversion when input and output refer to the same existing 
 - Do not implement cross-format conversion.
 - Do not perform unrelated CLI cleanup.
 - Do not start the GUI refactor.
+- Do not work on library-source/Calibre compatibility yet.
 - Do not broadly normalize every path in the application.
 - Do not add a dependency solely for this small comparison problem unless there is a compelling reason documented in the report.
 
@@ -54,6 +55,15 @@ cargo test --workspace
 
 If the package selector differs in the current manifest, use the actual package name and record the exact command in the report.
 
+## Repository handoff
+
+- Move this file from `docs/work/ready/` to `docs/work/active/` when starting.
+- Write `docs/work/reports/0001.md` with changes, exact validation results, and any unresolved caveats.
+- Move the task to `docs/work/done/` only if the acceptance criteria are satisfied; otherwise move it to `docs/work/blocked/` and explain why.
+- Commit all implementation + task/report state.
+- Push the result to remote branch `codex/0001-windows-path-identity`.
+- Do not ask the human maintainer to copy/paste the diff or report to ChatGPT. The architect will inspect the pushed branch directly.
+
 ## Human verification
 
-After the implementation is reviewed, the human maintainer will rerun the relevant test on native Windows. Codex must not claim native Windows verification unless its environment is actually Windows.
+After the architect integrates accepted work to `main`, the human maintainer will pull `main` and rerun the relevant test on native Windows. Codex must not claim native Windows verification unless its environment is actually Windows.
