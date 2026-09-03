@@ -9,6 +9,14 @@ pub struct LibraryBook {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryContent {
+    pub book_id: i64,
+    pub format: String,
+    pub path: String,
+    pub storage_mode: Option<String>,
+}
+
 impl From<BookRecord> for LibraryBook {
     fn from(book: BookRecord) -> Self {
         Self {
@@ -43,6 +51,33 @@ impl<'a> LibraryCatalog<'a> {
         self.db
             .search_books(query)
             .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    pub fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
+        let Some(book) = self.db.get_book(book_id)? else {
+            return Ok(None);
+        };
+
+        let assets = self.db.list_assets_for_book(book_id)?;
+        if let Some(asset) = assets
+            .iter()
+            .find(|asset| asset.storage_mode == "copy")
+            .or_else(|| assets.first())
+        {
+            return Ok(Some(LibraryContent {
+                book_id: book.id,
+                format: book.format,
+                path: asset.stored_path.clone(),
+                storage_mode: Some(asset.storage_mode.clone()),
+            }));
+        }
+
+        Ok(Some(LibraryContent {
+            book_id: book.id,
+            format: book.format,
+            path: book.path,
+            storage_mode: None,
+        }))
     }
 }
 
@@ -104,6 +139,109 @@ mod tests {
         assert_eq!(books.len(), 1);
         assert_eq!(books[0].title, "The Hobbit");
         assert_eq!(books[0].format, "epub");
+    }
+
+    #[test]
+    fn resolves_copied_asset_before_earlier_reference_asset() {
+        let (_temp_dir, db) = seeded_database();
+        db.add_asset(
+            1,
+            "reference",
+            "C:/books/hobbit.epub",
+            None,
+            10,
+            10,
+            None,
+            false,
+            "2026-04-03T00:00:00Z",
+        )
+        .expect("add reference asset");
+        db.add_asset(
+            1,
+            "copy",
+            "C:/managed/hobbit.epub",
+            None,
+            10,
+            10,
+            None,
+            false,
+            "2026-04-04T00:00:00Z",
+        )
+        .expect("add copied asset");
+
+        let content = LibraryCatalog::new(&db)
+            .resolve_content(1)
+            .expect("resolve content")
+            .expect("content missing");
+
+        assert_eq!(content.book_id, 1);
+        assert_eq!(content.format, "epub");
+        assert_eq!(content.path, "C:/managed/hobbit.epub");
+        assert_eq!(content.storage_mode.as_deref(), Some("copy"));
+    }
+
+    #[test]
+    fn resolves_first_asset_when_no_copy_exists() {
+        let (_temp_dir, db) = seeded_database();
+        db.add_asset(
+            1,
+            "reference",
+            "C:/books/first.epub",
+            None,
+            10,
+            10,
+            None,
+            false,
+            "2026-04-03T00:00:00Z",
+        )
+        .expect("add first asset");
+        db.add_asset(
+            1,
+            "compressed",
+            "C:/books/second.epub",
+            None,
+            10,
+            10,
+            None,
+            true,
+            "2026-04-04T00:00:00Z",
+        )
+        .expect("add second asset");
+
+        let content = LibraryCatalog::new(&db)
+            .resolve_content(1)
+            .expect("resolve content")
+            .expect("content missing");
+
+        assert_eq!(content.path, "C:/books/first.epub");
+        assert_eq!(content.storage_mode.as_deref(), Some("reference"));
+    }
+
+    #[test]
+    fn resolves_logical_book_path_when_no_assets_exist() {
+        let (_temp_dir, db) = seeded_database();
+
+        let content = LibraryCatalog::new(&db)
+            .resolve_content(1)
+            .expect("resolve content")
+            .expect("content missing");
+
+        assert_eq!(content.book_id, 1);
+        assert_eq!(content.format, "epub");
+        assert_eq!(content.path, "/library/hobbit.epub");
+        assert_eq!(content.storage_mode, None);
+    }
+
+    #[test]
+    fn returns_none_for_missing_book_content() {
+        let (_temp_dir, db) = seeded_database();
+
+        assert_eq!(
+            LibraryCatalog::new(&db)
+                .resolve_content(999)
+                .expect("resolve missing content"),
+            None
+        );
     }
 
     fn seeded_database() -> (TempDir, Database) {
