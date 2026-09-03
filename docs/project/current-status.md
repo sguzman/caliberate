@@ -22,6 +22,20 @@ On Windows an existing path may canonicalize to an extended path such as `\\?\A:
 
 This is the first confirmed native-Windows portability bug and should be fixed before broader Windows feature work.
 
+## Library reality
+
+The existing library/asset code already has meaningful ingest and copy/reference behavior, but the restarted product target is broader than the current storage model.
+
+Not yet established as first-class end-to-end workflows:
+
+- arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
+- treating a completely flat ebook directory as a normal library source;
+- attaching to an existing Calibre library root and consuming `metadata.db`/book layout with Calibre absent;
+- clearly separating Caliberate-owned overlay state from externally owned source-library state;
+- safe writable Calibre-library compatibility.
+
+These are now explicit architectural/product targets in `ARCHITECTURE.md` and `docs/project/product-scope.md`.
+
 ## Reader reality
 
 The current GUI contains a large amount of reader shell/state behavior, but the runtime loader is far narrower than the advertised ingest format list.
@@ -39,6 +53,10 @@ The existing TOC logic for text content reconstructs headings from Markdown-like
 ## TTS reality
 
 No reader TTS implementation was found in the existing GUI code at restart. There is therefore no legacy speech subsystem that must be preserved. This is an opportunity to introduce the speech abstraction cleanly.
+
+## Conversion reality
+
+The conversion CLI and orchestration exist, but practical cross-format conversion remains largely unimplemented beyond passthrough behavior. Caliberate may use optional compatibility bridges during development, but finished core conversion must not require a Calibre installation.
 
 ## Structural debt
 
@@ -63,10 +81,13 @@ The GUI source is heavily concentrated. At restart:
 
 1. Fix the known Windows same-path conversion regression.
 2. Establish a repeatable cross-platform validation baseline and Windows CI.
-3. Decompose `views.rs` along existing responsibility seams without behavior changes.
-4. Add the normalized document architecture described in `ARCHITECTURE.md`.
-5. Implement real EPUB loading first.
-6. Add Windows TTS through `crates/speech` rather than GUI-local API calls.
+3. Establish/validate the library-source abstraction for managed, directory-backed, and attached-Calibre workflows.
+4. Decompose `views.rs` along existing responsibility seams without behavior changes.
+5. Add the normalized document architecture described in `ARCHITECTURE.md`.
+6. Implement real EPUB loading first.
+7. Add Windows TTS through `crates/speech` rather than GUI-local API calls.
+
+The broader Calibre-class scope remains active beyond these immediate priorities; see `docs/project/product-scope.md` and `docs/roadmaps/roadmap-restart-2026-09.md`.
 
 ## Completion standard
 
