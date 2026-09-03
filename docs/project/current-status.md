@@ -11,36 +11,76 @@ Observed on Windows 11 with the stable MSVC Rust toolchain:
 - the workspace compiled natively on Windows;
 - `caliberate-gui.exe` built and launched;
 - runtime directories under `.cache/caliberate` initialized successfully;
-- the surviving test log showed one integration failure in the main CLI suite and 51 passing tests in that suite;
+- the initial surviving CLI test log showed one failure and 51 passes;
 - the GUI build emitted a substantial warning backlog (57 warnings in the observed run), including deprecated egui calls, dead fields, and unused rendering helpers.
 
-### Known failing Windows test
+### Windows path regression — resolved
 
-`ebook_convert_rejects_input_equals_output` fails because input and output path identity is compared by `PathBuf` spelling after only the input has been canonicalized.
+Task `0001-windows-path-identity` fixed the failing `ebook_convert_rejects_input_equals_output` case by comparing canonical paths when the output already exists. Luna/Codex ran the focused test plus the full workspace suite in its native Windows environment; all passed.
 
-On Windows an existing path may canonicalize to an extended path such as `\\?\A:\...` while the output retains ordinary `A:\...` spelling. The two paths can therefore refer to the same file while comparing unequal as strings/`PathBuf`s.
+Accepted commit: `3bbc5f10a45ec68ab9f4ff8f556432c44cae1268`.
 
-This is the first confirmed native-Windows portability bug and should be fixed before broader Windows feature work.
+`main` has been fast-forwarded to include the fix and task report.
+
+## Current product priority
+
+The near-term product is now explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
+
+P0:
+
+- Calibre-like visual desktop browsing/searching;
+- reusable library/query/content service for GUI and sibling projects;
+- managed, arbitrary-directory, and attached-Calibre library sources;
+- HTTP/JSON and OPDS adapters over the same service semantics;
+- large-library search/facet/sort/pagination behavior.
+
+P1:
+
+- real reader formats;
+- TTS;
+- conversion depth;
+- metadata depth;
+- broader CLI automation.
+
+P2/deferred unless needed by higher-priority work:
+
+- device integration expansion;
+- ebook editor/polishing;
+- news acquisition;
+- email delivery;
+- plugin ecosystem expansion.
+
+See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platform.md`.
 
 ## Library reality
 
-The existing library/asset code already has meaningful ingest and copy/reference behavior, but the restarted product target is broader than the current storage model.
+The existing library/asset code already has meaningful ingest and copy/reference behavior, but the reusable service/source model is not yet established end-to-end.
 
-Not yet established as first-class end-to-end workflows:
+Not yet first-class:
 
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
-- treating a completely flat ebook directory as a normal library source;
-- attaching to an existing Calibre library root and consuming `metadata.db`/book layout with Calibre absent;
-- clearly separating Caliberate-owned overlay state from externally owned source-library state;
-- safe writable Calibre-library compatibility.
+- flat-directory source workflow;
+- attached existing Calibre library with Calibre absent;
+- clean separation between externally owned source data and Caliberate overlay state;
+- a shared library/query/content facade consumed by GUI/server/other projects.
 
-These are now explicit architectural/product targets in `ARCHITECTURE.md` and `docs/project/product-scope.md`.
+The current OPDS implementation still opens `caliberate_db::Database` directly inside protocol handlers. This is P0 architectural debt: protocol adapters should consume the shared library service instead.
+
+## Visual GUI reality
+
+The GUI already contains substantial library shell/state work, but source is highly concentrated and should not be treated as the target architecture.
+
+At restart:
+
+- `crates/gui/src/views.rs` is roughly 493 KB;
+- `crates/gui/src/app.rs` is roughly 65 KB;
+- `crates/gui/src/preferences.rs` is roughly 68 KB.
+
+The P0 visual target is recognizably Calibre-like information architecture: action toolbar, global/advanced search, left category/tag browser, central list/cover-grid browsing, optional cover browser, right book-details panel, virtual libraries, and persistent layout controls.
 
 ## Reader reality
 
-The current GUI contains a large amount of reader shell/state behavior, but the runtime loader is far narrower than the advertised ingest format list.
-
-At restart, the GUI reader's `ReaderContent::from_path` meaningfully loads only:
+The current GUI contains a large amount of reader shell/state behavior, but `ReaderContent::from_path` meaningfully loads only:
 
 - `txt`
 - `md`
@@ -48,46 +88,24 @@ At restart, the GUI reader's `ReaderContent::from_path` meaningfully loads only:
 
 EPUB, PDF, DOCX, MOBI/AZW, and HTML are not real GUI reader loaders yet.
 
-The existing TOC logic for text content reconstructs headings from Markdown-like text rather than preserving source-native navigation structures.
+Reader expansion remains P1 behind the visual library/service platform.
 
 ## TTS reality
 
-No reader TTS implementation was found in the existing GUI code at restart. There is therefore no legacy speech subsystem that must be preserved. This is an opportunity to introduce the speech abstraction cleanly.
+No reader TTS implementation was found at restart. The future speech abstraction can therefore be introduced cleanly, but it is not the immediate P0 focus.
 
 ## Conversion reality
 
-The conversion CLI and orchestration exist, but practical cross-format conversion remains largely unimplemented beyond passthrough behavior. Caliberate may use optional compatibility bridges during development, but finished core conversion must not require a Calibre installation.
+The conversion CLI and orchestration exist, but practical cross-format conversion remains largely unimplemented beyond passthrough behavior. Finished core conversion must not require a Calibre installation.
 
-## Structural debt
+## Immediate work queue
 
-The GUI source is heavily concentrated. At restart:
-
-- `crates/gui/src/views.rs` is roughly 493 KB;
-- `crates/gui/src/app.rs` is roughly 65 KB;
-- `crates/gui/src/preferences.rs` is roughly 68 KB.
-
-`views.rs` contains multiple unrelated subsystems and is the most obvious god-file target. Refactoring should be incremental and behavior-preserving rather than a rewrite.
-
-## Platform-sensitive areas already identified
-
-- conversion/path identity and canonicalization;
-- device defaults that include Unix mount roots such as `/media` and `/run/media`;
-- process launching/system-open behavior in GUI code;
-- removable-device discovery;
-- future native TTS backend;
-- any hidden assumptions about Unix separators, shells, permissions, or filesystem identity.
-
-## Immediate priorities
-
-1. Fix the known Windows same-path conversion regression.
-2. Establish a repeatable cross-platform validation baseline and Windows CI.
-3. Establish/validate the library-source abstraction for managed, directory-backed, and attached-Calibre workflows.
-4. Decompose `views.rs` along existing responsibility seams without behavior changes.
-5. Add the normalized document architecture described in `ARCHITECTURE.md`.
-6. Implement real EPUB loading first.
-7. Add Windows TTS through `crates/speech` rather than GUI-local API calls.
-
-The broader Calibre-class scope remains active beyond these immediate priorities; see `docs/project/product-scope.md` and `docs/roadmaps/roadmap-restart-2026-09.md`.
+1. `0002-cross-platform-ci` — add Windows + Linux CI baseline.
+2. Define and introduce the first read-only library/query/content service seam.
+3. Inventory/refactor direct DB usage from OPDS/GUI into that service incrementally.
+4. Build the Calibre-like visual library shell against the service.
+5. Add HTTP/JSON API over the same semantics and refactor OPDS to the same service.
+6. Deepen library-source support and search/facet/virtual-library behavior.
 
 ## Completion standard
 
