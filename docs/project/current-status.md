@@ -37,19 +37,24 @@ Task `0003-library-catalog-facade` introduced the first read-only library-domain
 
 The facade delegates list/get/search operations to the existing database and maps database records into library-domain DTOs. No SQL or database behavior was duplicated in the library crate.
 
-Luna/Codex added focused temporary-database tests and passed formatting, library-package tests, locked workspace check, and locked workspace tests on native Windows.
-
 Accepted commit: `2d8a5dc7a213c946389913477794d7af67456d14`.
 
 ## OPDS catalog facade adoption — integrated
 
 Task `0004-opds-use-library-catalog` routed OPDS list, entry, and search reads through `LibraryCatalog` while preserving existing protocol behavior.
 
-The OPDS download handler deliberately remains database-backed for asset/content resolution until a library-domain content locator exists. This keeps server authorization/path policy separate from storage selection.
-
-Luna/Codex passed server tests, locked workspace check, and locked workspace tests on native Windows.
-
 Accepted commit: `61ae4917855bb64f6d1aee41c2abfca226542a0e`.
+
+## Library content locator — integrated
+
+Task `0005-library-content-locator` added:
+
+- `caliberate_library::catalog::LibraryContent`
+- `LibraryCatalog::resolve_content(book_id)`
+
+The locator preserves the existing storage-selection rule: prefer the first `copy` asset, otherwise the first asset in database order, otherwise the logical book path. Missing logical books return `None`. Server authorization, external-path policy, MIME handling, size limits, and filesystem checks remain outside the library crate.
+
+Accepted commit: `7748255c04d812208221ff62704513694431b098`.
 
 ## Current product priority
 
@@ -83,21 +88,18 @@ See `docs/project/priorities.md` and `docs/roadmaps/roadmap-visual-library-platf
 
 ## Library reality
 
-The existing library/asset code already has meaningful ingest and copy/reference behavior, and the first library-domain facade now exists for basic read catalog operations.
+The first reusable read-only library-domain facade now exists for basic catalog operations and content resolution.
 
-OPDS list/get/search reads now consume that facade rather than calling database catalog methods directly.
+OPDS list/get/search reads consume the facade rather than direct database catalog methods. The remaining OPDS download path still opens the database and duplicates asset selection; task `0006-opds-download-use-content-locator` is queued to remove that duplication while retaining server-side authorization and filesystem policy.
 
 Still not first-class:
 
-- library-domain content/asset resolution for download/reader consumers;
 - structured library-domain query/facet/sort/pagination semantics;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
 - attached existing Calibre library with Calibre absent;
 - clean separation between externally owned source data and Caliberate overlay state;
 - common facade adoption by GUI and future HTTP/JSON consumers.
-
-The remaining direct database dependency in OPDS is primarily the download path: it resolves assets and fallback paths itself. Task `0005-library-content-locator` is queued to encode the existing storage-selection rule in the library domain without moving HTTP authorization or filesystem policy into the library crate.
 
 ## Visual GUI reality
 
@@ -133,12 +135,11 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0005-library-content-locator` — add a read-only library-domain content locator that preserves current copy/reference/book-path selection behavior.
-2. Migrate OPDS download storage resolution onto that locator while keeping server authorization/path/max-size policy in the server.
-3. Introduce structured query/facet/sort/pagination semantics needed by visual browsing and APIs.
-4. Add HTTP/JSON adapter over the same library service.
-5. Move the Calibre-like GUI browsing/search path onto the common service and decompose the relevant GUI seams as needed.
-6. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0006-opds-download-use-content-locator` — route OPDS download content selection through `LibraryCatalog::resolve_content` while keeping HTTP/server policy in the server.
+2. Introduce structured library-domain query/facet/sort/pagination semantics needed by visual browsing and APIs.
+3. Add HTTP/JSON adapter over the same library service.
+4. Move the Calibre-like GUI browsing/search path onto the common service and decompose the relevant GUI seams as needed.
+5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
