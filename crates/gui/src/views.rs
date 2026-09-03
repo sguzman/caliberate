@@ -7,14 +7,18 @@ use caliberate_conversion::pipeline::convert_file;
 use caliberate_conversion::settings::ConversionSettings;
 use caliberate_core::config::{ControlPlane, GuiConfig, IngestMode, MetadataDownloadConfig};
 use caliberate_core::error::{CoreError, CoreResult};
-use caliberate_db::cache::MetadataCache;
 use caliberate_db::database::{
     AssetRow, BookRecord, CategoryCount, CustomColumn, Database, IdentifierEntry, NoteRecord,
     SeriesEntry,
 };
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
+use caliberate_library::catalog::LibraryCatalog;
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
+use caliberate_library::query::{
+    LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibrarySortField,
+};
+use caliberate_library::summary::LibraryBookSummary;
 use caliberate_metadata::online::{
     DownloadedMetadata, MetadataQuery, ProviderConfig, fetch_cover, fetch_metadata,
 };
@@ -47,6 +51,52 @@ pub struct BookRow {
     pub date_added: String,
     pub date_modified: String,
     pub pubdate: String,
+}
+
+fn row_from_summary(summary: &LibraryBookSummary) -> BookRow {
+    BookRow {
+        id: summary.id,
+        title: summary.title.clone(),
+        format: summary.format.clone(),
+        path: summary.path.clone(),
+        authors: summary.authors.join(", "),
+        tags: summary.tags.join(", "),
+        series: summary
+            .series
+            .as_ref()
+            .map(|series| format!("{} ({})", series.name, series.index))
+            .unwrap_or_default(),
+        rating: summary
+            .rating
+            .map(|rating| rating.to_string())
+            .unwrap_or_default(),
+        publisher: summary.publisher.clone().unwrap_or_default(),
+        languages: summary.languages.join(", "),
+        has_cover: summary.has_cover,
+        date_added: summary.date_added.clone().unwrap_or_default(),
+        date_modified: summary.date_modified.clone().unwrap_or_default(),
+        pubdate: summary.pubdate.clone().unwrap_or_default(),
+    }
+}
+
+fn load_summary_rows(db: &Database, chunk_size: usize) -> CoreResult<Vec<BookRow>> {
+    let mut rows = Vec::new();
+    let mut offset = 0;
+    let catalog = LibraryCatalog::new(db);
+    loop {
+        let page = catalog.query_summary_page(
+            &LibraryQuery::new()
+                .with_sort(LibrarySortField::Id)
+                .with_limit(chunk_size)
+                .with_offset(offset),
+        )?;
+        let page_len = page.books.len();
+        rows.extend(page.books.iter().map(row_from_summary));
+        offset += page_len;
+        if page_len == 0 || offset >= page.total {
+            return Ok(rows);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -475,7 +525,6 @@ impl ColumnWidths {
 
 pub struct LibraryView {
     db: Database,
-    cache: MetadataCache,
     books: Vec<BookRow>,
     all_books: Vec<BookRow>,
     available_formats: Vec<String>,
@@ -484,12 +533,12 @@ pub struct LibraryView {
     available_publishers: Vec<String>,
     browser_query: String,
     browser_filters: Vec<BrowserFilter>,
-    browser_authors: Vec<CategoryCount>,
-    browser_tags: Vec<CategoryCount>,
-    browser_series: Vec<CategoryCount>,
-    browser_publishers: Vec<CategoryCount>,
-    browser_ratings: Vec<CategoryCount>,
-    browser_languages: Vec<CategoryCount>,
+    browser_authors: Vec<LibraryFacetValue>,
+    browser_tags: Vec<LibraryFacetValue>,
+    browser_series: Vec<LibraryFacetValue>,
+    browser_publishers: Vec<LibraryFacetValue>,
+    browser_ratings: Vec<LibraryFacetValue>,
+    browser_languages: Vec<LibraryFacetValue>,
     browser_saved_searches: Vec<(String, String)>,
     browser_sort: BrowserSort,
     browser_sort_desc: bool,
@@ -615,6 +664,8 @@ pub struct LibraryView {
     inline_edit: InlineEditState,
 }
 
+const LIBRARY_SUMMARY_CHUNK_SIZE: usize = 500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewDensity {
     Compact,
@@ -657,11 +708,8 @@ pub struct ShellPaneLayout {
 impl LibraryView {
     pub fn new(config: &ControlPlane) -> CoreResult<Self> {
         let db = Database::open_with_fts(&config.db, &config.fts)?;
-        let mut cache = MetadataCache::new();
-        cache.refresh_books(&db)?;
         let mut view = Self {
             db,
-            cache,
             books: Vec::new(),
             all_books: Vec::new(),
             available_formats: Vec::new(),
@@ -1796,7 +1844,7 @@ impl LibraryView {
         &mut self,
         ui: &mut egui::Ui,
         category: BrowserCategory,
-        items: &[CategoryCount],
+        items: &[LibraryFacetValue],
     ) {
         let query = self.browser_query.trim().to_lowercase();
         let mut entries = items.to_vec();
@@ -8146,21 +8194,19 @@ impl LibraryView {
     }
 
     fn refresh_books(&mut self) -> CoreResult<()> {
-        self.cache.refresh_books(&self.db)?;
         let query = self.search_query.trim().to_string();
         if self.search_commit_requested {
             record_search_history(&mut self.search_history, self.search_history_max, &query);
             self.search_commit_requested = false;
         }
-        let list = if query.is_empty() || self.search_scope != SearchScope::All {
-            self.db.list_books()?
-        } else {
-            self.db.search_books(&query)?
-        };
-        let mut rows = Vec::new();
-        for book in list {
-            let row = self.build_row(&book)?;
-            rows.push(row);
+        let mut rows = load_summary_rows(&self.db, LIBRARY_SUMMARY_CHUNK_SIZE)?;
+        if !query.is_empty() && self.search_scope == SearchScope::All {
+            let matching_ids: HashSet<i64> = LibraryCatalog::new(&self.db)
+                .search_books(&query)?
+                .into_iter()
+                .map(|book| book.id)
+                .collect();
+            rows.retain(|book| matching_ids.contains(&book.id));
         }
         if !query.is_empty() && self.search_scope != SearchScope::All {
             let needle = query.to_lowercase();
@@ -8180,9 +8226,6 @@ impl LibraryView {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.available_tags = self.db.list_tags().unwrap_or_default();
-        self.available_languages = self.db.list_languages().unwrap_or_default();
-        self.available_publishers = self.db.list_publishers().unwrap_or_default();
         self.refresh_browser()?;
         self.apply_filters();
         self.status = format!("Loaded {} books", self.books.len());
@@ -8197,12 +8240,28 @@ impl LibraryView {
     }
 
     fn refresh_browser(&mut self) -> CoreResult<()> {
-        self.browser_authors = self.db.list_author_categories()?;
-        self.browser_tags = self.db.list_tag_categories()?;
-        self.browser_series = self.db.list_series_categories()?;
-        self.browser_publishers = self.db.list_publisher_categories()?;
-        self.browser_ratings = self.db.list_rating_categories()?;
-        self.browser_languages = self.db.list_language_categories()?;
+        let catalog = LibraryCatalog::new(&self.db);
+        self.browser_authors = catalog.list_facets(LibraryFacetKind::Authors)?;
+        self.browser_tags = catalog.list_facets(LibraryFacetKind::Tags)?;
+        self.browser_series = catalog.list_facets(LibraryFacetKind::Series)?;
+        self.browser_publishers = catalog.list_facets(LibraryFacetKind::Publishers)?;
+        self.browser_ratings = catalog.list_facets(LibraryFacetKind::Ratings)?;
+        self.browser_languages = catalog.list_facets(LibraryFacetKind::Languages)?;
+        self.available_tags = self
+            .browser_tags
+            .iter()
+            .map(|value| value.name.clone())
+            .collect();
+        self.available_languages = self
+            .browser_languages
+            .iter()
+            .map(|value| value.name.clone())
+            .collect();
+        self.available_publishers = self
+            .browser_publishers
+            .iter()
+            .map(|value| value.name.clone())
+            .collect();
         let searches = self.db.list_saved_searches()?;
         self.browser_saved_searches = searches.into_iter().collect();
         if let Some(active) = &self.active_virtual_library {
@@ -8216,71 +8275,6 @@ impl LibraryView {
             }
         }
         Ok(())
-    }
-
-    fn build_row(&mut self, book: &BookRecord) -> CoreResult<BookRow> {
-        let details = self.cache.get_book_details(&self.db, book.id)?.cloned();
-        let (
-            authors,
-            tags,
-            series,
-            rating,
-            publisher,
-            languages,
-            has_cover,
-            date_added,
-            date_modified,
-            pubdate,
-        ) = if let Some(details) = details {
-            (
-                details.authors.join(", "),
-                details.tags.join(", "),
-                details
-                    .series
-                    .map(|series| format!("{} ({})", series.name, series.index))
-                    .unwrap_or_default(),
-                details
-                    .extras
-                    .rating
-                    .map(|rating| rating.to_string())
-                    .unwrap_or_default(),
-                details.extras.publisher.unwrap_or_default(),
-                details.extras.languages.join(", "),
-                details.extras.has_cover,
-                details.extras.timestamp.unwrap_or_default(),
-                details.extras.last_modified.unwrap_or_default(),
-                details.extras.pubdate.unwrap_or_default(),
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                false,
-                String::new(),
-                String::new(),
-                String::new(),
-            )
-        };
-        Ok(BookRow {
-            id: book.id,
-            title: book.title.clone(),
-            format: book.format.clone(),
-            path: book.path.clone(),
-            authors,
-            tags,
-            series,
-            rating,
-            publisher,
-            languages,
-            has_cover,
-            date_added,
-            date_modified,
-            pubdate,
-        })
     }
 
     fn load_details(&mut self, id: i64) -> CoreResult<()> {
@@ -12947,6 +12941,78 @@ mod tests {
         assert_eq!(choose_random_index(5, 0), Some(0));
         assert_eq!(choose_random_index(5, 6), Some(1));
         assert_eq!(choose_random_index(5, 14), Some(4));
+    }
+
+    #[test]
+    fn summary_row_mapping_preserves_visible_presentation() {
+        let summary = LibraryBookSummary {
+            id: 7,
+            title: "Title".to_string(),
+            format: "epub".to_string(),
+            path: "book.epub".to_string(),
+            authors: vec!["Alice".to_string(), "Bob".to_string()],
+            tags: vec!["fiction".to_string(), "classic".to_string()],
+            series: Some(caliberate_library::summary::LibrarySeriesSummary {
+                name: "Series".to_string(),
+                index: 2.0,
+            }),
+            rating: Some(8),
+            publisher: Some("Press".to_string()),
+            languages: vec!["en".to_string(), "fr".to_string()],
+            has_cover: true,
+            date_added: Some("added".to_string()),
+            date_modified: Some("modified".to_string()),
+            pubdate: Some("published".to_string()),
+        };
+        let row = row_from_summary(&summary);
+        assert_eq!(row.authors, "Alice, Bob");
+        assert_eq!(row.tags, "fiction, classic");
+        assert_eq!(row.languages, "en, fr");
+        assert_eq!(row.series, "Series (2)");
+        assert_eq!(row.rating, "8");
+        assert_eq!(row.publisher, "Press");
+        assert_eq!(row.date_added, "added");
+        assert_eq!(row.date_modified, "modified");
+        assert_eq!(row.pubdate, "published");
+    }
+
+    #[test]
+    fn summary_row_mapping_defaults_missing_optional_values() {
+        let summary = LibraryBookSummary {
+            id: 1,
+            title: "Title".to_string(),
+            format: "txt".to_string(),
+            path: "book.txt".to_string(),
+            authors: Vec::new(),
+            tags: Vec::new(),
+            series: None,
+            rating: None,
+            publisher: None,
+            languages: Vec::new(),
+            has_cover: false,
+            date_added: None,
+            date_modified: None,
+            pubdate: None,
+        };
+        let row = row_from_summary(&summary);
+        assert_eq!(row.series, "");
+        assert_eq!(row.rating, "");
+        assert_eq!(row.publisher, "");
+        assert_eq!(row.date_added, "");
+        assert_eq!(row.date_modified, "");
+        assert_eq!(row.pubdate, "");
+    }
+
+    #[test]
+    fn summary_loader_collects_multiple_bounded_chunks() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let db = Database::open_path(temp_dir.path().join("library.db"), 100).expect("open db");
+        for title in ["One", "Two", "Three"] {
+            db.add_book(title, "txt", &format!("{title}.txt"), "now")
+                .expect("add book");
+        }
+        let rows = load_summary_rows(&db, 1).expect("load summary rows");
+        assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3]);
     }
 }
 
