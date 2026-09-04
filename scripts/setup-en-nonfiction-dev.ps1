@@ -66,6 +66,45 @@ function Convert-DevStartupConfig {
     )
 }
 
+function Find-SupportedEbookFiles {
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string[]]$SupportedExtensions,
+        [int]$Limit = 0,
+        [switch]$All
+    )
+
+    $bounded = -not $All -and $Limit -gt 0
+    $pendingDirectories = New-Object 'System.Collections.Generic.Stack[string]'
+    $pendingDirectories.Push((Get-Item -LiteralPath $Root -Force).FullName)
+    $selected = New-Object 'System.Collections.Generic.List[object]'
+
+    while ($pendingDirectories.Count -gt 0) {
+        $directory = $pendingDirectories.Pop()
+        $entries = @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop | Sort-Object FullName)
+        $subdirectories = @($entries | Where-Object { $_.PSIsContainer } | Sort-Object FullName)
+
+        foreach ($entry in $entries) {
+            if (-not $entry.PSIsContainer -and
+                $SupportedExtensions -contains $entry.Extension.ToLowerInvariant()) {
+                $selected.Add($entry)
+                if ($bounded -and $selected.Count -ge $Limit) {
+                    return $selected.ToArray()
+                }
+            }
+        }
+
+        for ($index = $subdirectories.Count - 1; $index -ge 0; $index--) {
+            $pendingDirectories.Push($subdirectories[$index].FullName)
+        }
+    }
+
+    if ($All -or -not $bounded) {
+        return @($selected | Sort-Object FullName)
+    }
+    return $selected.ToArray()
+}
+
 function Assert-Contains {
     param([string]$Text, [string]$Expected, [string]$Message)
     if (-not $Text.Contains($Expected)) {
@@ -101,6 +140,49 @@ recent_libraries = ["./normal.db"]
     Assert-Contains $startupConfig 'startup_open_last_library = false' 'startup override disabled'
     Assert-Contains $startupConfig 'recent_libraries = ["./.cache/caliberate/data/en-nonfiction-dev.sqlite"]' `
         'recent library points to dedicated dev database'
+
+    $selfTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "caliberate-discovery-$([guid]::NewGuid())"
+    try {
+        $nestedRoot = Join-Path $selfTestRoot 'nested'
+        New-Item -ItemType Directory -Path $nestedRoot -Force | Out-Null
+        $sourceFiles = @(
+            (Join-Path $selfTestRoot 'a-first.epub'),
+            (Join-Path $selfTestRoot 'ignored.txt'),
+            (Join-Path $nestedRoot 'b-second.pdf'),
+            (Join-Path $nestedRoot 'c-third.docx'),
+            (Join-Path $nestedRoot 'd-fourth.mobi')
+        )
+        foreach ($sourceFile in $sourceFiles) {
+            Set-Content -LiteralPath $sourceFile -Value "self-test content: $sourceFile" -Encoding UTF8
+        }
+
+        $supported = @('.epub', '.mobi', '.azw', '.azw3', '.pdf', '.docx')
+        $beforeHashes = @{}
+        foreach ($sourceFile in Get-ChildItem -LiteralPath $selfTestRoot -Recurse -File) {
+            $beforeHashes[$sourceFile.FullName] = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+        }
+
+        $boundedFiles = @(Find-SupportedEbookFiles -Root $selfTestRoot -SupportedExtensions $supported -Limit 2)
+        Assert-Equal 2 $boundedFiles.Count 'bounded discovery limit'
+        if (@($boundedFiles | Where-Object { $supported -notcontains $_.Extension.ToLowerInvariant() }).Count -ne 0) {
+            throw 'Self-test failed: bounded discovery returned an unsupported file'
+        }
+        if (@($boundedFiles | Where-Object { $_.FullName -like "*$([IO.Path]::DirectorySeparatorChar)nested$([IO.Path]::DirectorySeparatorChar)*" }).Count -eq 0) {
+            throw 'Self-test failed: bounded discovery did not traverse nested directories'
+        }
+
+        $allFiles = @(Find-SupportedEbookFiles -Root $selfTestRoot -SupportedExtensions $supported -All)
+        Assert-Equal 4 $allFiles.Count 'unbounded discovery count'
+        foreach ($sourceFile in Get-ChildItem -LiteralPath $selfTestRoot -Recurse -File) {
+            $afterHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+            Assert-Equal $beforeHashes[$sourceFile.FullName] $afterHash "discovery modified $($sourceFile.FullName)"
+        }
+        Write-Host 'Bounded discovery self-tests passed.'
+    } finally {
+        if (Test-Path -LiteralPath $selfTestRoot) {
+            Remove-Item -LiteralPath $selfTestRoot -Recurse -Force
+        }
+    }
     Write-Host 'Calibre filename parser self-tests passed.'
 }
 
@@ -179,18 +261,19 @@ if (-not (Test-Path -LiteralPath $calibredb)) {
 }
 
 $supported = @('.epub', '.mobi', '.azw', '.azw3', '.pdf', '.docx')
-$files = Get-ChildItem -LiteralPath $SourceRoot -Recurse -File |
-    Where-Object { $supported -contains $_.Extension.ToLowerInvariant() } |
-    Sort-Object FullName
-
-$totalFound = @($files).Count
 if (-not $All -and $Limit -gt 0) {
-    $files = @($files | Select-Object -First $Limit)
+    Write-Host "Discovering up to $Limit supported ebook files..."
 } else {
-    $files = @($files)
+    Write-Host 'Scanning the full source tree for supported ebook files...'
 }
+$files = @(Find-SupportedEbookFiles -Root $SourceRoot -SupportedExtensions $supported -Limit $Limit -All:$All)
 
-Write-Host "Found $totalFound supported ebook files. Indexing $($files.Count)."
+if (-not $All -and $Limit -gt 0) {
+    Write-Host "Discovery selected $($files.Count) supported ebook files."
+} else {
+    Write-Host "Discovery found $($files.Count) supported ebook files."
+}
+Write-Host "Indexing $($files.Count) files."
 Write-Host 'Source files remain in place; ingest mode is reference.'
 
 $addedOrSkipped = 0
