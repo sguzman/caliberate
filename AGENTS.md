@@ -74,33 +74,38 @@ Current P0 is the **visual library platform**, not exhaustive Calibre parity.
 
 Work state lives under `docs/work/`.
 
-1. Start from one file in `docs/work/ready/`.
-2. Move it to `docs/work/active/` when implementation begins.
-3. Implement the smallest patch that satisfies its acceptance criteria.
-4. Run every validation command listed in the work item, plus any directly relevant tests.
-5. Write `docs/work/reports/<task-id>.md` with summary, files changed, exact validation results, risks/unverified behavior, and deviations.
-6. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied.
-7. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
-8. Commit and push the result so the architect can inspect it directly from the repository. Do not require the human maintainer to relay patches, reports, or explanations between agents.
-9. **Codex/Luna must work in a dedicated implementation worktree, never in the human maintainer's primary checkout.** The primary checkout is reserved for `main` and runtime testing. The implementation worktree may remain on `codex/<task>`; it must not switch, reset, or otherwise mutate the branch checked out in the human worktree.
-10. After pushing the implementation branch, stop. Do not merge into `main` locally; the architect owns integration.
+The human maintainer uses one primary checkout. Codex/Luna owns all implementation-branch switching inside that checkout.
+
+1. Start from the single file in `docs/work/ready/`.
+2. Before implementation, ensure the repository can safely change branches. If uncommitted changes would be overwritten, STOP and report them instead of stashing, resetting, or discarding them.
+3. Switch the checkout to `main` and fast-forward it from `origin/main`.
+4. Create or switch to the task branch named by the work item, normally `codex/<task-id>-<slug>`.
+5. Move the task from `docs/work/ready/` to `docs/work/active/`.
+6. Implement the smallest patch that satisfies its acceptance criteria.
+7. Run every validation command listed in the work item, plus any directly relevant tests.
+8. Write `docs/work/reports/<task-id>.md` with summary, files changed, exact validation results, risks/unverified behavior, and deviations.
+9. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
+10. Commit and push the result so the architect can inspect it directly from GitHub.
+11. **Before exiting, switch the same checkout back to `main`.** Do not merge the implementation branch into `main`; the architect owns integration.
+12. Verify the postcondition explicitly with `git branch --show-current`. A successful handoff must leave the human checkout on `main`. If switching back fails, report that failure prominently instead of claiming completion.
 
 Never claim Windows runtime behavior was verified unless it actually ran on Windows. A Linux compile or test is not a substitute for a Windows observation.
 
-## Worktree and branch safety
+## Single-checkout branch safety
 
-The human maintainer's primary checkout and the implementation agent's checkout are separate Git worktrees.
+The project uses one normal checkout for both the human maintainer and Codex/Luna. This is intentional.
 
-Required model:
+- The human should not perform routine task-branch switching.
+- Codex/Luna owns switching from `main` to its task branch and back to `main`.
+- The checkout may be temporarily on `codex/<task>` while Luna is actively working. The human should not runtime-test during that implementation window.
+- At the end of every Luna run, the checkout must be back on `main`.
+- A bare `git pull` does not change branches. Therefore the agent must verify the final branch instead of assuming a fetch/pull returned the checkout to `main`.
+- Never use `git reset --hard`, destructive clean commands, or automatic stashing merely to make branch switching succeed.
+- If repository state looks inconsistent, inspect `git branch --show-current`, `git status --short`, `git rev-parse HEAD`, and `git rev-parse origin/main` before diagnosing missing files.
 
-- primary human worktree: stays on `main`; used for pulls and runtime testing;
-- implementation worktree: used for `codex/<task>` branches and agent edits;
-- Luna/Codex must never switch the human worktree away from `main`;
-- the human should not need to switch branches to inspect or test an implementation; accepted work is integrated remotely by the architect, then pulled into the primary `main` worktree;
-- a successful fetch does not change the currently checked-out branch. Human delivery remains `git switch main` followed by `git pull --ff-only`;
-- when repository state looks inconsistent, check `git branch --show-current`, `git rev-parse HEAD`, `git rev-parse origin/main`, and `git worktree list` before diagnosing missing files or sparse checkout.
+### Cleanup of the abandoned worktree experiment
 
-If a dedicated implementation worktree is not available, stop and ask the human/architect to create or identify one rather than using the primary checkout.
+A previous workflow experiment may have created a sibling worktree such as `../caliberate-luna`. Codex/Luna may remove that stale worktree as housekeeping before starting a task **only if Git reports it is clean and safe to remove**. If it contains uncommitted changes or Git refuses normal removal, do not force-remove it; report the blocker. Do not create new secondary worktrees for routine tasks.
 
 ## Validation baseline
 
