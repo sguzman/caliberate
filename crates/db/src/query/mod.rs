@@ -16,6 +16,29 @@ pub enum BookSortField {
     PubDate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookMetadataFilterField {
+    Authors,
+    Tags,
+    Series,
+    Publishers,
+    Ratings,
+    Languages,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookMetadataFilterMode {
+    Include,
+    Exclude,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookMetadataFilter {
+    pub field: BookMetadataFilterField,
+    pub mode: BookMetadataFilterMode,
+    pub value: String,
+}
+
 impl Default for BookSortField {
     fn default() -> Self {
         Self::Id
@@ -36,6 +59,7 @@ pub struct BookQuery {
     pub offset: Option<usize>,
     pub sort: BookSortField,
     pub descending: bool,
+    pub metadata_filters: Vec<BookMetadataFilter>,
 }
 
 impl Default for BookQuery {
@@ -53,6 +77,7 @@ impl Default for BookQuery {
             offset: None,
             sort: BookSortField::Id,
             descending: false,
+            metadata_filters: Vec::new(),
         }
     }
 }
@@ -119,6 +144,20 @@ impl BookQuery {
 
     pub fn descending(mut self) -> Self {
         self.descending = true;
+        self
+    }
+
+    pub fn with_metadata_filter(
+        mut self,
+        field: BookMetadataFilterField,
+        mode: BookMetadataFilterMode,
+        value: &str,
+    ) -> Self {
+        self.metadata_filters.push(BookMetadataFilter {
+            field,
+            mode,
+            value: value.to_string(),
+        });
         self
     }
 }

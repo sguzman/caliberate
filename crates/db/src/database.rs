@@ -1,7 +1,7 @@
 //! Database API with migrations and basic operations.
 
 use crate::backend;
-use crate::query::{BookQuery, BookSortField};
+use crate::query::{BookMetadataFilterField, BookMetadataFilterMode, BookQuery, BookSortField};
 use caliberate_core::config::{DbConfig, FtsConfig};
 use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::types::Value;
@@ -45,7 +45,7 @@ pub struct BookSummaryRecord {
     pub pubdate: Option<String>,
 }
 
-fn query_parts(query: &BookQuery) -> (Vec<&'static str>, Vec<String>, Vec<Value>) {
+fn query_parts(query: &BookQuery) -> CoreResult<(Vec<&'static str>, Vec<String>, Vec<Value>)> {
     let mut joins = Vec::new();
     let mut conditions = Vec::new();
     let mut params = Vec::new();
@@ -104,7 +104,55 @@ fn query_parts(query: &BookQuery) -> (Vec<&'static str>, Vec<String>, Vec<Value>
         conditions.push("b.format LIKE ?".to_string());
         params.push(Value::from(format!("%{format}%")));
     }
-    (joins, conditions, params)
+    for filter in &query.metadata_filters {
+        let (predicate, parameter) = match filter.field {
+            BookMetadataFilterField::Authors => (
+                "EXISTS (SELECT 1 FROM books_authors_link mf_bal JOIN authors mf_a ON mf_a.id = mf_bal.author WHERE mf_bal.book = b.id AND mf_a.name LIKE ? COLLATE NOCASE)",
+                Value::from(format!("%{}%", filter.value)),
+            ),
+            BookMetadataFilterField::Tags => (
+                "EXISTS (SELECT 1 FROM books_tags_link mf_btl JOIN tags mf_t ON mf_t.id = mf_btl.tag WHERE mf_btl.book = b.id AND mf_t.name LIKE ? COLLATE NOCASE)",
+                Value::from(format!("%{}%", filter.value)),
+            ),
+            BookMetadataFilterField::Series => (
+                "EXISTS (SELECT 1 FROM books_series_link mf_bsl JOIN series mf_s ON mf_s.id = mf_bsl.series WHERE mf_bsl.book = b.id AND mf_s.name LIKE ? COLLATE NOCASE)",
+                Value::from(format!("%{}%", filter.value)),
+            ),
+            BookMetadataFilterField::Publishers => (
+                "EXISTS (SELECT 1 FROM books_publishers_link mf_bpl JOIN publishers mf_p ON mf_p.id = mf_bpl.publisher WHERE mf_bpl.book = b.id AND mf_p.name LIKE ? COLLATE NOCASE)",
+                Value::from(format!("%{}%", filter.value)),
+            ),
+            BookMetadataFilterField::Languages => (
+                "EXISTS (SELECT 1 FROM books_languages_link mf_bll JOIN languages mf_l ON mf_l.id = mf_bll.lang_code WHERE mf_bll.book = b.id AND mf_l.lang_code LIKE ? COLLATE NOCASE)",
+                Value::from(format!("%{}%", filter.value)),
+            ),
+            BookMetadataFilterField::Ratings => {
+                let rating = filter.value.parse::<i64>().map_err(|_| {
+                    CoreError::ConfigValidate(format!(
+                        "rating metadata filter must be an integer from 0 to 10: {}",
+                        filter.value
+                    ))
+                })?;
+                if !(0..=10).contains(&rating) {
+                    return Err(CoreError::ConfigValidate(format!(
+                        "rating metadata filter must be an integer from 0 to 10: {}",
+                        filter.value
+                    )));
+                }
+                (
+                    "EXISTS (SELECT 1 FROM books_ratings_link mf_brl JOIN ratings mf_r ON mf_r.id = mf_brl.rating WHERE mf_brl.book = b.id AND mf_r.rating = ?)",
+                    Value::from(rating),
+                )
+            }
+        };
+        let predicate = match filter.mode {
+            BookMetadataFilterMode::Include => predicate.to_string(),
+            BookMetadataFilterMode::Exclude => predicate.replacen("EXISTS", "NOT EXISTS", 1),
+        };
+        conditions.push(predicate);
+        params.push(parameter);
+    }
+    Ok((joins, conditions, params))
 }
 
 fn id_placeholders(ids: &[i64]) -> String {
@@ -2695,7 +2743,7 @@ impl Database {
 
     pub fn search_books_query(&self, query: &BookQuery) -> CoreResult<Vec<BookRecord>> {
         let mut sql = String::from("SELECT DISTINCT b.id, b.title, b.format, b.path FROM books b");
-        let (joins, conditions, mut params) = query_parts(query);
+        let (joins, conditions, mut params) = query_parts(query)?;
 
         if !joins.is_empty() {
             sql.push(' ');
@@ -2786,7 +2834,7 @@ impl Database {
     }
 
     pub fn count_books_query(&self, query: &BookQuery) -> CoreResult<usize> {
-        let (joins, conditions, params) = query_parts(query);
+        let (joins, conditions, params) = query_parts(query)?;
         let mut sql = String::from("SELECT COUNT(DISTINCT b.id) FROM books b");
         if !joins.is_empty() {
             sql.push(' ');

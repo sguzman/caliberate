@@ -1,4 +1,6 @@
-use caliberate_db::query::{BookQuery, BookSortField};
+use caliberate_db::query::{
+    BookMetadataFilter, BookMetadataFilterField, BookMetadataFilterMode, BookQuery, BookSortField,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LibraryQuery {
@@ -14,6 +16,30 @@ pub struct LibraryQuery {
     pub offset: Option<usize>,
     pub sort: LibrarySortField,
     pub descending: bool,
+    pub metadata_filters: Vec<LibraryMetadataFilter>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryMetadataFilterField {
+    Authors,
+    Tags,
+    Series,
+    Publishers,
+    Ratings,
+    Languages,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryMetadataFilterMode {
+    Include,
+    Exclude,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryMetadataFilter {
+    pub field: LibraryMetadataFilterField,
+    pub mode: LibraryMetadataFilterMode,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +140,27 @@ impl LibraryQuery {
                 LibrarySortField::PubDate => BookSortField::PubDate,
             },
             descending: self.descending,
+            metadata_filters: self
+                .metadata_filters
+                .iter()
+                .map(|filter| BookMetadataFilter {
+                    field: match filter.field {
+                        LibraryMetadataFilterField::Authors => BookMetadataFilterField::Authors,
+                        LibraryMetadataFilterField::Tags => BookMetadataFilterField::Tags,
+                        LibraryMetadataFilterField::Series => BookMetadataFilterField::Series,
+                        LibraryMetadataFilterField::Publishers => {
+                            BookMetadataFilterField::Publishers
+                        }
+                        LibraryMetadataFilterField::Ratings => BookMetadataFilterField::Ratings,
+                        LibraryMetadataFilterField::Languages => BookMetadataFilterField::Languages,
+                    },
+                    mode: match filter.mode {
+                        LibraryMetadataFilterMode::Include => BookMetadataFilterMode::Include,
+                        LibraryMetadataFilterMode::Exclude => BookMetadataFilterMode::Exclude,
+                    },
+                    value: filter.value.clone(),
+                })
+                .collect(),
         }
     }
 
@@ -129,6 +176,20 @@ impl LibraryQuery {
 
     pub fn descending(mut self) -> Self {
         self.descending = true;
+        self
+    }
+
+    pub fn with_metadata_filter(
+        mut self,
+        field: LibraryMetadataFilterField,
+        mode: LibraryMetadataFilterMode,
+        value: &str,
+    ) -> Self {
+        self.metadata_filters.push(LibraryMetadataFilter {
+            field,
+            mode,
+            value: value.to_string(),
+        });
         self
     }
 }
@@ -152,7 +213,10 @@ pub struct LibraryFacetValue {
 
 #[cfg(test)]
 mod tests {
-    use super::{LibraryFacetKind, LibraryQuery, LibrarySortField};
+    use super::{
+        LibraryFacetKind, LibraryMetadataFilterField, LibraryMetadataFilterMode, LibraryQuery,
+        LibrarySortField,
+    };
     use crate::catalog::LibraryCatalog;
     use caliberate_db::database::Database;
     use tempfile::TempDir;
@@ -203,6 +267,70 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn metadata_filters_map_all_fields_and_modes() {
+        let (_temp_dir, mut db) = seeded_database();
+        db.add_book_authors(1, &["Ursula Le Guin".to_string()])
+            .expect("add author");
+        db.add_book_tags(1, &["classic".to_string()])
+            .expect("add tag");
+        db.set_book_series(1, "Earthsea", 1.0).expect("set series");
+        db.set_book_publisher(1, "Ace").expect("set publisher");
+        db.set_book_rating(1, 7).expect("set rating");
+        db.set_book_languages(1, &["en".to_string()])
+            .expect("set language");
+        let catalog = LibraryCatalog::new(&db);
+        let cases = [
+            (LibraryMetadataFilterField::Authors, "ursula"),
+            (LibraryMetadataFilterField::Tags, "CLASS"),
+            (LibraryMetadataFilterField::Series, "sea"),
+            (LibraryMetadataFilterField::Publishers, "ace"),
+            (LibraryMetadataFilterField::Ratings, "7"),
+            (LibraryMetadataFilterField::Languages, "EN"),
+        ];
+
+        for (field, value) in cases {
+            for mode in [
+                LibraryMetadataFilterMode::Include,
+                LibraryMetadataFilterMode::Exclude,
+            ] {
+                catalog
+                    .query_books(&LibraryQuery::new().with_metadata_filter(field, mode, value))
+                    .expect("library metadata filter");
+            }
+        }
+    }
+
+    #[test]
+    fn summary_page_applies_filters_and_preserves_sort_order() {
+        let (_temp_dir, mut db) = seeded_database();
+        db.add_book_tags(1, &["classic".to_string()])
+            .expect("add first tag");
+        db.add_book_tags(2, &["classic".to_string()])
+            .expect("add second tag");
+        db.set_book_rating(1, 10).expect("set first rating");
+        db.set_book_rating(2, 2).expect("set second rating");
+
+        let page = LibraryCatalog::new(&db)
+            .query_summary_page(
+                &LibraryQuery::new()
+                    .with_metadata_filter(
+                        LibraryMetadataFilterField::Tags,
+                        LibraryMetadataFilterMode::Include,
+                        "CLASS",
+                    )
+                    .with_sort(LibrarySortField::Rating)
+                    .with_limit(1),
+            )
+            .expect("filtered summary page");
+
+        assert_eq!(
+            page.books.iter().map(|book| book.id).collect::<Vec<_>>(),
+            [2]
+        );
+        assert_eq!(page.total, 2);
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use caliberate_db::database::Database;
-use caliberate_db::query::{BookQuery, BookSortField};
+use caliberate_db::query::{
+    BookMetadataFilterField, BookMetadataFilterMode, BookQuery, BookSortField,
+};
 use tempfile::TempDir;
 
 #[test]
@@ -65,6 +67,181 @@ fn query_combined_filters() {
     let query = BookQuery::new().with_title("Rust").with_author("Bob");
     let results = db.search_books_query(&query).expect("query");
     assert!(results.is_empty());
+}
+
+#[test]
+fn metadata_filters_support_all_fields_and_modes() {
+    let (db, _tmp) = sort_metadata_db();
+    let cases = [
+        (BookMetadataFilterField::Authors, "alpha", vec![1]),
+        (BookMetadataFilterField::Tags, "bet", vec![2]),
+        (BookMetadataFilterField::Series, "SER", vec![1, 2]),
+        (BookMetadataFilterField::Publishers, "LPH", vec![2]),
+        (BookMetadataFilterField::Ratings, "8", vec![1]),
+        (BookMetadataFilterField::Languages, "zulu", vec![1]),
+    ];
+
+    for (field, value, expected) in cases {
+        let included = db
+            .search_books_query(&BookQuery::new().with_metadata_filter(
+                field,
+                BookMetadataFilterMode::Include,
+                value,
+            ))
+            .expect("include metadata filter");
+        assert_eq!(
+            included.iter().map(|book| book.id).collect::<Vec<_>>(),
+            expected
+        );
+
+        let excluded = db
+            .search_books_query(&BookQuery::new().with_metadata_filter(
+                field,
+                BookMetadataFilterMode::Exclude,
+                value,
+            ))
+            .expect("exclude metadata filter");
+        assert_eq!(
+            excluded.iter().map(|book| book.id).collect::<Vec<_>>(),
+            (1..=3)
+                .filter(|id| !expected.contains(id))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn metadata_filters_are_anded_and_preserve_legacy_filters() {
+    let (db, _tmp) = sort_metadata_db();
+    let query = BookQuery::new()
+        .with_metadata_filter(
+            BookMetadataFilterField::Tags,
+            BookMetadataFilterMode::Include,
+            "alpha",
+        )
+        .with_metadata_filter(
+            BookMetadataFilterField::Tags,
+            BookMetadataFilterMode::Include,
+            "zulu",
+        );
+    let results = db
+        .search_books_query(&query)
+        .expect("same-category includes");
+    assert_eq!(results.iter().map(|book| book.id).collect::<Vec<_>>(), [1]);
+
+    let query = BookQuery::new()
+        .with_metadata_filter(
+            BookMetadataFilterField::Authors,
+            BookMetadataFilterMode::Include,
+            "alpha",
+        )
+        .with_metadata_filter(
+            BookMetadataFilterField::Tags,
+            BookMetadataFilterMode::Exclude,
+            "zulu",
+        )
+        .with_metadata_filter(
+            BookMetadataFilterField::Languages,
+            BookMetadataFilterMode::Include,
+            "zulu",
+        );
+    assert!(
+        db.search_books_query(&query)
+            .expect("cross-category filters")
+            .is_empty()
+    );
+
+    let query = BookQuery::new().with_author("alpha").with_metadata_filter(
+        BookMetadataFilterField::Authors,
+        BookMetadataFilterMode::Exclude,
+        "beta",
+    );
+    assert_eq!(
+        db.search_books_query(&query)
+            .expect("legacy plus structured")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn metadata_filters_handle_missing_relations_and_numeric_ratings() {
+    let (db, _tmp) = sort_metadata_db();
+    let missing_author = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Authors,
+        BookMetadataFilterMode::Include,
+        "missing",
+    );
+    assert!(
+        db.search_books_query(&missing_author)
+            .expect("missing include")
+            .is_empty()
+    );
+
+    let missing_tag = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Tags,
+        BookMetadataFilterMode::Exclude,
+        "missing",
+    );
+    assert_eq!(
+        db.search_books_query(&missing_tag)
+            .expect("missing exclude")
+            .len(),
+        3
+    );
+
+    let exact_rating = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Ratings,
+        BookMetadataFilterMode::Include,
+        "8",
+    );
+    assert_eq!(
+        db.search_books_query(&exact_rating)
+            .expect("exact rating")
+            .len(),
+        1
+    );
+    let substring_rating = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Ratings,
+        BookMetadataFilterMode::Include,
+        "1",
+    );
+    assert_eq!(
+        db.search_books_query(&substring_rating)
+            .expect("numeric rating")
+            .len(),
+        0
+    );
+
+    let invalid_rating = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Ratings,
+        BookMetadataFilterMode::Include,
+        "8x",
+    );
+    let error = db
+        .search_books_query(&invalid_rating)
+        .expect_err("invalid rating");
+    assert!(format!("{error}").contains("rating metadata filter"));
+}
+
+#[test]
+fn metadata_filter_count_matches_paginated_results_without_duplicates() {
+    let (db, _tmp) = sort_metadata_db();
+    let query = BookQuery::new()
+        .with_metadata_filter(
+            BookMetadataFilterField::Series,
+            BookMetadataFilterMode::Include,
+            "series",
+        )
+        .with_metadata_filter(
+            BookMetadataFilterField::Authors,
+            BookMetadataFilterMode::Include,
+            "a",
+        )
+        .with_limit(1);
+    let results = db.search_books_query(&query).expect("filtered page");
+    assert_eq!(results.len(), 1);
+    assert_eq!(db.count_books_query(&query).expect("filtered count"), 2);
 }
 
 #[test]
