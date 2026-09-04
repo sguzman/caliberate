@@ -113,13 +113,17 @@ Each task should include:
 - required validation;
 - platform-specific verification that must be deferred to the human, if any.
 
-### 2. Human pulls and launches Codex
+### 2. Human pulls main and launches Codex in a dedicated worktree
 
-The maintainer pulls the current `main` and starts Codex against that checkout/task. No separate architecture brief should be necessary: the task and governing docs are in the repository.
+The maintainer keeps the primary checkout on `main`, updates it with `git switch main` and `git pull --ff-only`, and launches Codex/Luna in a separate implementation worktree. No separate architecture brief should be necessary: the task and governing docs are in the repository.
 
-### 3. Codex implements and pushes
+The primary checkout is the human's runtime/testing surface. Codex/Luna must not switch that worktree to an implementation branch.
 
-Codex moves the task from `ready/` to `active/`, implements only that item, writes its report, moves the task to `done/` or `blocked/`, commits, and pushes the result to a `codex/<task-id>-<slug>` branch or other architect-approved remote branch.
+### 3. Codex implements and pushes from its worktree
+
+Codex works only in the dedicated implementation worktree, moves the task from `ready/` to `active/`, implements only that item, writes its report, moves the task to `done/` or `blocked/`, commits, and pushes the result to a `codex/<task-id>-<slug>` branch or other architect-approved remote branch.
+
+The implementation worktree may stay on that task branch after the push. It must not merge into `main` or modify the branch checked out in the human worktree.
 
 The important requirement is that the result becomes visible in GitHub. The human should not have to export/upload/deliver the diff or report manually.
 
@@ -138,21 +142,35 @@ A pull request is optional plumbing, not part of the human workflow. The archite
 
 ### 5. Human pulls accepted `main`
 
-After ChatGPT integrates the iteration, the maintainer runs `git pull` locally. That pull is the normal delivery mechanism from the architect back to the local/Codex environment.
+After ChatGPT integrates the iteration, the maintainer updates the primary checkout with:
+
+```text
+git switch main
+git pull --ff-only
+```
+
+That is the normal delivery mechanism from the architect back to the human runtime/testing environment. The human does not switch to the implementation branch to test accepted work.
 
 ### 6. Human runtime validation when required
 
 For GUI, Windows, device, and TTS behavior, the architect may prescribe a local command or a tiny validation scenario. The human runs it and reports observations. The human is testing the software, not transporting agent work.
 
-## Branching
+## Branching and worktrees
 
 Preferred implementation branch naming:
 
 - `codex/<task-id>-<slug>` for delegated implementation.
 
+Preferred local topology:
+
+```text
+primary worktree       -> main              -> human runtime/testing
+implementation worktree -> codex/<task>     -> Codex/Luna implementation
+```
+
 Architecture/governance updates by ChatGPT may be committed directly to `main` unless isolation is useful for a risky change.
 
-The architect is responsible for integrating Codex work into `main`. The human should not be asked to merge branches or PRs as routine workflow.
+The architect is responsible for integrating Codex work into `main`. The human should not be asked to merge branches or PRs as routine workflow, and Codex/Luna must not repurpose the human's primary worktree for implementation branches.
 
 ## Evidence preservation
 
