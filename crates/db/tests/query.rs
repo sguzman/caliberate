@@ -245,6 +245,117 @@ fn metadata_filter_count_matches_paginated_results_without_duplicates() {
 }
 
 #[test]
+fn metadata_string_filters_escape_like_metacharacters() {
+    let (mut db, _tmp) = sort_metadata_db();
+    let percent_book = db
+        .add_book(
+            "Percent",
+            "epub",
+            "/library/percent.epub",
+            "2026-04-04T00:00:00Z",
+        )
+        .expect("add percent book");
+    let wildcard_percent_book = db
+        .add_book(
+            "Wildcard percent",
+            "epub",
+            "/library/wildcard.epub",
+            "2026-04-05T00:00:00Z",
+        )
+        .expect("add wildcard percent book");
+    let underscore_book = db
+        .add_book(
+            "Underscore",
+            "epub",
+            "/library/underscore.epub",
+            "2026-04-06T00:00:00Z",
+        )
+        .expect("add underscore book");
+    let wildcard_underscore_book = db
+        .add_book(
+            "Wildcard underscore",
+            "epub",
+            "/library/wildcard-underscore.epub",
+            "2026-04-07T00:00:00Z",
+        )
+        .expect("add wildcard underscore book");
+    db.add_book_authors(percent_book, &["100% literal".to_string()])
+        .expect("add literal percent author");
+    db.add_book_authors(wildcard_percent_book, &["100abc literal".to_string()])
+        .expect("add wildcard percent author");
+    db.add_book_tags(underscore_book, &["under_score".to_string()])
+        .expect("add literal underscore tag");
+    db.add_book_tags(wildcard_underscore_book, &["underXscore".to_string()])
+        .expect("add wildcard underscore tag");
+
+    let percent_include = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Authors,
+        BookMetadataFilterMode::Include,
+        "%",
+    );
+    let percent_results = db
+        .search_books_query(&percent_include)
+        .expect("literal percent include");
+    assert_eq!(
+        percent_results
+            .iter()
+            .map(|book| book.id)
+            .collect::<Vec<_>>(),
+        [percent_book]
+    );
+
+    let percent_exclude = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Authors,
+        BookMetadataFilterMode::Exclude,
+        "%",
+    );
+    let percent_excluded = db
+        .search_books_query(&percent_exclude)
+        .expect("literal percent exclude");
+    assert!(!percent_excluded.iter().any(|book| book.id == percent_book));
+    assert!(
+        percent_excluded
+            .iter()
+            .any(|book| book.id == wildcard_percent_book)
+    );
+
+    let underscore_include = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Tags,
+        BookMetadataFilterMode::Include,
+        "_",
+    );
+    let underscore_results = db
+        .search_books_query(&underscore_include)
+        .expect("literal underscore include");
+    assert_eq!(
+        underscore_results
+            .iter()
+            .map(|book| book.id)
+            .collect::<Vec<_>>(),
+        [underscore_book]
+    );
+
+    let underscore_exclude = BookQuery::new().with_metadata_filter(
+        BookMetadataFilterField::Tags,
+        BookMetadataFilterMode::Exclude,
+        "_",
+    );
+    let underscore_excluded = db
+        .search_books_query(&underscore_exclude)
+        .expect("literal underscore exclude");
+    assert!(
+        !underscore_excluded
+            .iter()
+            .any(|book| book.id == underscore_book)
+    );
+    assert!(
+        underscore_excluded
+            .iter()
+            .any(|book| book.id == wildcard_underscore_book)
+    );
+}
+
+#[test]
 fn query_without_filters_returns_all() {
     let (db, _tmp, _, _) = seeded_db();
     let query = BookQuery::new();
