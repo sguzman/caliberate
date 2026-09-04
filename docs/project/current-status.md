@@ -129,6 +129,12 @@ Two low-priority issues are intentionally deferred:
 
 These do not currently block the library-platform roadmap.
 
+## Library sort parity — integrated
+
+Task `0011-library-query-sort-parity` extended the structured DB/library sort layer to Authors, Series, Tags, Rating, Publisher, Languages, DateAdded, DateModified, and PubDate while preserving deterministic ID tie-breaking and summary-page order.
+
+Accepted commit: `f1334d1f492ddb6c11c6f8dbe496c02aed76d96f`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -175,8 +181,7 @@ OPDS list/get/search/download storage selection consume the library facade. The 
 
 Still not first-class:
 
-- broader sort fields matching the visible browser (`0011` ready);
-- compound positive/negative filter semantics matching every current GUI control;
+- compound positive/negative filter semantics matching every current GUI control (`0012` ready);
 - true service-backed GUI pagination;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
@@ -215,8 +220,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
-2. Extend structured positive/negative filter semantics required by the GUI's browser filters.
+1. `0012-library-query-filter-parity` — add structured ANDed include/exclude metadata predicates for Authors/Tags/Series/Publishers/Ratings/Languages at the DB/library service boundary.
+2. Translate the visible GUI browser filters onto those library-domain predicates.
 3. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
 4. Add an HTTP/JSON adapter over the same service semantics.
 5. Deepen library-source support: directory-backed and attached-Calibre modes.
