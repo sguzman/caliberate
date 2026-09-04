@@ -16,7 +16,8 @@ use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_
 use caliberate_library::catalog::LibraryCatalog;
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use caliberate_library::query::{
-    LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibrarySortField,
+    LibraryFacetKind, LibraryFacetValue, LibraryMetadataFilter, LibraryMetadataFilterField,
+    LibraryMetadataFilterMode, LibraryQuery, LibrarySortField,
 };
 use caliberate_library::summary::LibraryBookSummary;
 use caliberate_metadata::online::{
@@ -79,14 +80,18 @@ fn row_from_summary(summary: &LibraryBookSummary) -> BookRow {
     }
 }
 
-fn load_summary_rows(db: &Database, chunk_size: usize) -> CoreResult<Vec<BookRow>> {
+fn load_summary_rows(
+    db: &Database,
+    base_query: &LibraryQuery,
+    chunk_size: usize,
+) -> CoreResult<Vec<BookRow>> {
     let mut rows = Vec::new();
     let mut offset = 0;
     let catalog = LibraryCatalog::new(db);
     loop {
         let page = catalog.query_summary_page(
-            &LibraryQuery::new()
-                .with_sort(LibrarySortField::Id)
+            &base_query
+                .clone()
                 .with_limit(chunk_size)
                 .with_offset(offset),
         )?;
@@ -217,6 +222,33 @@ struct BrowserFilter {
     category: BrowserCategory,
     value: String,
     mode: BrowserFilterMode,
+}
+
+fn browser_filter_to_library_filter(filter: &BrowserFilter) -> LibraryMetadataFilter {
+    LibraryMetadataFilter {
+        field: match filter.category {
+            BrowserCategory::Authors => LibraryMetadataFilterField::Authors,
+            BrowserCategory::Tags => LibraryMetadataFilterField::Tags,
+            BrowserCategory::Series => LibraryMetadataFilterField::Series,
+            BrowserCategory::Publishers => LibraryMetadataFilterField::Publishers,
+            BrowserCategory::Ratings => LibraryMetadataFilterField::Ratings,
+            BrowserCategory::Languages => LibraryMetadataFilterField::Languages,
+        },
+        mode: match filter.mode {
+            BrowserFilterMode::Include => LibraryMetadataFilterMode::Include,
+            BrowserFilterMode::Exclude => LibraryMetadataFilterMode::Exclude,
+        },
+        value: filter.value.clone(),
+    }
+}
+
+fn browser_filter_query(filters: &[BrowserFilter]) -> LibraryQuery {
+    let mut query = LibraryQuery::new().with_sort(LibrarySortField::Id);
+    for filter in filters {
+        let filter = browser_filter_to_library_filter(filter);
+        query.metadata_filters.push(filter);
+    }
+    query
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1944,6 +1976,7 @@ impl LibraryView {
             if ui.button("Clear filter").clicked() {
                 self.browser_filters.clear();
                 self.persist_active_virtual_filters();
+                self.needs_refresh = true;
                 self.apply_filters();
             }
         });
@@ -2174,6 +2207,7 @@ impl LibraryView {
             });
         }
         self.persist_active_virtual_filters();
+        self.needs_refresh = true;
         self.config_dirty = true;
     }
 
@@ -2181,6 +2215,7 @@ impl LibraryView {
         self.browser_filters
             .retain(|item| !(item.category == filter.category && item.value == filter.value));
         self.persist_active_virtual_filters();
+        self.needs_refresh = true;
         self.config_dirty = true;
     }
 
@@ -2193,6 +2228,7 @@ impl LibraryView {
             mode: BrowserFilterMode::Include,
         });
         self.persist_active_virtual_filters();
+        self.needs_refresh = true;
         self.apply_filters();
         self.config_dirty = true;
         self.push_toast("Applied stats drilldown filter", ToastLevel::Info);
@@ -2240,9 +2276,6 @@ impl LibraryView {
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(format!("Books: {}", self.books.len()));
-            if self.books.len() != self.all_books.len() {
-                ui.label(format!("Filtered from {}", self.all_books.len()));
-            }
             ui.label(format!("Selected: {}", self.selected_ids.len()));
             ui.label(format!("Jobs: {}", self.jobs.len()));
             if let Some(active) = &self.active_virtual_library {
@@ -8421,7 +8454,8 @@ impl LibraryView {
             record_search_history(&mut self.search_history, self.search_history_max, &query);
             self.search_commit_requested = false;
         }
-        let mut rows = load_summary_rows(&self.db, LIBRARY_SUMMARY_CHUNK_SIZE)?;
+        let base_query = browser_filter_query(&self.browser_filters);
+        let mut rows = load_summary_rows(&self.db, &base_query, LIBRARY_SUMMARY_CHUNK_SIZE)?;
         if !query.is_empty() && self.search_scope == SearchScope::All {
             let matching_ids: HashSet<i64> = LibraryCatalog::new(&self.db)
                 .search_books(&query)?
@@ -8596,29 +8630,12 @@ impl LibraryView {
                 } else {
                     true
                 };
-                let browser_matches = self.browser_filters.iter().all(|filter| {
-                    let needle = filter.value.to_lowercase();
-                    let matched = match filter.category {
-                        BrowserCategory::Authors => field_contains(&book.authors, &needle),
-                        BrowserCategory::Tags => field_contains(&book.tags, &needle),
-                        BrowserCategory::Series => field_contains(&book.series, &needle),
-                        BrowserCategory::Publishers => field_contains(&book.publisher, &needle),
-                        BrowserCategory::Ratings => {
-                            book.rating.trim().eq_ignore_ascii_case(&needle)
-                        }
-                        BrowserCategory::Languages => field_contains(&book.languages, &needle),
-                    };
-                    match filter.mode {
-                        BrowserFilterMode::Include => matched,
-                        BrowserFilterMode::Exclude => !matched,
-                    }
-                });
                 let news_matches = if self.news_only_filter {
                     field_contains(&book.tags, "news")
                 } else {
                     true
                 };
-                format_matches && browser_matches && news_matches
+                format_matches && news_matches
             })
             .cloned()
             .collect();
@@ -13233,8 +13250,122 @@ mod tests {
             db.add_book(title, "txt", &format!("{title}.txt"), "now")
                 .expect("add book");
         }
-        let rows = load_summary_rows(&db, 1).expect("load summary rows");
+        let query = LibraryQuery::new().with_sort(LibrarySortField::Id);
+        let rows = load_summary_rows(&db, &query, 1).expect("load summary rows");
         assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn browser_filter_translation_maps_every_category_and_mode() {
+        let cases = [
+            (
+                BrowserCategory::Authors,
+                LibraryMetadataFilterField::Authors,
+            ),
+            (BrowserCategory::Tags, LibraryMetadataFilterField::Tags),
+            (BrowserCategory::Series, LibraryMetadataFilterField::Series),
+            (
+                BrowserCategory::Publishers,
+                LibraryMetadataFilterField::Publishers,
+            ),
+            (
+                BrowserCategory::Ratings,
+                LibraryMetadataFilterField::Ratings,
+            ),
+            (
+                BrowserCategory::Languages,
+                LibraryMetadataFilterField::Languages,
+            ),
+        ];
+        for (category, field) in cases {
+            let include = browser_filter_to_library_filter(&BrowserFilter {
+                category,
+                value: " A_% literal ".to_string(),
+                mode: BrowserFilterMode::Include,
+            });
+            assert_eq!(include.field, field);
+            assert_eq!(include.mode, LibraryMetadataFilterMode::Include);
+            assert_eq!(include.value, " A_% literal ");
+
+            let exclude = browser_filter_to_library_filter(&BrowserFilter {
+                category,
+                value: "value".to_string(),
+                mode: BrowserFilterMode::Exclude,
+            });
+            assert_eq!(exclude.field, field);
+            assert_eq!(exclude.mode, LibraryMetadataFilterMode::Exclude);
+        }
+    }
+
+    #[test]
+    fn browser_filter_query_preserves_order_and_values() {
+        let filters = vec![
+            BrowserFilter {
+                category: BrowserCategory::Tags,
+                value: "first".to_string(),
+                mode: BrowserFilterMode::Include,
+            },
+            BrowserFilter {
+                category: BrowserCategory::Authors,
+                value: "second".to_string(),
+                mode: BrowserFilterMode::Exclude,
+            },
+        ];
+        let query = browser_filter_query(&filters);
+        assert_eq!(query.sort, LibrarySortField::Id);
+        assert!(!query.descending);
+        assert_eq!(
+            query.metadata_filters,
+            vec![
+                LibraryMetadataFilter {
+                    field: LibraryMetadataFilterField::Tags,
+                    mode: LibraryMetadataFilterMode::Include,
+                    value: "first".to_string(),
+                },
+                LibraryMetadataFilter {
+                    field: LibraryMetadataFilterField::Authors,
+                    mode: LibraryMetadataFilterMode::Exclude,
+                    value: "second".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn summary_loader_applies_service_browser_filters_across_chunks() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let mut db = Database::open_path(temp_dir.path().join("library.db"), 100).expect("open db");
+        for (title, tags) in [
+            ("Match one", vec!["keep"]),
+            ("Skip", vec!["other"]),
+            ("Match two", vec!["keep"]),
+        ] {
+            let id = db
+                .add_book(title, "txt", &format!("{title}.txt"), "now")
+                .expect("add book");
+            db.add_book_tags(
+                id,
+                &tags.into_iter().map(str::to_string).collect::<Vec<_>>(),
+            )
+            .expect("add tags");
+        }
+        let filters = vec![BrowserFilter {
+            category: BrowserCategory::Tags,
+            value: "keep".to_string(),
+            mode: BrowserFilterMode::Include,
+        }];
+        let query = browser_filter_query(&filters);
+        let rows = load_summary_rows(&db, &query, 1).expect("load filtered summary rows");
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Match one", "Match two"]
+        );
+
+        let all_rows = load_summary_rows(&db, &browser_filter_query(&[]), 1)
+            .expect("reload unfiltered summary rows");
+        assert_eq!(all_rows.len(), 3);
     }
 
     #[test]
