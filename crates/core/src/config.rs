@@ -528,14 +528,14 @@ impl ControlPlane {
                 "gui.pane_details_side must be 'left' or 'right'".to_string(),
             ));
         }
-        if !(320.0..=2400.0).contains(&self.gui.pane_left_width) {
+        if !(200.0..=2400.0).contains(&self.gui.pane_left_width) {
             return Err(CoreError::ConfigValidate(
-                "gui.pane_left_width must be between 320 and 2400".to_string(),
+                "gui.pane_left_width must be between 200 and 2400".to_string(),
             ));
         }
-        if !(280.0..=2000.0).contains(&self.gui.pane_right_width) {
+        if !(200.0..=2000.0).contains(&self.gui.pane_right_width) {
             return Err(CoreError::ConfigValidate(
-                "gui.pane_right_width must be between 280 and 2000".to_string(),
+                "gui.pane_right_width must be between 200 and 2000".to_string(),
             ));
         }
         if !matches!(

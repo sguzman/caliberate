@@ -690,15 +690,35 @@ fn clamp_auxiliary_pane_widths(
         return (left, right);
     }
 
-    let excess = requested_total - minimum_total;
-    if excess <= f32::EPSILON {
-        return (AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MIN_WIDTH);
+    let mut left = left;
+    let mut right = right;
+    let mut deficit = requested_total - available_for_panes;
+    for _ in 0..pane_count {
+        if deficit <= f32::EPSILON {
+            break;
+        }
+        let adjustable_panes = (left > AUXILIARY_PANE_MIN_WIDTH) as usize * left_pane_count
+            + (right > AUXILIARY_PANE_MIN_WIDTH) as usize * right_pane_count;
+        if adjustable_panes == 0 {
+            break;
+        }
+        let reduction_per_pane = deficit / adjustable_panes as f32;
+        let left_reduction = if left_pane_count > 0 {
+            reduction_per_pane.min(left - AUXILIARY_PANE_MIN_WIDTH)
+        } else {
+            0.0
+        };
+        let right_reduction = if right_pane_count > 0 {
+            reduction_per_pane.min(right - AUXILIARY_PANE_MIN_WIDTH)
+        } else {
+            0.0
+        };
+        left -= left_reduction;
+        right -= right_reduction;
+        deficit -=
+            left_reduction * left_pane_count as f32 + right_reduction * right_pane_count as f32;
     }
-    let retained_excess = (available_for_panes - minimum_total) / excess;
-    (
-        AUXILIARY_PANE_MIN_WIDTH + (left - AUXILIARY_PANE_MIN_WIDTH) * retained_excess,
-        AUXILIARY_PANE_MIN_WIDTH + (right - AUXILIARY_PANE_MIN_WIDTH) * retained_excess,
-    )
+    (left, right)
 }
 
 fn auxiliary_pane_max_width(
@@ -13163,6 +13183,10 @@ mod tests {
         assert!(left <= AUXILIARY_PANE_MAX_WIDTH);
         assert!(right <= AUXILIARY_PANE_MAX_WIDTH);
         assert!(1400.0 - left - right >= CENTRAL_LIBRARY_MIN_WIDTH - 0.01);
+        assert_eq!(
+            clamp_auxiliary_pane_widths(1400.0, 720.0, 720.0, 1, 1),
+            (460.0, 460.0)
+        );
     }
 
     #[test]
