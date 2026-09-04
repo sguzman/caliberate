@@ -135,6 +135,14 @@ Task `0011-library-query-sort-parity` extended the structured DB/library sort la
 
 Accepted commit: `f1334d1f492ddb6c11c6f8dbe496c02aed76d96f`.
 
+## Library filter parity — integrated
+
+Task `0012-library-query-filter-parity` added typed ANDed Include/Exclude metadata predicates for Authors, Tags, Series, Publishers, Ratings, and Languages at the DB/library-service boundary.
+
+Structured string filters use literal case-insensitive substring semantics with SQL LIKE metacharacters escaped; Ratings use exact numeric equality. Count and result queries share the same predicate construction.
+
+Accepted commit: `b852ff149915ba5315aaa3c19cd152068d9ae1e8`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -181,7 +189,7 @@ OPDS list/get/search/download storage selection consume the library facade. The 
 
 Still not first-class:
 
-- compound positive/negative filter semantics matching every current GUI control (`0012` ready);
+- visible GUI browser-filter execution through the service (`0013` ready);
 - true service-backed GUI pagination;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
@@ -220,11 +228,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0012-library-query-filter-parity` — add structured ANDed include/exclude metadata predicates for Authors/Tags/Series/Publishers/Ratings/Languages at the DB/library service boundary.
-2. Translate the visible GUI browser filters onto those library-domain predicates.
-3. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
-4. Add an HTTP/JSON adapter over the same service semantics.
-5. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0013-gui-service-browser-filters` — translate visible BrowserFilter values into library-domain metadata predicates and load the complete service-filtered working set.
+2. Introduce real GUI pagination once the visible filter path no longer depends on an unfiltered full-library row set.
+3. Add an HTTP/JSON adapter over the same service semantics.
+4. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
