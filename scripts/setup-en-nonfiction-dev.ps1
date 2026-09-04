@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $devDatabasePath = '.cache/caliberate/data/en-nonfiction-dev.sqlite'
+$devDatabaseTomlPath = './.cache/caliberate/data/en-nonfiction-dev.sqlite'
 
 function Parse-CalibreFileName {
     param([Parameter(Mandatory)][string]$Stem)
@@ -50,6 +51,28 @@ function New-AuthorArguments {
     return $arguments
 }
 
+function Convert-DevStartupConfig {
+    param([Parameter(Mandatory)][string]$Config)
+
+    $Config = [regex]::Replace(
+        $Config,
+        '(?m)^startup_open_last_library\s*=\s*(?:true|false)\s*$',
+        'startup_open_last_library = false'
+    )
+    return [regex]::Replace(
+        $Config,
+        '(?m)^recent_libraries\s*=\s*\[.*\]\s*$',
+        "recent_libraries = [`"$devDatabaseTomlPath`"]"
+    )
+}
+
+function Assert-Contains {
+    param([string]$Text, [string]$Expected, [string]$Message)
+    if (-not $Text.Contains($Expected)) {
+        throw "Self-test failed: $Message (missing '$Expected')"
+    }
+}
+
 function Invoke-SelfTests {
     $parsed = Parse-CalibreFileName 'Title - Author'
     Assert-Equal 'Title' $parsed.Title 'Title - Author title'
@@ -69,6 +92,15 @@ function Invoke-SelfTests {
     $authorArguments = @(New-AuthorArguments $parsed.Authors)
     Assert-Equal @('--value', 'Jane Doe', '--value', 'John Roe', '--value', 'Sam Lee') `
         $authorArguments 'repeated author value flags'
+
+    $startupConfig = Convert-DevStartupConfig @'
+startup_open_last_library = true
+sqlite_path = "./normal.db"
+recent_libraries = ["./normal.db"]
+'@
+    Assert-Contains $startupConfig 'startup_open_last_library = false' 'startup override disabled'
+    Assert-Contains $startupConfig 'recent_libraries = ["./.cache/caliberate/data/en-nonfiction-dev.sqlite"]' `
+        'recent library points to dedicated dev database'
     Write-Host 'Calibre filename parser self-tests passed.'
 }
 
@@ -109,8 +141,9 @@ $config = [regex]::Replace(
 $config = [regex]::Replace(
     $config,
     '(?m)^sqlite_path\s*=\s*".*"\s*$',
-    'sqlite_path = "./.cache/caliberate/data/en-nonfiction-dev.sqlite"'
+    "sqlite_path = `"$devDatabaseTomlPath`""
 )
+$config = Convert-DevStartupConfig $config
 
 $devConfigParent = Split-Path -Parent $DevConfigPath
 if ($devConfigParent) {
