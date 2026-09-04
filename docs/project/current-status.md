@@ -111,6 +111,24 @@ Tasks `0010.1`, `0010.2`, and `0010.2.1` moved the Library into the central surf
 
 Human Windows testing confirmed the layout is functional enough to move on. One narrow-window visual edge case can still appear under aggressive resizing; this is explicitly deferred rather than allowed to block higher-priority library-platform work.
 
+## Calibre smoke bootstrap — functionally accepted
+
+Tasks `0010.3` and `0010.3.1` corrected the development `en_nonfiction` smoke workflow:
+
+- Calibre-style `Title - Author` filenames are interpreted with the last separator;
+- the smoke environment uses its own dedicated SQLite database;
+- GUI startup is pinned to that dedicated database;
+- reset is scoped to dedicated dev DB artifacts;
+- positive file limits use bounded discovery and progress is visible;
+- human Windows verification confirmed Title and Authors are no longer globally reversed.
+
+Two low-priority issues are intentionally deferred:
+
+- discovery over the WSL-backed source can still take several minutes before indexing starts;
+- some individual author strings remain messy and need source-aware metadata quality work before assigning blame to Caliberate.
+
+These do not currently block the library-platform roadmap.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -157,7 +175,7 @@ OPDS list/get/search/download storage selection consume the library facade. The 
 
 Still not first-class:
 
-- broader sort fields matching the visible browser (`0011` queued);
+- broader sort fields matching the visible browser (`0011` ready);
 - compound positive/negative filter semantics matching every current GUI control;
 - true service-backed GUI pagination;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
@@ -197,12 +215,11 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0010.3-calibre-smoke-import-metadata` — repair the development Calibre smoke bootstrap so title/author metadata is indexed correctly and rebuild the dedicated dev index safely.
-2. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
-3. Extend structured positive/negative filter semantics required by the GUI's browser filters.
-4. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
-5. Add an HTTP/JSON adapter over the same service semantics.
-6. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
+2. Extend structured positive/negative filter semantics required by the GUI's browser filters.
+3. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
+4. Add an HTTP/JSON adapter over the same service semantics.
+5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
