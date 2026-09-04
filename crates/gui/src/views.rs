@@ -717,6 +717,22 @@ fn auxiliary_pane_max_width(
         .min(AUXILIARY_PANE_MAX_WIDTH)
 }
 
+fn resized_preferred_width(
+    preferred_width: f32,
+    effective_width: f32,
+    runtime_max_width: f32,
+) -> Option<f32> {
+    if preferred_width.is_finite()
+        && preferred_width >= AUXILIARY_PANE_MIN_WIDTH
+        && runtime_max_width + 0.5 >= preferred_width
+        && (preferred_width - effective_width).abs() > 0.5
+    {
+        Some(effective_width.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH))
+    } else {
+        None
+    }
+}
+
 fn wrapped_detail_field(ui: &mut egui::Ui, label: &str, value: String) {
     ui.add(egui::Label::new(format!("{label}: {value}")).wrap())
         .on_hover_text(value);
@@ -1001,12 +1017,8 @@ impl LibraryView {
         self.details_visible = layout.details_visible;
         self.details_side = layout.details_side;
         self.jobs_visible = layout.jobs_visible;
-        self.left_pane_width = layout
-            .left_width
-            .clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
-        self.right_pane_width = layout
-            .right_width
-            .clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+        self.left_pane_width = layout.left_width.max(AUXILIARY_PANE_MIN_WIDTH);
+        self.right_pane_width = layout.right_width.max(AUXILIARY_PANE_MIN_WIDTH);
     }
 
     pub fn shell_layout(&self) -> ShellPaneLayout {
@@ -1759,15 +1771,13 @@ impl LibraryView {
         });
     }
 
-    fn record_pane_width(&mut self, side: PaneSide, width: f32) {
+    fn record_pane_width(&mut self, side: PaneSide, width: f32, runtime_max_width: f32) {
         let stored = match side {
             PaneSide::Left => &mut self.left_pane_width,
             PaneSide::Right => &mut self.right_pane_width,
         };
-        if (AUXILIARY_PANE_MIN_WIDTH..=AUXILIARY_PANE_MAX_WIDTH).contains(stored)
-            && (*stored - width).abs() > 0.5
-        {
-            *stored = width.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+        if let Some(resized) = resized_preferred_width(*stored, width, runtime_max_width) {
+            *stored = resized;
             self.layout_dirty = true;
             self.config_dirty = true;
         }
@@ -1817,7 +1827,7 @@ impl LibraryView {
             ui.separator();
             self.browser_controls(ui);
         });
-        self.record_pane_width(side, panel.response.rect.width());
+        self.record_pane_width(side, panel.response.rect.width(), max_width);
     }
 
     fn show_details_pane(
@@ -1841,7 +1851,7 @@ impl LibraryView {
             ui.separator();
             self.details_view(ui, config);
         });
-        self.record_pane_width(side, panel.response.rect.width());
+        self.record_pane_width(side, panel.response.rect.width(), max_width);
     }
 
     fn browser_controls(&mut self, ui: &mut egui::Ui) {
@@ -13176,6 +13186,27 @@ mod tests {
         let first = clamp_auxiliary_pane_widths(1000.0, 450.0, 350.0, 1, 1);
         let second = clamp_auxiliary_pane_widths(1000.0, 450.0, 350.0, 1, 1);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn preferred_width_survives_temporary_runtime_clamping() {
+        assert_eq!(resized_preferred_width(600.0, 400.0, 500.0), None);
+        assert_eq!(resized_preferred_width(600.0, 600.0, 500.0), None);
+    }
+
+    #[test]
+    fn genuine_resize_updates_preferred_width_when_it_fits() {
+        assert_eq!(resized_preferred_width(600.0, 520.0, 800.0), Some(520.0));
+    }
+
+    #[test]
+    fn restoring_space_can_reuse_the_original_preferred_width() {
+        let preferred = 600.0;
+        let (narrow, _) = clamp_auxiliary_pane_widths(900.0, preferred, 200.0, 1, 0);
+        let (wide, _) = clamp_auxiliary_pane_widths(1400.0, preferred, 200.0, 1, 0);
+        assert!(narrow < preferred);
+        assert_eq!(wide, preferred);
+        assert_eq!(resized_preferred_width(preferred, narrow, 300.0), None);
     }
 }
 

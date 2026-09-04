@@ -546,11 +546,13 @@ impl CaliberateApp {
 
     fn pull_layout_from_library(&mut self) {
         let layout = self.library.shell_layout();
-        if (self.pane_left_width - layout.left_width).abs() > 0.5
-            || (self.pane_right_width - layout.right_width).abs() > 0.5
-        {
-            self.shell_config_dirty = true;
-        }
+        self.shell_config_dirty |= self.pane_browser_visible != layout.browser_visible
+            || self.pane_browser_side != layout.browser_side
+            || self.pane_details_visible != layout.details_visible
+            || self.pane_details_side != layout.details_side
+            || self.pane_jobs_visible != layout.jobs_visible
+            || (self.pane_left_width - layout.left_width).abs() > 0.5
+            || (self.pane_right_width - layout.right_width).abs() > 0.5;
         self.pane_browser_visible = layout.browser_visible;
         self.pane_browser_side = layout.browser_side;
         self.pane_details_visible = layout.details_visible;
