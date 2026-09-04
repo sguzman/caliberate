@@ -665,6 +665,62 @@ pub struct LibraryView {
 }
 
 const LIBRARY_SUMMARY_CHUNK_SIZE: usize = 500;
+const AUXILIARY_PANE_MIN_WIDTH: f32 = 200.0;
+const AUXILIARY_PANE_MAX_WIDTH: f32 = 720.0;
+const CENTRAL_LIBRARY_MIN_WIDTH: f32 = 480.0;
+
+fn clamp_auxiliary_pane_widths(
+    available_width: f32,
+    requested_left: f32,
+    requested_right: f32,
+    left_pane_count: usize,
+    right_pane_count: usize,
+) -> (f32, f32) {
+    let left = requested_left.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+    let right = requested_right.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+    let pane_count = left_pane_count + right_pane_count;
+    if pane_count == 0 {
+        return (left, right);
+    }
+
+    let minimum_total = AUXILIARY_PANE_MIN_WIDTH * pane_count as f32;
+    let available_for_panes = (available_width - CENTRAL_LIBRARY_MIN_WIDTH).max(minimum_total);
+    let requested_total = left * left_pane_count as f32 + right * right_pane_count as f32;
+    if requested_total <= available_for_panes {
+        return (left, right);
+    }
+
+    let excess = requested_total - minimum_total;
+    if excess <= f32::EPSILON {
+        return (AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MIN_WIDTH);
+    }
+    let retained_excess = (available_for_panes - minimum_total) / excess;
+    (
+        AUXILIARY_PANE_MIN_WIDTH + (left - AUXILIARY_PANE_MIN_WIDTH) * retained_excess,
+        AUXILIARY_PANE_MIN_WIDTH + (right - AUXILIARY_PANE_MIN_WIDTH) * retained_excess,
+    )
+}
+
+fn auxiliary_pane_max_width(
+    available_width: f32,
+    other_width: f32,
+    pane_count: usize,
+    other_pane_count: usize,
+) -> f32 {
+    if pane_count == 0 {
+        return AUXILIARY_PANE_MAX_WIDTH;
+    }
+    let remaining =
+        available_width - CENTRAL_LIBRARY_MIN_WIDTH - other_width * other_pane_count as f32;
+    (remaining / pane_count as f32)
+        .max(AUXILIARY_PANE_MIN_WIDTH)
+        .min(AUXILIARY_PANE_MAX_WIDTH)
+}
+
+fn wrapped_detail_field(ui: &mut egui::Ui, label: &str, value: String) {
+    ui.add(egui::Label::new(format!("{label}: {value}")).wrap())
+        .on_hover_text(value);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewDensity {
@@ -945,8 +1001,12 @@ impl LibraryView {
         self.details_visible = layout.details_visible;
         self.details_side = layout.details_side;
         self.jobs_visible = layout.jobs_visible;
-        self.left_pane_width = layout.left_width.clamp(320.0, 2400.0);
-        self.right_pane_width = layout.right_width.clamp(280.0, 2000.0);
+        self.left_pane_width = layout
+            .left_width
+            .clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+        self.right_pane_width = layout
+            .right_width
+            .clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
     }
 
     pub fn shell_layout(&self) -> ShellPaneLayout {
@@ -1203,99 +1263,84 @@ impl LibraryView {
         self.sync_cover_config(config);
         self.tick_jobs(now);
         self.prune_toasts(now);
-        let available = ui.available_rect_before_wrap();
-        let left_width = self
-            .left_pane_width
-            .clamp(320.0, (available.width() - 120.0).max(320.0));
+        let available_width = ui.available_width();
+        let left_pane_count = (self.browser_visible && self.browser_side == PaneSide::Left)
+            as usize
+            + (self.details_visible && self.details_side == PaneSide::Left) as usize;
+        let right_pane_count = (self.browser_visible && self.browser_side == PaneSide::Right)
+            as usize
+            + (self.details_visible && self.details_side == PaneSide::Right) as usize;
+        let (left_width, right_width) = clamp_auxiliary_pane_widths(
+            available_width,
+            self.left_pane_width,
+            self.right_pane_width,
+            left_pane_count,
+            right_pane_count,
+        );
+        let left_max_width = auxiliary_pane_max_width(
+            available_width,
+            right_width,
+            left_pane_count,
+            right_pane_count,
+        );
+        let right_max_width = auxiliary_pane_max_width(
+            available_width,
+            left_width,
+            right_pane_count,
+            left_pane_count,
+        );
+
+        if self.browser_visible && self.browser_side == PaneSide::Left {
+            self.show_browser_pane(ui, left_width, left_max_width, config, PaneSide::Left);
+        }
+        if self.details_visible && self.details_side == PaneSide::Left {
+            self.show_details_pane(ui, left_width, left_max_width, config, PaneSide::Left);
+        }
         if self.browser_visible && self.browser_side == PaneSide::Right {
-            let browser_panel = egui::Panel::right("browser_panel")
-                .resizable(true)
-                .default_size(self.right_pane_width.clamp(280.0, 1200.0))
-                .show_inside(ui, |ui| {
-                    ui.heading("Browser");
-                    ui.separator();
-                    self.browser_controls(ui);
-                });
-            self.right_pane_width = browser_panel.response.rect.width();
+            self.show_browser_pane(ui, right_width, right_max_width, config, PaneSide::Right);
         }
         if self.details_visible && self.details_side == PaneSide::Right {
-            let details_panel = egui::Panel::right("details_panel")
-                .resizable(true)
-                .default_size(self.right_pane_width.clamp(280.0, 1200.0))
-                .show_inside(ui, |ui| {
-                    ui.heading("Details");
-                    ui.separator();
-                    self.details_view(ui, config);
-                });
-            self.right_pane_width = details_panel.response.rect.width();
+            self.show_details_pane(ui, right_width, right_max_width, config, PaneSide::Right);
         }
 
-        let list_panel = egui::Panel::left("library_list")
-            .resizable(true)
-            .default_size(left_width)
-            .show_inside(ui, |ui| {
-                ui.heading("Library");
-                ui.separator();
-                self.toolbar_controls(ui, config, config_path);
-                ui.separator();
-                self.search_controls(ui);
-                ui.separator();
-                self.sort_controls(ui);
-                self.format_controls(ui);
-                self.filter_summary_controls(ui);
-                ui.separator();
-                self.layout_controls(ui, config, config_path);
-                ui.separator();
-                self.operations_controls(ui, config);
-                ui.separator();
-                self.management_controls(ui, config);
-                if self.browser_visible && self.browser_side == PaneSide::Left {
-                    ui.separator();
-                    self.browser_controls(ui);
-                }
-                ui.separator();
-                if self.needs_refresh {
-                    if let Err(err) = self.refresh_books() {
-                        self.set_error(err);
-                        self.needs_refresh = false;
-                    } else {
-                        self.clear_error();
-                    }
-                }
-                match self.view_mode {
-                    ViewMode::Table => self.table_view(ui, config),
-                    ViewMode::Grid => self.grid_view(ui, config),
-                    ViewMode::Shelf => self.shelf_view(ui, config),
-                }
-                if self.quick_details_panel {
-                    ui.separator();
-                    self.quick_details_preview(ui);
-                }
-                if self.details_visible && self.details_side == PaneSide::Left {
-                    ui.separator();
-                    self.details_view(ui, config);
-                }
-                ui.separator();
-                self.library_stats_panel(ui, &config.paths.cache_dir);
-                ui.separator();
-                self.status_bar(ui);
-            });
-        self.left_pane_width = list_panel.response.rect.width();
-
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            if !self.details_visible {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Details panel is hidden");
-                });
-            } else if self.details_side == PaneSide::Right {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Details docked in right pane");
-                });
-            } else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Details docked in left pane");
-                });
+            ui.heading("Library");
+            ui.separator();
+            self.toolbar_controls(ui, config, config_path);
+            ui.separator();
+            self.search_controls(ui);
+            ui.separator();
+            self.sort_controls(ui);
+            self.format_controls(ui);
+            self.filter_summary_controls(ui);
+            ui.separator();
+            self.layout_controls(ui, config, config_path);
+            ui.separator();
+            self.operations_controls(ui, config);
+            ui.separator();
+            self.management_controls(ui, config);
+            ui.separator();
+            if self.needs_refresh {
+                if let Err(err) = self.refresh_books() {
+                    self.set_error(err);
+                    self.needs_refresh = false;
+                } else {
+                    self.clear_error();
+                }
             }
+            match self.view_mode {
+                ViewMode::Table => self.table_view(ui, config),
+                ViewMode::Grid => self.grid_view(ui, config),
+                ViewMode::Shelf => self.shelf_view(ui, config),
+            }
+            if self.quick_details_panel {
+                ui.separator();
+                self.quick_details_preview(ui);
+            }
+            ui.separator();
+            self.library_stats_panel(ui, &config.paths.cache_dir);
+            ui.separator();
+            self.status_bar(ui);
         });
 
         if let Some(book_id) = self.pending_convert_book.take() {
@@ -1714,8 +1759,92 @@ impl LibraryView {
         });
     }
 
+    fn record_pane_width(&mut self, side: PaneSide, width: f32) {
+        let stored = match side {
+            PaneSide::Left => &mut self.left_pane_width,
+            PaneSide::Right => &mut self.right_pane_width,
+        };
+        if (AUXILIARY_PANE_MIN_WIDTH..=AUXILIARY_PANE_MAX_WIDTH).contains(stored)
+            && (*stored - width).abs() > 0.5
+        {
+            *stored = width.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH);
+            self.layout_dirty = true;
+            self.config_dirty = true;
+        }
+    }
+
+    fn show_pane_header(&mut self, ui: &mut egui::Ui, title: &str, side: PaneSide) {
+        ui.horizontal(|ui| {
+            ui.heading(title);
+            let label = match side {
+                PaneSide::Left => "‹",
+                PaneSide::Right => "›",
+            };
+            if ui
+                .small_button(label)
+                .on_hover_text(format!("Collapse {title} pane"))
+                .clicked()
+            {
+                if title == "Browser" {
+                    self.browser_visible = false;
+                } else {
+                    self.details_visible = false;
+                }
+                self.layout_dirty = true;
+                self.config_dirty = true;
+            }
+        });
+    }
+
+    fn show_browser_pane(
+        &mut self,
+        ui: &mut egui::Ui,
+        width: f32,
+        max_width: f32,
+        _config: &ControlPlane,
+        side: PaneSide,
+    ) {
+        let panel = match side {
+            PaneSide::Left => egui::Panel::left("browser_panel"),
+            PaneSide::Right => egui::Panel::right("browser_panel"),
+        }
+        .resizable(true)
+        .default_size(width)
+        .min_size(AUXILIARY_PANE_MIN_WIDTH)
+        .max_size(max_width)
+        .show_inside(ui, |ui| {
+            self.show_pane_header(ui, "Browser", side);
+            ui.separator();
+            self.browser_controls(ui);
+        });
+        self.record_pane_width(side, panel.response.rect.width());
+    }
+
+    fn show_details_pane(
+        &mut self,
+        ui: &mut egui::Ui,
+        width: f32,
+        max_width: f32,
+        config: &ControlPlane,
+        side: PaneSide,
+    ) {
+        let panel = match side {
+            PaneSide::Left => egui::Panel::left("details_panel"),
+            PaneSide::Right => egui::Panel::right("details_panel"),
+        }
+        .resizable(true)
+        .default_size(width)
+        .min_size(AUXILIARY_PANE_MIN_WIDTH)
+        .max_size(max_width)
+        .show_inside(ui, |ui| {
+            self.show_pane_header(ui, "Details", side);
+            ui.separator();
+            self.details_view(ui, config);
+        });
+        self.record_pane_width(side, panel.response.rect.width());
+    }
+
     fn browser_controls(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Browser");
         ui.horizontal(|ui| {
             ui.label("Find");
             ui.text_edit_singleline(&mut self.browser_query);
@@ -3033,8 +3162,6 @@ impl LibraryView {
     }
 
     fn details_view(&mut self, ui: &mut egui::Ui, config: &ControlPlane) {
-        ui.heading("Details");
-        ui.separator();
         let mut action = DetailAction::None;
         let mut open_paths: Vec<PathBuf> = Vec::new();
         let details_snapshot = self.details.clone();
@@ -3062,51 +3189,56 @@ impl LibraryView {
                     }
                 });
                 ui.separator();
-                ui.label(format!("Title: {}", details.book.title));
-                ui.label(format!("Format: {}", details.book.format));
-                ui.label(format!("Path: {}", details.book.path));
-                ui.label(format!("Authors: {}", details.authors.join(", ")));
-                ui.label(format!("Tags: {}", details.tags.join(", ")));
-                ui.label(format!(
-                    "Series: {}",
+                wrapped_detail_field(ui, "Title", details.book.title.clone());
+                wrapped_detail_field(ui, "Format", details.book.format.clone());
+                wrapped_detail_field(ui, "Path", details.book.path.clone());
+                wrapped_detail_field(ui, "Authors", details.authors.join(", "));
+                wrapped_detail_field(ui, "Tags", details.tags.join(", "));
+                wrapped_detail_field(
+                    ui,
+                    "Series",
                     details
                         .series
                         .as_ref()
                         .map(|series| format!("{} ({})", series.name, series.index))
-                        .unwrap_or_else(|| "none".to_string())
-                ));
-                ui.label(format!(
-                    "Publisher: {}",
+                        .unwrap_or_else(|| "none".to_string()),
+                );
+                wrapped_detail_field(
+                    ui,
+                    "Publisher",
                     details
                         .extras
                         .publisher
                         .clone()
-                        .unwrap_or_else(|| "none".to_string())
-                ));
-                ui.label(format!(
-                    "Rating: {}",
+                        .unwrap_or_else(|| "none".to_string()),
+                );
+                wrapped_detail_field(
+                    ui,
+                    "Rating",
                     details
                         .extras
                         .rating
                         .map(|rating| rating.to_string())
-                        .unwrap_or_else(|| "none".to_string())
-                ));
-                ui.label(format!(
-                    "Languages: {}",
+                        .unwrap_or_else(|| "none".to_string()),
+                );
+                wrapped_detail_field(
+                    ui,
+                    "Languages",
                     if details.extras.languages.is_empty() {
                         "none".to_string()
                     } else {
                         details.extras.languages.join(", ")
-                    }
-                ));
-                ui.label(format!(
-                    "UUID: {}",
+                    },
+                );
+                wrapped_detail_field(
+                    ui,
+                    "UUID",
                     details
                         .extras
                         .uuid
                         .clone()
-                        .unwrap_or_else(|| "none".to_string())
-                ));
+                        .unwrap_or_else(|| "none".to_string()),
+                );
 
                 ui.separator();
                 ui.heading("Cover");
@@ -13013,6 +13145,37 @@ mod tests {
         }
         let rows = load_summary_rows(&db, 1).expect("load summary rows");
         assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn auxiliary_widths_preserve_central_space_for_absurd_requests() {
+        let (left, right) = clamp_auxiliary_pane_widths(1400.0, 2_000.0, 1_600.0, 1, 1);
+        assert!(left <= AUXILIARY_PANE_MAX_WIDTH);
+        assert!(right <= AUXILIARY_PANE_MAX_WIDTH);
+        assert!(1400.0 - left - right >= CENTRAL_LIBRARY_MIN_WIDTH - 0.01);
+    }
+
+    #[test]
+    fn auxiliary_widths_preserve_normal_requests_when_space_allows() {
+        assert_eq!(
+            clamp_auxiliary_pane_widths(1400.0, 280.0, 380.0, 1, 1),
+            (280.0, 380.0)
+        );
+    }
+
+    #[test]
+    fn auxiliary_widths_shrink_to_valid_minimums_on_narrow_windows() {
+        let (left, right) = clamp_auxiliary_pane_widths(240.0, 600.0, 500.0, 1, 1);
+        assert_eq!(left, AUXILIARY_PANE_MIN_WIDTH);
+        assert_eq!(right, AUXILIARY_PANE_MIN_WIDTH);
+        assert!(left.is_finite() && right.is_finite());
+    }
+
+    #[test]
+    fn auxiliary_widths_are_deterministic_without_external_state() {
+        let first = clamp_auxiliary_pane_widths(1000.0, 450.0, 350.0, 1, 1);
+        let second = clamp_auxiliary_pane_widths(1000.0, 450.0, 350.0, 1, 1);
+        assert_eq!(first, second);
     }
 }
 
