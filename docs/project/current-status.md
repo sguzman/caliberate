@@ -105,6 +105,12 @@ Native Windows cargo validation passed, including GUI tests and the workspace su
 
 Accepted commit: `84dcf6d88674e515425367ffd573e173c80b42b4`.
 
+## GUI pane acceptance — functionally accepted with deferred edge-case polish
+
+Tasks `0010.1`, `0010.2`, and `0010.2.1` moved the Library into the central surface, added resizable/collapsible Browser and Details panes, aligned pane config validation with the 200 px runtime floor, separated preferred widths from transient runtime clamping, and added emergency narrow-window suppression.
+
+Human Windows testing confirmed the layout is functional enough to move on. One narrow-window visual edge case can still appear under aggressive resizing; this is explicitly deferred rather than allowed to block higher-priority library-platform work.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -191,11 +197,12 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
-2. Extend structured positive/negative filter semantics required by the GUI's browser filters.
-3. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
-4. Add an HTTP/JSON adapter over the same service semantics.
-5. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0010.3-calibre-smoke-import-metadata` — repair the development Calibre smoke bootstrap so title/author metadata is indexed correctly and rebuild the dedicated dev index safely.
+2. `0011-library-query-sort-parity` — extend structured service sorting to authors/series/tags/rating/publisher/languages/added/modified/pubdate with deterministic semantics.
+3. Extend structured positive/negative filter semantics required by the GUI's browser filters.
+4. Introduce real GUI pagination once filtering and sorting semantics operate on the full result set in the service.
+5. Add an HTTP/JSON adapter over the same service semantics.
+6. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
