@@ -8454,6 +8454,7 @@ impl LibraryView {
             record_search_history(&mut self.search_history, self.search_history_max, &query);
             self.search_commit_requested = false;
         }
+        self.refresh_browser()?;
         let base_query = browser_filter_query(&self.browser_filters);
         let mut rows = load_summary_rows(&self.db, &base_query, LIBRARY_SUMMARY_CHUNK_SIZE)?;
         if !query.is_empty() && self.search_scope == SearchScope::All {
@@ -8482,7 +8483,6 @@ impl LibraryView {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        self.refresh_browser()?;
         self.apply_filters();
         self.status = format!("Loaded {} books", self.books.len());
         self.needs_refresh = false;
@@ -8625,17 +8625,7 @@ impl LibraryView {
             .all_books
             .iter()
             .filter(|book| {
-                let format_matches = if let Some(format) = &self.format_filter {
-                    book.format.eq_ignore_ascii_case(format)
-                } else {
-                    true
-                };
-                let news_matches = if self.news_only_filter {
-                    field_contains(&book.tags, "news")
-                } else {
-                    true
-                };
-                format_matches && news_matches
+                passes_residual_filters(book, self.format_filter.as_deref(), self.news_only_filter)
             })
             .cloned()
             .collect();
@@ -12113,6 +12103,14 @@ fn field_contains(haystack: &str, needle_lower: &str) -> bool {
     haystack.to_lowercase().contains(needle_lower)
 }
 
+fn passes_residual_filters(book: &BookRow, format_filter: Option<&str>, news_only: bool) -> bool {
+    let format_matches = format_filter
+        .map(|format| book.format.eq_ignore_ascii_case(format))
+        .unwrap_or(true);
+    let news_matches = !news_only || field_contains(&book.tags, "news");
+    format_matches && news_matches
+}
+
 fn hierarchical_category_label(category: BrowserCategory, name: &str) -> String {
     let delimiter = match category {
         BrowserCategory::Tags => Some('/'),
@@ -13366,6 +13364,44 @@ mod tests {
         let all_rows = load_summary_rows(&db, &browser_filter_query(&[]), 1)
             .expect("reload unfiltered summary rows");
         assert_eq!(all_rows.len(), 3);
+    }
+
+    #[test]
+    fn residual_format_and_news_filters_narrow_service_filtered_rows() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let mut db = Database::open_path(temp_dir.path().join("library.db"), 100).expect("open db");
+        for (title, format, tags) in [
+            ("Keep epub", "epub", vec!["keep"]),
+            ("Keep txt news", "txt", vec!["keep", "news"]),
+            ("Keep txt other", "txt", vec!["keep", "other"]),
+        ] {
+            let id = db
+                .add_book(title, format, &format!("{title}.{format}"), "now")
+                .expect("add book");
+            db.add_book_tags(
+                id,
+                &tags.into_iter().map(str::to_string).collect::<Vec<_>>(),
+            )
+            .expect("add tags");
+        }
+        let service_query = browser_filter_query(&[BrowserFilter {
+            category: BrowserCategory::Tags,
+            value: "keep".to_string(),
+            mode: BrowserFilterMode::Include,
+        }]);
+        let service_rows = load_summary_rows(&db, &service_query, 1).expect("load service rows");
+        assert_eq!(service_rows.len(), 3);
+        let residual_rows = service_rows
+            .iter()
+            .filter(|book| passes_residual_filters(book, Some("txt"), true))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            residual_rows
+                .iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Keep txt news"]
+        );
     }
 
     #[test]
