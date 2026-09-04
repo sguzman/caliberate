@@ -741,16 +741,66 @@ fn resized_preferred_width(
     preferred_width: f32,
     effective_width: f32,
     runtime_max_width: f32,
+    user_resized: bool,
 ) -> Option<f32> {
-    if preferred_width.is_finite()
+    if user_resized
+        && preferred_width.is_finite()
         && preferred_width >= AUXILIARY_PANE_MIN_WIDTH
-        && runtime_max_width + 0.5 >= preferred_width
         && (preferred_width - effective_width).abs() > 0.5
     {
-        Some(effective_width.clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH))
+        Some(
+            effective_width
+                .clamp(AUXILIARY_PANE_MIN_WIDTH, AUXILIARY_PANE_MAX_WIDTH)
+                .min(runtime_max_width),
+        )
     } else {
         None
     }
+}
+
+fn emergency_pane_visibility(
+    available_width: f32,
+    browser_requested: bool,
+    details_requested: bool,
+) -> (bool, bool) {
+    let browser_count = browser_requested as usize;
+    let details_count = details_requested as usize;
+    let active_count = browser_count + details_count;
+    if active_count == 0 {
+        return (false, false);
+    }
+
+    let required_width = CENTRAL_LIBRARY_MIN_WIDTH + AUXILIARY_PANE_MIN_WIDTH * active_count as f32;
+    if available_width >= required_width {
+        return (browser_requested, details_requested);
+    }
+
+    if browser_requested && details_requested {
+        let browser_only_required = CENTRAL_LIBRARY_MIN_WIDTH + AUXILIARY_PANE_MIN_WIDTH;
+        if available_width >= browser_only_required {
+            return (true, false);
+        }
+    }
+
+    (false, false)
+}
+
+fn pane_resize_pointer_active(ui: &egui::Ui, rect: egui::Rect, side: PaneSide) -> bool {
+    let grab_radius = ui.style().interaction.resize_grab_radius_side + 2.0;
+    ui.input(|input| {
+        let pointer_active = input.pointer.primary_down() || input.pointer.any_released();
+        let Some(pointer) = input.pointer.interact_pos() else {
+            return false;
+        };
+        let separator_x = match side {
+            PaneSide::Left => rect.right(),
+            PaneSide::Right => rect.left(),
+        };
+        pointer_active
+            && (pointer.x - separator_x).abs() <= grab_radius
+            && pointer.y >= rect.top() - grab_radius
+            && pointer.y <= rect.bottom() + grab_radius
+    })
 }
 
 fn wrapped_detail_field(ui: &mut egui::Ui, label: &str, value: String) {
@@ -1296,12 +1346,12 @@ impl LibraryView {
         self.tick_jobs(now);
         self.prune_toasts(now);
         let available_width = ui.available_width();
-        let left_pane_count = (self.browser_visible && self.browser_side == PaneSide::Left)
-            as usize
-            + (self.details_visible && self.details_side == PaneSide::Left) as usize;
-        let right_pane_count = (self.browser_visible && self.browser_side == PaneSide::Right)
-            as usize
-            + (self.details_visible && self.details_side == PaneSide::Right) as usize;
+        let (browser_rendered, details_rendered) =
+            emergency_pane_visibility(available_width, self.browser_visible, self.details_visible);
+        let left_pane_count = (browser_rendered && self.browser_side == PaneSide::Left) as usize
+            + (details_rendered && self.details_side == PaneSide::Left) as usize;
+        let right_pane_count = (browser_rendered && self.browser_side == PaneSide::Right) as usize
+            + (details_rendered && self.details_side == PaneSide::Right) as usize;
         let (left_width, right_width) = clamp_auxiliary_pane_widths(
             available_width,
             self.left_pane_width,
@@ -1322,16 +1372,16 @@ impl LibraryView {
             left_pane_count,
         );
 
-        if self.browser_visible && self.browser_side == PaneSide::Left {
+        if browser_rendered && self.browser_side == PaneSide::Left {
             self.show_browser_pane(ui, left_width, left_max_width, config, PaneSide::Left);
         }
-        if self.details_visible && self.details_side == PaneSide::Left {
+        if details_rendered && self.details_side == PaneSide::Left {
             self.show_details_pane(ui, left_width, left_max_width, config, PaneSide::Left);
         }
-        if self.browser_visible && self.browser_side == PaneSide::Right {
+        if browser_rendered && self.browser_side == PaneSide::Right {
             self.show_browser_pane(ui, right_width, right_max_width, config, PaneSide::Right);
         }
-        if self.details_visible && self.details_side == PaneSide::Right {
+        if details_rendered && self.details_side == PaneSide::Right {
             self.show_details_pane(ui, right_width, right_max_width, config, PaneSide::Right);
         }
 
@@ -1791,12 +1841,20 @@ impl LibraryView {
         });
     }
 
-    fn record_pane_width(&mut self, side: PaneSide, width: f32, runtime_max_width: f32) {
+    fn record_pane_width(
+        &mut self,
+        side: PaneSide,
+        width: f32,
+        runtime_max_width: f32,
+        user_resized: bool,
+    ) {
         let stored = match side {
             PaneSide::Left => &mut self.left_pane_width,
             PaneSide::Right => &mut self.right_pane_width,
         };
-        if let Some(resized) = resized_preferred_width(*stored, width, runtime_max_width) {
+        if let Some(resized) =
+            resized_preferred_width(*stored, width, runtime_max_width, user_resized)
+        {
             *stored = resized;
             self.layout_dirty = true;
             self.config_dirty = true;
@@ -1847,7 +1905,8 @@ impl LibraryView {
             ui.separator();
             self.browser_controls(ui);
         });
-        self.record_pane_width(side, panel.response.rect.width(), max_width);
+        let user_resized = pane_resize_pointer_active(ui, panel.response.rect, side);
+        self.record_pane_width(side, panel.response.rect.width(), max_width, user_resized);
     }
 
     fn show_details_pane(
@@ -1871,7 +1930,8 @@ impl LibraryView {
             ui.separator();
             self.details_view(ui, config);
         });
-        self.record_pane_width(side, panel.response.rect.width(), max_width);
+        let user_resized = pane_resize_pointer_active(ui, panel.response.rect, side);
+        self.record_pane_width(side, panel.response.rect.width(), max_width, user_resized);
     }
 
     fn browser_controls(&mut self, ui: &mut egui::Ui) {
@@ -13214,13 +13274,16 @@ mod tests {
 
     #[test]
     fn preferred_width_survives_temporary_runtime_clamping() {
-        assert_eq!(resized_preferred_width(600.0, 400.0, 500.0), None);
-        assert_eq!(resized_preferred_width(600.0, 600.0, 500.0), None);
+        assert_eq!(resized_preferred_width(600.0, 400.0, 500.0, false), None);
+        assert_eq!(resized_preferred_width(600.0, 600.0, 500.0, false), None);
     }
 
     #[test]
     fn genuine_resize_updates_preferred_width_when_it_fits() {
-        assert_eq!(resized_preferred_width(600.0, 520.0, 800.0), Some(520.0));
+        assert_eq!(
+            resized_preferred_width(600.0, 520.0, 800.0, true),
+            Some(520.0)
+        );
     }
 
     #[test]
@@ -13230,7 +13293,36 @@ mod tests {
         let (wide, _) = clamp_auxiliary_pane_widths(1400.0, preferred, 200.0, 1, 0);
         assert!(narrow < preferred);
         assert_eq!(wide, preferred);
-        assert_eq!(resized_preferred_width(preferred, narrow, 300.0), None);
+        assert_eq!(
+            resized_preferred_width(preferred, narrow, 300.0, false),
+            None
+        );
+    }
+
+    #[test]
+    fn genuine_resize_replaces_stale_preference_above_runtime_maximum() {
+        assert_eq!(
+            resized_preferred_width(1_864.0, 250.0, 720.0, true),
+            Some(250.0)
+        );
+    }
+
+    #[test]
+    fn emergency_layout_protects_center_and_restores_requested_panes() {
+        assert_eq!(emergency_pane_visibility(900.0, true, true), (true, true));
+        assert_eq!(emergency_pane_visibility(700.0, true, true), (true, false));
+        assert_eq!(emergency_pane_visibility(600.0, true, true), (false, false));
+        assert_eq!(emergency_pane_visibility(900.0, true, true), (true, true));
+    }
+
+    #[test]
+    fn emergency_layout_does_not_change_persisted_visibility_preferences() {
+        let browser_requested = true;
+        let details_requested = true;
+        let (browser_rendered, details_rendered) =
+            emergency_pane_visibility(700.0, browser_requested, details_requested);
+        assert_eq!((browser_rendered, details_rendered), (true, false));
+        assert_eq!((browser_requested, details_requested), (true, true));
     }
 }
 
