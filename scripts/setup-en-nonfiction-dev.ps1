@@ -40,6 +40,16 @@ function Assert-Equal {
     }
 }
 
+function New-AuthorArguments {
+    param([Parameter(Mandatory)][string[]]$Authors)
+
+    $arguments = @()
+    foreach ($author in $Authors) {
+        $arguments += @('--value', $author)
+    }
+    return $arguments
+}
+
 function Invoke-SelfTests {
     $parsed = Parse-CalibreFileName 'Title - Author'
     Assert-Equal 'Title' $parsed.Title 'Title - Author title'
@@ -55,6 +65,10 @@ function Invoke-SelfTests {
 
     $parsed = Parse-CalibreFileName 'Title - Jane Doe & John Roe and Sam Lee'
     Assert-Equal @('Jane Doe', 'John Roe', 'Sam Lee') $parsed.Authors 'multiple authors'
+
+    $authorArguments = @(New-AuthorArguments $parsed.Authors)
+    Assert-Equal @('--value', 'Jane Doe', '--value', 'John Roe', '--value', 'Sam Lee') `
+        $authorArguments 'repeated author value flags'
     Write-Host 'Calibre filename parser self-tests passed.'
 }
 
@@ -159,7 +173,8 @@ foreach ($file in $files) {
             & $calibredb --config $DevConfigPath set title --id $addedId --title $metadata.Title
             if ($LASTEXITCODE -ne 0) { throw "Failed to set title for $($file.FullName)" }
             if ($metadata.Authors.Count -gt 0) {
-                & $calibredb --config $DevConfigPath set authors --id $addedId --value $metadata.Authors
+                $authorArguments = @(New-AuthorArguments $metadata.Authors)
+                & $calibredb --config $DevConfigPath set authors --id $addedId @authorArguments
                 if ($LASTEXITCODE -ne 0) { throw "Failed to set authors for $($file.FullName)" }
             }
         }
