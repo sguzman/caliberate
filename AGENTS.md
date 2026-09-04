@@ -82,19 +82,25 @@ Work state lives under `docs/work/`.
 6. Move the task to `docs/work/done/` only when its acceptance criteria are satisfied.
 7. If criteria cannot be satisfied without architectural expansion, move it to `docs/work/blocked/` and explain why in the report.
 8. Commit and push the result so the architect can inspect it directly from the repository. Do not require the human maintainer to relay patches, reports, or explanations between agents.
-9. **Because Codex/Luna and the human share the same local checkout, do not leave that checkout on the implementation branch.** After the implementation commit/report has been pushed successfully, switch the local checkout back to `main` as the final repository action. Do not merge the implementation branch into local `main`; the architect owns integration. If local changes prevent switching back to `main`, report that explicitly instead of hiding it.
+9. **Codex/Luna must work in a dedicated implementation worktree, never in the human maintainer's primary checkout.** The primary checkout is reserved for `main` and runtime testing. The implementation worktree may remain on `codex/<task>`; it must not switch, reset, or otherwise mutate the branch checked out in the human worktree.
+10. After pushing the implementation branch, stop. Do not merge into `main` locally; the architect owns integration.
 
 Never claim Windows runtime behavior was verified unless it actually ran on Windows. A Linux compile or test is not a substitute for a Windows observation.
 
-## Shared-checkout branch safety
+## Worktree and branch safety
 
-A successful remote fetch does not change the currently checked-out branch. A bare `git pull` while the checkout is still on `codex/<task>` can fetch newer `origin/main` commits while leaving the working tree on the old implementation branch. This makes newly integrated files appear to be missing even though they exist on `main`.
+The human maintainer's primary checkout and the implementation agent's checkout are separate Git worktrees.
 
-Therefore:
+Required model:
 
-- Codex/Luna must return the shared checkout to `main` after pushing its task branch.
-- The human/architect handoff should use `git switch main` followed by `git pull --ff-only`, not assume that `git pull` implicitly changes branches.
-- When repository state looks inconsistent, check `git branch --show-current`, `git rev-parse HEAD`, and `git rev-parse origin/main` before diagnosing missing files or sparse checkout.
+- primary human worktree: stays on `main`; used for pulls and runtime testing;
+- implementation worktree: used for `codex/<task>` branches and agent edits;
+- Luna/Codex must never switch the human worktree away from `main`;
+- the human should not need to switch branches to inspect or test an implementation; accepted work is integrated remotely by the architect, then pulled into the primary `main` worktree;
+- a successful fetch does not change the currently checked-out branch. Human delivery remains `git switch main` followed by `git pull --ff-only`;
+- when repository state looks inconsistent, check `git branch --show-current`, `git rev-parse HEAD`, `git rev-parse origin/main`, and `git worktree list` before diagnosing missing files or sparse checkout.
+
+If a dedicated implementation worktree is not available, stop and ask the human/architect to create or identify one rather than using the primary checkout.
 
 ## Validation baseline
 
