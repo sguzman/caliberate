@@ -113,19 +113,23 @@ Each task should include:
 - required validation;
 - platform-specific verification that must be deferred to the human, if any.
 
-### 2. Human pulls main and launches Codex in a dedicated worktree
+### 2. Human launches Codex from the primary checkout
 
-The maintainer keeps the primary checkout on `main`, updates it with `git switch main` and `git pull --ff-only`, and launches Codex/Luna in a separate implementation worktree. No separate architecture brief should be necessary: the task and governing docs are in the repository.
+The maintainer uses the normal project checkout. The human does not perform routine implementation-branch switching.
 
-The primary checkout is the human's runtime/testing surface. Codex/Luna must not switch that worktree to an implementation branch.
+Codex/Luna is responsible for starting from `main`, fast-forwarding it, creating/switching to the assigned `codex/<task-id>-<slug>` branch, and returning the checkout to `main` before the agent exits.
 
-### 3. Codex implements and pushes from its worktree
+The checkout may temporarily be on the implementation branch while Luna is actively working. The human should not runtime-test the project during that implementation window.
 
-Codex works only in the dedicated implementation worktree, moves the task from `ready/` to `active/`, implements only that item, writes its report, moves the task to `done/` or `blocked/`, commits, and pushes the result to a `codex/<task-id>-<slug>` branch or other architect-approved remote branch.
+### 3. Codex implements, pushes, and restores main
 
-The implementation worktree may stay on that task branch after the push. It must not merge into `main` or modify the branch checked out in the human worktree.
+Codex moves the task from `ready/` to `active/`, implements only that item, writes its report, moves the task to `done/` or `blocked/`, commits, and pushes the result to a `codex/<task-id>-<slug>` branch or other architect-approved remote branch.
 
-The important requirement is that the result becomes visible in GitHub. The human should not have to export/upload/deliver the diff or report manually.
+After the push, Codex must switch the same checkout back to `main` and verify the final branch with `git branch --show-current`. Codex must not merge its own task branch into `main`; the architect owns integration.
+
+If uncommitted human changes prevent safe branch switching, Codex must stop and report them. It must not discard, hard-reset, force-clean, or silently stash those changes.
+
+The important requirement is that the result becomes visible in GitHub while the human checkout is returned to a predictable `main` state. The human should not have to export/upload/deliver the diff or report manually.
 
 ### 4. Architect reviews directly from GitHub
 
@@ -155,22 +159,25 @@ That is the normal delivery mechanism from the architect back to the human runti
 
 For GUI, Windows, device, and TTS behavior, the architect may prescribe a local command or a tiny validation scenario. The human runs it and reports observations. The human is testing the software, not transporting agent work.
 
-## Branching and worktrees
+## Branching
 
 Preferred implementation branch naming:
 
 - `codex/<task-id>-<slug>` for delegated implementation.
 
-Preferred local topology:
+The project uses one primary local checkout. Codex/Luna owns the temporary branch transition:
 
 ```text
-primary worktree       -> main              -> human runtime/testing
-implementation worktree -> codex/<task>     -> Codex/Luna implementation
+main -> codex/<task> -> main
 ```
+
+The human maintainer should not be asked to perform those branch switches as part of the normal workflow.
 
 Architecture/governance updates by ChatGPT may be committed directly to `main` unless isolation is useful for a risky change.
 
-The architect is responsible for integrating Codex work into `main`. The human should not be asked to merge branches or PRs as routine workflow, and Codex/Luna must not repurpose the human's primary worktree for implementation branches.
+The architect is responsible for integrating Codex work into `main`. The human should not be asked to merge branches or PRs as routine workflow.
+
+A previous two-worktree experiment is abandoned. Do not create a routine secondary `caliberate-luna` worktree. If such a stale worktree exists, Codex may remove it only when Git confirms it is clean; never force-remove unknown work.
 
 ## Evidence preservation
 
