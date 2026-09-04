@@ -100,6 +100,122 @@ fn query_sorts_case_insensitively_with_deterministic_ties() {
 }
 
 #[test]
+fn query_supports_all_library_sort_fields() {
+    let (db, _tmp, _, _) = seeded_db();
+    let fields = [
+        BookSortField::Authors,
+        BookSortField::Series,
+        BookSortField::Tags,
+        BookSortField::Rating,
+        BookSortField::Publisher,
+        BookSortField::Languages,
+        BookSortField::DateAdded,
+        BookSortField::DateModified,
+        BookSortField::PubDate,
+    ];
+
+    for field in fields {
+        db.search_books_query(&BookQuery::new().with_sort(field))
+            .expect("sort query");
+    }
+}
+
+#[test]
+fn query_sorts_metadata_with_missing_values_and_ties() {
+    let (db, _tmp) = sort_metadata_db();
+
+    let authors = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Authors))
+        .expect("author sort");
+    assert_eq!(
+        authors.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 1, 2]
+    );
+
+    let tags = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Tags))
+        .expect("tag sort");
+    assert_eq!(
+        tags.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 1, 2]
+    );
+
+    let series = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Series))
+        .expect("series sort");
+    assert_eq!(
+        series.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 2, 1]
+    );
+
+    let ratings = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Rating))
+        .expect("rating sort");
+    assert_eq!(
+        ratings.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [2, 3, 1]
+    );
+
+    let publishers = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Publisher))
+        .expect("publisher sort");
+    assert_eq!(
+        publishers.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 2, 1]
+    );
+
+    let languages = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Languages))
+        .expect("language sort");
+    assert_eq!(
+        languages.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 2, 1]
+    );
+
+    for (field, expected) in [
+        (BookSortField::DateAdded, vec![1, 2, 3]),
+        (BookSortField::DateModified, vec![1, 2, 3]),
+        (BookSortField::PubDate, vec![1, 2, 3]),
+    ] {
+        let results = db
+            .search_books_query(&BookQuery::new().with_sort(field))
+            .expect("date sort");
+        assert_eq!(
+            results.iter().map(|book| book.id).collect::<Vec<_>>(),
+            expected
+        );
+
+        let descending = db
+            .search_books_query(&BookQuery::new().with_sort(field).descending())
+            .expect("descending date sort");
+        assert_eq!(
+            descending.iter().map(|book| book.id).collect::<Vec<_>>(),
+            [3, 2, 1]
+        );
+    }
+
+    let tied = db
+        .search_books_query(&BookQuery::new().with_sort(BookSortField::Publisher))
+        .expect("publisher tie sort");
+    assert_eq!(
+        tied.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [3, 2, 1]
+    );
+}
+
+#[test]
+fn query_summary_sort_preserves_structured_query_order() {
+    let (db, _tmp) = sort_metadata_db();
+    let summaries = db
+        .search_book_summaries_query(&BookQuery::new().with_sort(BookSortField::Rating))
+        .expect("summary sort");
+    assert_eq!(
+        summaries.iter().map(|book| book.id).collect::<Vec<_>>(),
+        [2, 3, 1]
+    );
+}
+
+#[test]
 fn query_supports_limit_and_offset() {
     let (db, _tmp, first_id, second_id) = seeded_db();
     let page = db
@@ -158,6 +274,68 @@ fn ordered_db() -> (Database, TempDir) {
         "2026-04-01T00:00:00Z",
     )
     .expect("add alpha");
+    (db, temp_dir)
+}
+
+fn sort_metadata_db() -> (Database, TempDir) {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("caliberate-test-query-sort-")
+        .tempdir()
+        .expect("tempdir");
+    let mut db = Database::open_path(temp_dir.path().join("query.db"), 100).expect("open db");
+    let ids = [
+        db.add_book(
+            "First",
+            "epub",
+            "/library/first.epub",
+            "2026-04-01T00:00:00Z",
+        )
+        .expect("add first"),
+        db.add_book(
+            "Second",
+            "epub",
+            "/library/second.epub",
+            "2026-04-02T00:00:00Z",
+        )
+        .expect("add second"),
+        db.add_book(
+            "Third",
+            "epub",
+            "/library/third.epub",
+            "2026-04-03T00:00:00Z",
+        )
+        .expect("add third"),
+    ];
+    db.add_book_authors(ids[0], &["Zulu".to_string(), "alpha".to_string()])
+        .expect("add first authors");
+    db.add_book_authors(ids[1], &["Beta".to_string()])
+        .expect("add second authors");
+    db.add_book_tags(ids[0], &["Zulu".to_string(), "alpha".to_string()])
+        .expect("add first tags");
+    db.add_book_tags(ids[1], &["Beta".to_string()])
+        .expect("add second tags");
+    db.set_book_series(ids[0], "Series", 2.0)
+        .expect("set first series");
+    db.set_book_series(ids[1], "Series", 1.0)
+        .expect("set second series");
+    db.set_book_rating(ids[0], 8).expect("set first rating");
+    db.set_book_rating(ids[2], 3).expect("set third rating");
+    db.set_book_publisher(ids[0], "zeta")
+        .expect("set first publisher");
+    db.set_book_publisher(ids[1], "Alpha")
+        .expect("set second publisher");
+    db.set_book_languages(ids[0], &["Zulu".to_string(), "Alpha".to_string()])
+        .expect("set first languages");
+    db.set_book_languages(ids[1], &["beta".to_string()])
+        .expect("set second languages");
+    for (id, suffix) in ids.into_iter().zip(["01", "02", "03"]) {
+        db.update_book_timestamp(id, &format!("2026-04-{suffix}T00:00:00Z"))
+            .expect("set timestamp");
+        db.update_book_last_modified(id, &format!("2026-05-{suffix}T00:00:00Z"))
+            .expect("set modified");
+        db.update_book_pubdate(id, &format!("2026-03-{suffix}"))
+            .expect("set pubdate");
+    }
     (db, temp_dir)
 }
 

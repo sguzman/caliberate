@@ -4,7 +4,16 @@
 pub enum BookSortField {
     Id,
     Title,
+    Authors,
+    Series,
+    Tags,
     Format,
+    Rating,
+    Publisher,
+    Languages,
+    DateAdded,
+    DateModified,
+    PubDate,
 }
 
 impl Default for BookSortField {

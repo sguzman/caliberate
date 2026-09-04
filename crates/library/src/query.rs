@@ -20,7 +20,16 @@ pub struct LibraryQuery {
 pub enum LibrarySortField {
     Id,
     Title,
+    Authors,
+    Series,
+    Tags,
     Format,
+    Rating,
+    Publisher,
+    Languages,
+    DateAdded,
+    DateModified,
+    PubDate,
 }
 
 impl Default for LibrarySortField {
@@ -93,7 +102,16 @@ impl LibraryQuery {
             sort: match self.sort {
                 LibrarySortField::Id => BookSortField::Id,
                 LibrarySortField::Title => BookSortField::Title,
+                LibrarySortField::Authors => BookSortField::Authors,
+                LibrarySortField::Series => BookSortField::Series,
+                LibrarySortField::Tags => BookSortField::Tags,
                 LibrarySortField::Format => BookSortField::Format,
+                LibrarySortField::Rating => BookSortField::Rating,
+                LibrarySortField::Publisher => BookSortField::Publisher,
+                LibrarySortField::Languages => BookSortField::Languages,
+                LibrarySortField::DateAdded => BookSortField::DateAdded,
+                LibrarySortField::DateModified => BookSortField::DateModified,
+                LibrarySortField::PubDate => BookSortField::PubDate,
             },
             descending: self.descending,
         }
@@ -236,6 +254,45 @@ mod tests {
         assert_eq!(page.total, 2);
         assert_eq!(page.offset, 1);
         assert_eq!(page.limit, Some(1));
+    }
+
+    #[test]
+    fn all_sort_fields_map_through_library_catalog() {
+        let (_temp_dir, db) = seeded_database();
+        let catalog = LibraryCatalog::new(&db);
+        let fields = [
+            LibrarySortField::Authors,
+            LibrarySortField::Series,
+            LibrarySortField::Tags,
+            LibrarySortField::Rating,
+            LibrarySortField::Publisher,
+            LibrarySortField::Languages,
+            LibrarySortField::DateAdded,
+            LibrarySortField::DateModified,
+            LibrarySortField::PubDate,
+        ];
+
+        for field in fields {
+            catalog
+                .query_books(&LibraryQuery::new().with_sort(field))
+                .expect("library sort query");
+        }
+    }
+
+    #[test]
+    fn summary_page_preserves_library_sort_order() {
+        let (_temp_dir, mut db) = seeded_database();
+        db.set_book_rating(1, 10).expect("set first rating");
+        db.set_book_rating(2, 2).expect("set second rating");
+
+        let page = LibraryCatalog::new(&db)
+            .query_summary_page(&LibraryQuery::new().with_sort(LibrarySortField::Rating))
+            .expect("summary page");
+
+        assert_eq!(
+            page.books.iter().map(|book| book.id).collect::<Vec<_>>(),
+            [2, 1]
+        );
     }
 
     #[test]

@@ -2708,10 +2708,34 @@ impl Database {
         let sort_expression = match query.sort {
             BookSortField::Id => "b.id",
             BookSortField::Title => "b.title COLLATE NOCASE",
+            BookSortField::Authors => {
+                "COALESCE((SELECT a.name FROM books_authors_link bal JOIN authors a ON a.id = bal.author WHERE bal.book = b.id ORDER BY a.name COLLATE NOCASE, a.id LIMIT 1), '') COLLATE NOCASE"
+            }
+            BookSortField::Series => {
+                "COALESCE((SELECT s.name FROM books_series_link bsl JOIN series s ON s.id = bsl.series WHERE bsl.book = b.id ORDER BY bsl.id LIMIT 1), '') COLLATE NOCASE"
+            }
+            BookSortField::Tags => {
+                "COALESCE((SELECT t.name FROM books_tags_link btl JOIN tags t ON t.id = btl.tag WHERE btl.book = b.id ORDER BY t.name COLLATE NOCASE, t.id LIMIT 1), '') COLLATE NOCASE"
+            }
             BookSortField::Format => "b.format COLLATE NOCASE",
+            BookSortField::Rating => {
+                "COALESCE((SELECT r.rating FROM books_ratings_link brl JOIN ratings r ON r.id = brl.rating WHERE brl.book = b.id LIMIT 1), 0)"
+            }
+            BookSortField::Publisher => {
+                "COALESCE((SELECT p.name FROM books_publishers_link bpl JOIN publishers p ON p.id = bpl.publisher WHERE bpl.book = b.id ORDER BY bpl.id LIMIT 1), '') COLLATE NOCASE"
+            }
+            BookSortField::Languages => {
+                "COALESCE((SELECT l.lang_code FROM books_languages_link bll JOIN languages l ON l.id = bll.lang_code WHERE bll.book = b.id ORDER BY bll.item_order, bll.id LIMIT 1), '') COLLATE NOCASE"
+            }
+            BookSortField::DateAdded => "COALESCE(b.timestamp, '')",
+            BookSortField::DateModified => "COALESCE(b.last_modified, '')",
+            BookSortField::PubDate => "COALESCE(b.pubdate, '')",
         };
         let direction = if query.descending { "DESC" } else { "ASC" };
         sql.push_str(&format!(" ORDER BY {sort_expression} {direction}"));
+        if matches!(query.sort, BookSortField::Series) {
+            sql.push_str(&format!(", b.series_index {direction}"));
+        }
         if !matches!(query.sort, BookSortField::Id) {
             sql.push_str(", b.id ASC");
         }
