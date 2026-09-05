@@ -12,6 +12,8 @@ Caliberate must work when Calibre is not installed and when no Calibre process i
 
 Caliberate should support multiple library modes without forcing one storage philosophy on the user.
 
+The canonical mutable catalog for a maintained Caliberate library is Caliberate's own database. External Calibre libraries and directory trees are source/provenance inputs whose metadata can be materialized into that catalog while content remains heterogeneously stored or externally referenced. Direct attached-source querying remains useful for inspection/bootstrap, but it is not the long-term canonical metadata authority for a maintained library.
+
 ### 1. Caliberate-managed library
 
 Caliberate owns the library layout, metadata database, assets, and file lifecycle.
@@ -48,9 +50,12 @@ A Calibre library commonly contains `metadata.db` plus the author/title director
 
 Compatibility should be staged deliberately:
 
-1. **attach/read/index mode** — discover the library, consume useful Calibre metadata, and read books without modifying Calibre-owned structures;
-2. **overlay mode** — allow Caliberate-specific annotations, reading state, and metadata extensions without requiring destructive changes to Calibre's database/layout;
-3. **writable compatibility mode** — only after behavior is well-tested, support safe mutations intended to remain usable by Calibre where feasible.
+1. **attach/read mode** — inspect and serve the external library directly without modifying Calibre-owned structures;
+2. **materialize/import mode** — copy source metadata into the Caliberate-owned canonical catalog while retaining Calibre ebook files as read-only reference assets;
+3. **explicit resync mode** — refresh materialized source state through persisted provenance without silently overwriting local canonical edits;
+4. **writable compatibility mode** — only after ownership/conflict rules are explicit and well-tested, consider safe source mutations intended to remain usable by Calibre.
+
+The normal maintained-library path should not require repeated queries against Calibre's `metadata.db` once a source has been materialized. Actual content access may still depend on the legacy source path when assets are referenced in place.
 
 The architecture must not require Calibre to be installed, launched, or invoked for this workflow.
 
