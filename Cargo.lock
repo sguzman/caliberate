@@ -965,6 +965,7 @@ dependencies = [
  "caliberate-library",
  "http-body-util",
  "hyper",
+ "rusqlite",
  "serde",
  "tempfile",
  "tokio",

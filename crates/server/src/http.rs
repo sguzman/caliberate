@@ -16,7 +16,12 @@ pub async fn run(state: ServerState) -> CoreResult<()> {
         .await
         .map_err(|err| CoreError::Io("bind server".to_string(), err))?;
 
-    info!(component = "server", address = %addr, "server listening");
+    info!(
+        component = "server",
+        address = %addr,
+        source = %state.source_label(),
+        "server listening"
+    );
 
     axum::serve(listener, app).await.map_err(|err| {
         CoreError::Io(

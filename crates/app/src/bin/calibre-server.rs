@@ -2,12 +2,15 @@ use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Parser)]
 #[command(name = "calibre-server", version, about = "Caliberate content server")]
 struct ServerCli {
     #[arg(long, default_value = "config/control-plane.toml")]
     config: std::path::PathBuf,
+    #[arg(long)]
+    calibre_library: Option<std::path::PathBuf>,
     #[arg(long)]
     api_key: Option<String>,
     #[arg(long)]
@@ -91,6 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match &cli.command {
         Some(ServerCommand::CheckConfig) => {
+            let _source = resolve_source(cli.calibre_library.as_deref())?;
             tracing::info!(component = "calibre-server", "configuration check passed");
             return Ok(());
         }
@@ -184,9 +188,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_time()
         .build()?;
 
-    runtime.block_on(async move { caliberate_server::run(&config).await })?;
+    let source = resolve_source(cli.calibre_library.as_deref())?;
+    runtime.block_on(async move { caliberate_server::run_with_source(&config, source).await })?;
 
     Ok(())
+}
+
+fn resolve_source(
+    path: Option<&Path>,
+) -> Result<caliberate_server::ServerLibrarySource, Box<dyn std::error::Error>> {
+    match path {
+        Some(path) => Ok(caliberate_server::ServerLibrarySource::AttachedCalibre(
+            caliberate_library::calibre::CalibreLibraryBackend::open(path)?,
+        )),
+        None => Ok(caliberate_server::ServerLibrarySource::ConfiguredDatabase),
+    }
 }
 
 fn build_client(
@@ -314,14 +330,41 @@ fn normalize_prefix(prefix: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ServerCli, apply_cli_overrides, build_url, normalize_prefix};
+    use super::{ServerCli, ServerCommand, apply_cli_overrides, build_url, normalize_prefix};
     use caliberate_core::config::ControlPlane;
+    use clap::Parser;
     use std::path::PathBuf;
 
     fn load_config() -> ControlPlane {
         let config_path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config/control-plane.toml");
         ControlPlane::load_from_path(&config_path).expect("load config")
+    }
+
+    #[test]
+    fn parses_attached_calibre_flag_for_server_and_check_config() {
+        let cli = ServerCli::try_parse_from([
+            "calibre-server",
+            "--calibre-library",
+            "synthetic-library",
+            "check-config",
+        ])
+        .expect("attached library flag");
+        assert_eq!(
+            cli.calibre_library,
+            Some(PathBuf::from("synthetic-library"))
+        );
+        assert!(matches!(cli.command, Some(ServerCommand::CheckConfig)));
+    }
+
+    #[test]
+    fn source_resolution_rejects_incompatible_attached_root() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let result = super::resolve_source(Some(dir.path()));
+        match result {
+            Ok(_) => panic!("invalid root was accepted"),
+            Err(error) => assert!(error.to_string().contains("metadata.db")),
+        }
     }
 
     #[test]
@@ -357,6 +400,7 @@ mod tests {
     fn applies_host_port_scheme_overrides() {
         let cli = ServerCli {
             config: PathBuf::new(),
+            calibre_library: None,
             api_key: None,
             host: Some("example.org".to_string()),
             port: Some(9090),
@@ -388,6 +432,7 @@ mod tests {
     fn applies_url_prefix_override() {
         let cli = ServerCli {
             config: PathBuf::new(),
+            calibre_library: None,
             api_key: None,
             host: None,
             port: None,
@@ -417,6 +462,7 @@ mod tests {
     fn applies_auth_overrides() {
         let cli = ServerCli {
             config: PathBuf::new(),
+            calibre_library: None,
             api_key: None,
             host: None,
             port: None,
@@ -447,6 +493,7 @@ mod tests {
     fn applies_download_overrides() {
         let cli = ServerCli {
             config: PathBuf::new(),
+            calibre_library: None,
             api_key: None,
             host: None,
             port: None,
@@ -478,6 +525,7 @@ mod tests {
     fn applies_runtime_overrides() {
         let cli = ServerCli {
             config: PathBuf::new(),
+            calibre_library: None,
             api_key: None,
             host: None,
             port: None,

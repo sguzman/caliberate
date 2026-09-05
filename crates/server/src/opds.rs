@@ -5,10 +5,9 @@ use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use caliberate_db::database::Database;
-use caliberate_library::catalog::LibraryCatalog;
 use serde::Deserialize;
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use tokio_util::io::ReaderStream;
 use tracing::warn;
 
@@ -36,61 +35,46 @@ pub async fn opds_root(State(state): State<ServerState>) -> Response {
 }
 
 pub async fn opds_books(State(state): State<ServerState>) -> Response {
-    let db = match Database::open_with_fts(&state.config.db, &state.config.fts) {
-        Ok(db) => db,
+    let books = match state.with_catalog(|catalog| catalog.list_books()) {
+        Ok(books) => books,
         Err(err) => {
-            warn!(component = "server", error = %err, "failed to open database");
+            warn!(component = "server", error = %err, "failed to list books");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let catalog = LibraryCatalog::new(&db);
-    match catalog.list_books() {
-        Ok(books) => {
-            let entries = books
-                .into_iter()
-                .map(|book| FeedEntry {
-                    id: format!("urn:caliberate:book:{}", book.id),
-                    title: book.title,
-                    links: vec![Link {
-                        href: format!("{}/opds/books/{}", opds_base(&state), book.id),
-                        rel: "self",
-                        r#type: "application/atom+xml",
-                        title: None,
-                    }],
-                })
-                .collect::<Vec<_>>();
-            respond_feed(
-                "Caliberate Catalog",
-                "urn:caliberate:opds:books",
-                &[],
-                &entries,
-            )
-        }
-        Err(err) => {
-            warn!(component = "server", error = %err, "failed to list books");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+    {
+        let entries = books
+            .into_iter()
+            .map(|book| FeedEntry {
+                id: format!("urn:caliberate:book:{}", book.id),
+                title: book.title,
+                links: vec![Link {
+                    href: format!("{}/opds/books/{}", opds_base(&state), book.id),
+                    rel: "self",
+                    r#type: "application/atom+xml",
+                    title: None,
+                }],
+            })
+            .collect::<Vec<_>>();
+        respond_feed(
+            "Caliberate Catalog",
+            "urn:caliberate:opds:books",
+            &[],
+            &entries,
+        )
     }
 }
 
 pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
-    let db = match Database::open_with_fts(&state.config.db, &state.config.fts) {
-        Ok(db) => db,
-        Err(err) => {
-            warn!(component = "server", error = %err, "failed to open database");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-
-    let catalog = LibraryCatalog::new(&db);
-    let Some(book) = (match catalog.get_book(id) {
+    let book = match state.with_catalog(|catalog| catalog.get_book(id)) {
         Ok(book) => book,
         Err(err) => {
             warn!(component = "server", error = %err, "failed to fetch book");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-    }) else {
+    };
+    let Some(book) = book else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
@@ -127,31 +111,21 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let db = match Database::open_with_fts(&state.config.db, &state.config.fts) {
-        Ok(db) => db,
+    let content = match state.with_catalog(|catalog| catalog.resolve_content(id)) {
+        Ok(Some(content)) => content,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => {
-            warn!(component = "server", error = %err, "failed to open database");
+            warn!(component = "server", error = %err, "failed to resolve book content");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
-    let content = {
-        let catalog = LibraryCatalog::new(&db);
-        match catalog.resolve_content(id) {
-            Ok(Some(content)) => content,
-            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
-            Err(err) => {
-                warn!(component = "server", error = %err, "failed to resolve book content");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        }
+    let path = match authorized_content_path(&state, &content) {
+        Ok(path) => path,
+        Err(status) => return status.into_response(),
     };
 
-    if !is_path_allowed(&state, &content.path, content.storage_mode.as_deref()) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    let metadata = match tokio::fs::metadata(&content.path).await {
+    let metadata = match tokio::fs::metadata(&path).await {
         Ok(metadata) => metadata,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
@@ -159,7 +133,7 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
 
-    let file = match tokio::fs::File::open(&content.path).await {
+    let file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
@@ -185,41 +159,33 @@ pub async fn opds_search(
     let Some(term) = query.q else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let db = match Database::open_with_fts(&state.config.db, &state.config.fts) {
-        Ok(db) => db,
+    let books = match state.with_catalog(|catalog| catalog.search_books(&term)) {
+        Ok(books) => books,
         Err(err) => {
-            warn!(component = "server", error = %err, "failed to open database");
+            warn!(component = "server", error = %err, "failed to search books");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-
-    let catalog = LibraryCatalog::new(&db);
-    match catalog.search_books(&term) {
-        Ok(books) => {
-            let entries = books
-                .into_iter()
-                .map(|book| FeedEntry {
-                    id: format!("urn:caliberate:book:{}", book.id),
-                    title: book.title,
-                    links: vec![Link {
-                        href: format!("{}/opds/books/{}", opds_base(&state), book.id),
-                        rel: "self",
-                        r#type: "application/atom+xml",
-                        title: None,
-                    }],
-                })
-                .collect::<Vec<_>>();
-            respond_feed(
-                "Caliberate Search",
-                "urn:caliberate:opds:search",
-                &[],
-                &entries,
-            )
-        }
-        Err(err) => {
-            warn!(component = "server", error = %err, "failed to search books");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
+    {
+        let entries = books
+            .into_iter()
+            .map(|book| FeedEntry {
+                id: format!("urn:caliberate:book:{}", book.id),
+                title: book.title,
+                links: vec![Link {
+                    href: format!("{}/opds/books/{}", opds_base(&state), book.id),
+                    rel: "self",
+                    r#type: "application/atom+xml",
+                    title: None,
+                }],
+            })
+            .collect::<Vec<_>>();
+        respond_feed(
+            "Caliberate Search",
+            "urn:caliberate:opds:search",
+            &[],
+            &entries,
+        )
     }
 }
 
@@ -310,6 +276,31 @@ fn is_path_allowed(state: &ServerState, path: &str, storage_mode: Option<&str>) 
     path.starts_with(library_dir)
 }
 
+fn authorized_content_path(
+    state: &ServerState,
+    content: &caliberate_library::catalog::LibraryContent,
+) -> Result<PathBuf, StatusCode> {
+    if let Some(root) = state.attached_calibre_root() {
+        let path = std::path::Path::new(&content.path);
+        if !path.starts_with(root) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        let canonical = std::fs::canonicalize(path).map_err(|_| StatusCode::NOT_FOUND)?;
+        if !canonical_path_allowed(root, &canonical) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        return Ok(canonical);
+    }
+    if !is_path_allowed(state, &content.path, content.storage_mode.as_deref()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(PathBuf::from(&content.path))
+}
+
+fn canonical_path_allowed(root: &std::path::Path, path: &std::path::Path) -> bool {
+    path.starts_with(root)
+}
+
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -317,4 +308,23 @@ fn xml_escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('\"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_path_allowed;
+    use std::path::Path;
+
+    #[test]
+    fn attached_canonical_policy_rejects_outside_paths_and_symlink_targets() {
+        let root = Path::new(r"C:\synthetic-calibre");
+        assert!(canonical_path_allowed(
+            root,
+            Path::new(r"C:\synthetic-calibre\Author\book.epub")
+        ));
+        assert!(!canonical_path_allowed(
+            root,
+            Path::new(r"C:\outside\book.epub")
+        ));
+    }
 }

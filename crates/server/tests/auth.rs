@@ -11,7 +11,7 @@ fn build_state(enable_auth: bool, api_keys: Vec<String>) -> ServerState {
     config.server.enable_auth = enable_auth;
     config.server.api_keys = api_keys;
 
-    ServerState { config }
+    ServerState::new(config)
 }
 
 #[tokio::test]
