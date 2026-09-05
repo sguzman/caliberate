@@ -165,6 +165,14 @@ Primary target:
 
 The immediate architectural blocker is that `LibraryCatalog` is still concrete over `caliberate_db::Database`. Task `0014-library-backend-seam` introduces a source-neutral read backend so a future attached-Calibre `metadata.db` backend can sit behind the same catalog API.
 
+## Library backend seam — integrated
+
+Task `0014-library-backend-seam` decoupled `LibraryCatalog` from the concrete Caliberate SQLite database. `LibraryCatalog` now delegates to the source-neutral read-only `LibraryBackend` trait, while the existing `Database` implements that trait without changing current GUI/server consumers.
+
+Accepted commit: `6bd09c292d5c3edcea1a2349bc0623d3e5b953c6`.
+
+A fake non-Database backend test proves future source adapters can use the same library-domain catalog API.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -250,9 +258,9 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0014-library-backend-seam` — decouple `LibraryCatalog` from the concrete Caliberate SQLite database while preserving all current consumers.
-2. Add a read-only attached-Calibre backend that opens an existing library folder / `metadata.db` without Calibre and resolves its book files.
-3. Add headless source selection so `calibre-server` can serve an attached Calibre library directly.
+1. `0015-attached-calibre-backend` — implement the read-only modern Calibre `metadata.db` backend behind `LibraryBackend`, including query/filter/sort/facets and source file resolution.
+2. Add headless source selection so `calibre-server` can serve an attached Calibre library directly.
+3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
 4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
 5. Exercise the user's complete Calibre library headlessly and harden performance/content streaming.
 6. Return to GUI work only when a service capability needs a visible client or a regression blocks usage.
