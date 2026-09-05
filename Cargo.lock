@@ -922,6 +922,7 @@ dependencies = [
  "caliberate-db",
  "caliberate-metadata",
  "crossbeam-channel",
+ "rusqlite",
  "tempfile",
  "tracing",
 ]
