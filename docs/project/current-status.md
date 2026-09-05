@@ -153,6 +153,18 @@ Accepted commit: `ba77dbf9ab6eecb7741c615a30ceb1deaf210f8c`.
 
 Native Windows automated validation passed. Interactive Windows GUI verification is still pending.
 
+## Product direction pivot — headless services first
+
+Human Windows verification confirmed the integrated 0013 browser-filter path works correctly.
+
+The GUI is now frozen except for service-blocking regressions. Near-term work pivots to the reusable/headless service platform.
+
+Primary target:
+
+> Run Caliberate headlessly against an entire existing Calibre library folder, without a Calibre process and without importing/mutating the source library, then expose that library to other applications through reusable APIs.
+
+The immediate architectural blocker is that `LibraryCatalog` is still concrete over `caliberate_db::Database`. Task `0014-library-backend-seam` introduces a source-neutral read backend so a future attached-Calibre `metadata.db` backend can sit behind the same catalog API.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -238,11 +250,12 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human Windows runtime-check the integrated `0013` browser-filter path.
-2. Move remaining page-blocking local query semantics (Format/News/search/sort/group) onto reusable service semantics in bounded tasks.
-3. Introduce real GUI pagination only after those semantics operate on the full result set before page slicing.
-4. Add an HTTP/JSON adapter over the same service semantics.
-5. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. `0014-library-backend-seam` — decouple `LibraryCatalog` from the concrete Caliberate SQLite database while preserving all current consumers.
+2. Add a read-only attached-Calibre backend that opens an existing library folder / `metadata.db` without Calibre and resolves its book files.
+3. Add headless source selection so `calibre-server` can serve an attached Calibre library directly.
+4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+5. Exercise the user's complete Calibre library headlessly and harden performance/content streaming.
+6. Return to GUI work only when a service capability needs a visible client or a regression blocks usage.
 
 ## Completion standard
 
