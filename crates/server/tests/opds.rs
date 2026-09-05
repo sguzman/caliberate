@@ -31,6 +31,7 @@ fn attached_fixture() -> tempfile::TempDir {
          INSERT INTO books VALUES(1,'Attached Book','2026-01-01','2025-01-01',1.0,'Attached Author','Attached Author/Attached Book (1)','attached-1',0,NULL);
          INSERT INTO data VALUES(10,1,'PDF',10,'Attached Book - Attached Author');
          INSERT INTO data VALUES(11,1,'EPUB',12,'Attached Book - Attached Author');
+         INSERT INTO data VALUES(12,1,'MOBI',12,'Attached Book - Attached Author');
          INSERT INTO authors VALUES(1,'Attached Author');
          INSERT INTO books_authors_link VALUES(1,1,1);"
     ).expect("create attached fixture");
@@ -46,6 +47,11 @@ fn attached_fixture() -> tempfile::TempDir {
         b"attached epub bytes",
     )
     .expect("book content");
+    fs::write(
+        book_dir.join("Attached Book - Attached Author.mobi"),
+        b"attached mobi bytes",
+    )
+    .expect("mobi content");
     dir
 }
 
@@ -194,6 +200,34 @@ async fn opds_download_returns_file() {
     assert!(entry_body.contains(&format!("/opds/books/{book_id}/download\"")));
     assert!(!entry_body.contains(&format!("/opds/books/{book_id}/download/epub")));
 
+    let unavailable = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/opds/books/{book_id}/download/pdf"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("unavailable format request");
+    assert_eq!(unavailable.status(), StatusCode::NOT_FOUND);
+
+    let canonical = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/opds/books/{book_id}/download/epub"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("canonical format request");
+    assert_eq!(canonical.status(), StatusCode::OK);
+    let canonical_body = canonical
+        .into_body()
+        .collect()
+        .await
+        .expect("canonical body")
+        .to_bytes();
+
     let response = app
         .oneshot(
             Request::builder()
@@ -212,6 +246,7 @@ async fn opds_download_returns_file() {
         .expect("body")
         .to_bytes();
     assert_eq!(&body[..], b"book data");
+    assert_eq!(canonical_body, body);
 }
 
 #[tokio::test]
@@ -316,6 +351,10 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
     assert!(entry_body.contains("type=\"application/pdf\" title=\"Download\""));
     assert!(entry_body.contains("/opds/books/1/download/epub"));
     assert!(entry_body.contains("type=\"application/epub+zip\" title=\"Download EPUB\""));
+    assert!(
+        entry_body.find("/opds/books/1/download/epub")
+            < entry_body.find("/opds/books/1/download/mobi")
+    );
     assert!(!entry_body.contains("/download/pdf"));
 
     let download = app
@@ -356,7 +395,7 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
     let missing = app
         .oneshot(
             Request::builder()
-                .uri("/opds/books/1/download/mobi")
+                .uri("/opds/books/1/download/azw3")
                 .body(Body::empty())
                 .unwrap(),
         )
