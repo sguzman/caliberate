@@ -380,6 +380,32 @@ This is not treated as an OPDS failure. Synthetic task `0019` coverage already p
 
 Task `0020-batched-summary-formats` is ready to eliminate this N+1 discovery gap by projecting all formats into bounded summary pages using page-level backend batching.
 
+## Canonical catalog ownership clarification
+
+The product model is now explicit:
+
+- Caliberate's own SQLite database is the canonical mutable catalog for a maintained library.
+- Existing Calibre libraries are external sources/provenance, not the permanent metadata authority.
+- Calibre metadata should be materialized into the Caliberate DB while legacy ebook files may remain read-only external references.
+- New native books can coexist with imported legacy books in the same canonical catalog.
+- Logical book identity, logical format identity, and physical storage representation are separate concepts.
+- Existing `assets` copy/reference/compression machinery is retained and extended rather than replaced.
+- Future storage may include managed compressed/archive representations resolved on demand.
+
+Durable architecture: `docs/project/library-ownership-and-storage.md`.
+
+Task `0021-canonical-provenance-formats` is the first implementation step: source provenance tables, canonical logical-format rows, and format-aware physical assets. The following task should materialize an attached Calibre source into the canonical DB without copying ebook files.
+
+## Batched summary formats — integrated
+
+Task `0020-batched-summary-formats` extended `LibraryBookSummary` with all stored formats and made attached-Calibre summary pages load formats through bounded page-level SQL batches rather than one query/request per book.
+
+Attached format loading uses parameterized ID chunks of 400 and preserves source `data.id` order, lowercase normalization, safe size conversion, and case-only deduplication. Managed-DB summaries remain canonical one-format until the canonical logical-format foundation lands.
+
+JSON browse/query summaries now expose additive `format_count` and path-free `formats` entries.
+
+Accepted commit: `c27af97a3fa1a9fc7d79fee043cc3803553d07c5`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -465,10 +491,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0020-batched-summary-formats` — add page-level all-format projection to library summaries and JSON browse/query results without N+1 per-book format calls.
-2. Re-run real full-library multi-format discovery using only bounded summary pages.
-3. If a real multi-format book is found, complete real OPDS alternate-format acceptance against that specimen.
-4. Continue headless service hardening from measured full-corpus behavior.
+1. `0021-canonical-provenance-formats` — formalize external source provenance, canonical logical formats, and format-aware asset representations in the Caliberate-owned DB.
+2. Materialize/import an attached Calibre source into the canonical Caliberate DB without copying ebook files.
+3. Run the headless server from the local canonical DB and verify imported metadata + legacy reference content against the real 105,570-book corpus.
+4. Add explicit incremental source resync/reconciliation, then deepen managed/archive storage representations.
 
 ## Completion standard
 
