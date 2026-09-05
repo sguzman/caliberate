@@ -19,6 +19,12 @@ pub struct LibraryContent {
     pub storage_mode: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryFormat {
+    pub format: String,
+    pub size_bytes: Option<u64>,
+}
+
 impl From<BookRecord> for LibraryBook {
     fn from(book: BookRecord) -> Self {
         Self {
@@ -39,6 +45,12 @@ pub trait LibraryBackend {
     fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage>;
     fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>>;
     fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>>;
+    fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>>;
+    fn resolve_content_format(
+        &self,
+        book_id: i64,
+        format: &str,
+    ) -> CoreResult<Option<LibraryContent>>;
 }
 
 pub struct LibraryCatalog<'a> {
@@ -80,6 +92,18 @@ impl<'a> LibraryCatalog<'a> {
 
     pub fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
         self.backend.resolve_content(book_id)
+    }
+
+    pub fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>> {
+        self.backend.list_formats(book_id)
+    }
+
+    pub fn resolve_content_format(
+        &self,
+        book_id: i64,
+        format: &str,
+    ) -> CoreResult<Option<LibraryContent>> {
+        self.backend.resolve_content_format(book_id, format)
     }
 }
 
@@ -170,6 +194,34 @@ impl LibraryBackend for Database {
             path: book.path,
             storage_mode: None,
         }))
+    }
+
+    fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>> {
+        let Some(book) = self.get_book(book_id)? else {
+            return Ok(Vec::new());
+        };
+        if book.format.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(vec![LibraryFormat {
+            format: book.format.to_ascii_lowercase(),
+            size_bytes: None,
+        }])
+    }
+
+    fn resolve_content_format(
+        &self,
+        book_id: i64,
+        format: &str,
+    ) -> CoreResult<Option<LibraryContent>> {
+        let Some(book) = self.get_book(book_id)? else {
+            return Ok(None);
+        };
+        if book.format.eq_ignore_ascii_case(format) {
+            self.resolve_content(book_id)
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -360,6 +412,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn database_exposes_only_its_canonical_format_and_preserves_content_selection() {
+        let (_temp_dir, db) = seeded_database();
+        let catalog = LibraryCatalog::new(&db);
+
+        assert_eq!(
+            catalog.list_formats(1).unwrap(),
+            vec![super::LibraryFormat {
+                format: "epub".into(),
+                size_bytes: None,
+            }]
+        );
+        assert_eq!(
+            catalog.resolve_content_format(1, "EPUB").unwrap(),
+            catalog.resolve_content(1).unwrap()
+        );
+        assert_eq!(catalog.resolve_content_format(1, "pdf").unwrap(), None);
+        assert_eq!(catalog.list_formats(999).unwrap(), Vec::new());
+        assert_eq!(catalog.resolve_content_format(999, "epub").unwrap(), None);
+    }
+
     fn seeded_database() -> (TempDir, Database) {
         let temp_dir = tempfile::Builder::new()
             .prefix("caliberate-library-catalog-")
@@ -382,7 +455,7 @@ mod tests {
 
 #[cfg(test)]
 mod fake_backend_tests {
-    use super::{LibraryBackend, LibraryBook, LibraryCatalog, LibraryContent};
+    use super::{LibraryBackend, LibraryBook, LibraryCatalog, LibraryContent, LibraryFormat};
     use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage};
     use crate::summary::{LibraryBookSummary, LibrarySummaryPage};
     use caliberate_core::error::CoreResult;
@@ -466,6 +539,27 @@ mod fake_backend_tests {
                 storage_mode: Some("reference".to_string()),
             }))
         }
+
+        fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>> {
+            Ok((book_id == 7)
+                .then_some(vec![LibraryFormat {
+                    format: "epub".to_string(),
+                    size_bytes: Some(42),
+                }])
+                .unwrap_or_default())
+        }
+
+        fn resolve_content_format(
+            &self,
+            book_id: i64,
+            format: &str,
+        ) -> CoreResult<Option<LibraryContent>> {
+            if book_id == 7 && format.eq_ignore_ascii_case("epub") {
+                self.resolve_content(book_id)
+            } else {
+                Ok(None)
+            }
+        }
     }
 
     #[test]
@@ -479,6 +573,18 @@ mod fake_backend_tests {
         let query = LibraryQuery::new().with_title("delegated");
         assert_eq!(catalog.query_books(&query).unwrap().len(), 1);
         assert_eq!(backend.last_query.borrow().as_ref(), Some(&query));
+
+        assert_eq!(
+            catalog.list_formats(7).unwrap(),
+            vec![LibraryFormat {
+                format: "epub".to_string(),
+                size_bytes: Some(42),
+            }]
+        );
+        assert_eq!(
+            catalog.resolve_content_format(7, "EPUB").unwrap(),
+            catalog.resolve_content(7).unwrap()
+        );
 
         assert_eq!(
             catalog.resolve_content(7).unwrap(),

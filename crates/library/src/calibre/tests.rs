@@ -316,6 +316,102 @@ mod tests {
     }
 
     #[test]
+    fn exposes_all_formats_and_resolves_each_format_without_changing_primary() {
+        let dir = fixture();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        assert_eq!(
+            backend.list_formats(1).unwrap(),
+            vec![
+                crate::catalog::LibraryFormat {
+                    format: "pdf".into(),
+                    size_bytes: Some(20),
+                },
+                crate::catalog::LibraryFormat {
+                    format: "epub".into(),
+                    size_bytes: Some(10),
+                },
+            ]
+        );
+        let pdf = backend.resolve_content_format(1, "pdf").unwrap().unwrap();
+        let epub = backend.resolve_content_format(1, "EPUB").unwrap().unwrap();
+        assert_eq!(pdf.format, "pdf");
+        assert_eq!(epub.format, "epub");
+        assert!(pdf.path.ends_with("Book One - Author A.pdf"));
+        assert!(epub.path.ends_with("Book One - Author A.epub"));
+        assert_ne!(pdf.path, epub.path);
+        assert_eq!(pdf.storage_mode.as_deref(), Some("reference"));
+        assert_eq!(epub.storage_mode.as_deref(), Some("reference"));
+        assert_eq!(backend.resolve_content(1).unwrap().unwrap().format, "pdf");
+        assert_eq!(backend.list_formats(999).unwrap(), Vec::new());
+        assert_eq!(backend.resolve_content_format(999, "pdf").unwrap(), None);
+        assert_eq!(backend.list_formats(3).unwrap(), Vec::new());
+        assert_eq!(backend.resolve_content_format(3, "pdf").unwrap(), None);
+    }
+
+    #[test]
+    fn malformed_format_rows_deduplicate_by_lowest_data_id_and_invalid_sizes_are_none() {
+        let dir = fixture();
+        let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+        db.execute(
+            "INSERT INTO data VALUES(12,1,'pDf',-1,'Book One - Author A')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO data VALUES(13,1,'MOBI',NULL,'Book One - Author A')",
+            [],
+        )
+        .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        assert_eq!(
+            backend.list_formats(1).unwrap(),
+            vec![
+                crate::catalog::LibraryFormat {
+                    format: "pdf".into(),
+                    size_bytes: Some(20),
+                },
+                crate::catalog::LibraryFormat {
+                    format: "epub".into(),
+                    size_bytes: Some(10),
+                },
+                crate::catalog::LibraryFormat {
+                    format: "mobi".into(),
+                    size_bytes: None,
+                },
+            ]
+        );
+        let content = backend.resolve_content_format(1, "PDF").unwrap().unwrap();
+        assert!(content.path.ends_with(".pdf"));
+    }
+
+    #[test]
+    fn format_specific_resolution_rejects_unsafe_name_and_format() {
+        let dir = fixture();
+        let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+        db.execute(
+            "UPDATE data SET name='Book One - Author A/sub' WHERE id=11",
+            [],
+        )
+        .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        assert!(backend.resolve_content_format(1, "epub").is_err());
+
+        db.execute("UPDATE data SET name='Book One - Author A' WHERE id=11", [])
+            .unwrap();
+        db.execute(
+            "UPDATE data SET format='EPUB/../../outside' WHERE id=11",
+            [],
+        )
+        .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        assert!(
+            backend
+                .resolve_content_format(1, "EPUB/../../outside")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn rejects_missing_metadata_and_unsafe_source_paths() {
         let empty = tempfile::tempdir().unwrap();
         assert!(CalibreLibraryBackend::open(empty.path()).is_err());

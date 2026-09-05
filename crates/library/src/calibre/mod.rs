@@ -1,5 +1,5 @@
 //! Read-only adapter for an attached modern Calibre library.
-use crate::catalog::{LibraryBackend, LibraryBook, LibraryContent};
+use crate::catalog::{LibraryBackend, LibraryBook, LibraryContent, LibraryFormat};
 use crate::query::{
     LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage, LibrarySortField,
 };
@@ -403,6 +403,64 @@ impl LibraryBackend for CalibreLibraryBackend {
             book_id: id,
             format: format.to_ascii_lowercase(),
             path: p.to_string_lossy().into_owned(),
+            storage_mode: Some("reference".into()),
+        }))
+    }
+
+    fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>> {
+        let c = self.connection()?;
+        let mut statement = c
+            .prepare("SELECT format, uncompressed_size FROM data WHERE book=?1 ORDER BY id ASC")
+            .map_err(|e| sqlerr("prepare Calibre format list", e))?;
+        let rows = statement
+            .query_map([book_id], |row| {
+                let format: String = row.get(0)?;
+                let size = row
+                    .get::<_, Option<i64>>(1)?
+                    .and_then(|size| u64::try_from(size).ok());
+                Ok((format.to_ascii_lowercase(), size))
+            })
+            .map_err(|e| sqlerr("query Calibre formats", e))?;
+        let mut formats = Vec::new();
+        for row in rows {
+            let (format, size_bytes) = row.map_err(|e| sqlerr("read Calibre format", e))?;
+            if formats
+                .iter()
+                .any(|entry: &LibraryFormat| entry.format == format)
+            {
+                continue;
+            }
+            formats.push(LibraryFormat { format, size_bytes });
+        }
+        Ok(formats)
+    }
+
+    fn resolve_content_format(
+        &self,
+        book_id: i64,
+        requested_format: &str,
+    ) -> CoreResult<Option<LibraryContent>> {
+        let c = self.connection()?;
+        let row = c
+            .query_row(
+                "SELECT b.path, d.name, d.format FROM books b JOIN data d ON d.book=b.id WHERE b.id=?1 AND LOWER(d.format)=LOWER(?2) ORDER BY d.id ASC LIMIT 1",
+                rusqlite::params![book_id, requested_format],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+            )
+            .optional()
+            .map_err(|e| sqlerr("read Calibre format content", e))?;
+        let Some((book_path, name, format)) = row else {
+            return Ok(None);
+        };
+        if name.is_empty() || format.is_empty() {
+            return Ok(None);
+        }
+        let normalized_format = format.to_ascii_lowercase();
+        let path = safe_path(&self.root, &book_path, &name, &normalized_format)?;
+        Ok(Some(LibraryContent {
+            book_id,
+            format: normalized_format,
+            path: path.to_string_lossy().into_owned(),
             storage_mode: Some("reference".into()),
         }))
     }
