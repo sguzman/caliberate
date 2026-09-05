@@ -30,40 +30,82 @@ impl From<BookRecord> for LibraryBook {
     }
 }
 
+pub trait LibraryBackend {
+    fn list_books(&self) -> CoreResult<Vec<LibraryBook>>;
+    fn get_book(&self, id: i64) -> CoreResult<Option<LibraryBook>>;
+    fn search_books(&self, query: &str) -> CoreResult<Vec<LibraryBook>>;
+    fn query_books(&self, query: &LibraryQuery) -> CoreResult<Vec<LibraryBook>>;
+    fn query_page(&self, query: &LibraryQuery) -> CoreResult<LibraryQueryPage>;
+    fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage>;
+    fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>>;
+    fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>>;
+}
+
 pub struct LibraryCatalog<'a> {
-    db: &'a Database,
+    backend: &'a dyn LibraryBackend,
 }
 
 impl<'a> LibraryCatalog<'a> {
-    pub fn new(db: &'a Database) -> Self {
-        Self { db }
+    pub fn new(backend: &'a dyn LibraryBackend) -> Self {
+        Self { backend }
     }
 
     pub fn list_books(&self) -> CoreResult<Vec<LibraryBook>> {
-        self.db
-            .list_books()
-            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+        self.backend.list_books()
     }
 
     pub fn get_book(&self, id: i64) -> CoreResult<Option<LibraryBook>> {
-        self.db.get_book(id).map(|book| book.map(LibraryBook::from))
+        self.backend.get_book(id)
     }
 
     pub fn search_books(&self, query: &str) -> CoreResult<Vec<LibraryBook>> {
-        self.db
-            .search_books(query)
-            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+        self.backend.search_books(query)
     }
 
     pub fn query_books(&self, query: &LibraryQuery) -> CoreResult<Vec<LibraryBook>> {
-        self.db
-            .search_books_query(&query.to_db_query())
-            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+        self.backend.query_books(query)
     }
 
     pub fn query_page(&self, query: &LibraryQuery) -> CoreResult<LibraryQueryPage> {
+        self.backend.query_page(query)
+    }
+
+    pub fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
+        self.backend.query_summary_page(query)
+    }
+
+    pub fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
+        self.backend.list_facets(kind)
+    }
+
+    pub fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
+        self.backend.resolve_content(book_id)
+    }
+}
+
+impl LibraryBackend for Database {
+    fn list_books(&self) -> CoreResult<Vec<LibraryBook>> {
+        self.list_books()
+            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    fn get_book(&self, id: i64) -> CoreResult<Option<LibraryBook>> {
+        self.get_book(id).map(|book| book.map(LibraryBook::from))
+    }
+
+    fn search_books(&self, query: &str) -> CoreResult<Vec<LibraryBook>> {
+        self.search_books(query)
+            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    fn query_books(&self, query: &LibraryQuery) -> CoreResult<Vec<LibraryBook>> {
+        self.search_books_query(&query.to_db_query())
+            .map(|books| books.into_iter().map(LibraryBook::from).collect())
+    }
+
+    fn query_page(&self, query: &LibraryQuery) -> CoreResult<LibraryQueryPage> {
         let books = self.query_books(query)?;
-        let total = self.db.count_books_query(&query.to_db_query())?;
+        let total = self.count_books_query(&query.to_db_query())?;
         Ok(LibraryQueryPage {
             books,
             total,
@@ -72,9 +114,9 @@ impl<'a> LibraryCatalog<'a> {
         })
     }
 
-    pub fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
-        let records = self.db.search_book_summaries_query(&query.to_db_query())?;
-        let total = self.db.count_books_query(&query.to_db_query())?;
+    fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
+        let records = self.search_book_summaries_query(&query.to_db_query())?;
+        let total = self.count_books_query(&query.to_db_query())?;
         Ok(LibrarySummaryPage {
             books: records.into_iter().map(LibraryBookSummary::from).collect(),
             total,
@@ -83,14 +125,14 @@ impl<'a> LibraryCatalog<'a> {
         })
     }
 
-    pub fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
+    fn list_facets(&self, kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
         let values = match kind {
-            LibraryFacetKind::Authors => self.db.list_author_categories()?,
-            LibraryFacetKind::Tags => self.db.list_tag_categories()?,
-            LibraryFacetKind::Series => self.db.list_series_categories()?,
-            LibraryFacetKind::Publishers => self.db.list_publisher_categories()?,
-            LibraryFacetKind::Ratings => self.db.list_rating_categories()?,
-            LibraryFacetKind::Languages => self.db.list_language_categories()?,
+            LibraryFacetKind::Authors => self.list_author_categories()?,
+            LibraryFacetKind::Tags => self.list_tag_categories()?,
+            LibraryFacetKind::Series => self.list_series_categories()?,
+            LibraryFacetKind::Publishers => self.list_publisher_categories()?,
+            LibraryFacetKind::Ratings => self.list_rating_categories()?,
+            LibraryFacetKind::Languages => self.list_language_categories()?,
         };
 
         Ok(values
@@ -103,12 +145,12 @@ impl<'a> LibraryCatalog<'a> {
             .collect())
     }
 
-    pub fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
-        let Some(book) = self.db.get_book(book_id)? else {
+    fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
+        let Some(book) = self.get_book(book_id)? else {
             return Ok(None);
         };
 
-        let assets = self.db.list_assets_for_book(book_id)?;
+        let assets = self.list_assets_for_book(book_id)?;
         if let Some(asset) = assets
             .iter()
             .find(|asset| asset.storage_mode == "copy")
@@ -335,5 +377,117 @@ mod tests {
         db.add_book("Dune", "pdf", "/library/dune.pdf", "2026-04-02T00:00:00Z")
             .expect("add Dune");
         (temp_dir, db)
+    }
+}
+
+#[cfg(test)]
+mod fake_backend_tests {
+    use super::{LibraryBackend, LibraryBook, LibraryCatalog, LibraryContent};
+    use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage};
+    use crate::summary::{LibraryBookSummary, LibrarySummaryPage};
+    use caliberate_core::error::CoreResult;
+    use std::cell::RefCell;
+
+    struct FakeBackend {
+        last_query: RefCell<Option<LibraryQuery>>,
+    }
+
+    impl FakeBackend {
+        fn book() -> LibraryBook {
+            LibraryBook {
+                id: 7,
+                title: "Fake Book".to_string(),
+                format: "epub".to_string(),
+                path: "/fake/book.epub".to_string(),
+            }
+        }
+    }
+
+    impl LibraryBackend for FakeBackend {
+        fn list_books(&self) -> CoreResult<Vec<LibraryBook>> {
+            Ok(vec![Self::book()])
+        }
+
+        fn get_book(&self, id: i64) -> CoreResult<Option<LibraryBook>> {
+            Ok((id == 7).then(Self::book))
+        }
+
+        fn search_books(&self, _query: &str) -> CoreResult<Vec<LibraryBook>> {
+            self.list_books()
+        }
+
+        fn query_books(&self, query: &LibraryQuery) -> CoreResult<Vec<LibraryBook>> {
+            *self.last_query.borrow_mut() = Some(query.clone());
+            self.list_books()
+        }
+
+        fn query_page(&self, query: &LibraryQuery) -> CoreResult<LibraryQueryPage> {
+            Ok(LibraryQueryPage {
+                books: self.query_books(query)?,
+                total: 1,
+                offset: query.offset.unwrap_or(0),
+                limit: query.limit,
+            })
+        }
+
+        fn query_summary_page(&self, _query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
+            Ok(LibrarySummaryPage {
+                books: vec![LibraryBookSummary {
+                    id: 7,
+                    title: "Fake Book".to_string(),
+                    format: "epub".to_string(),
+                    path: "/fake/book.epub".to_string(),
+                    authors: vec!["Fake Author".to_string()],
+                    tags: Vec::new(),
+                    series: None,
+                    rating: None,
+                    publisher: None,
+                    languages: Vec::new(),
+                    has_cover: false,
+                    date_added: None,
+                    date_modified: None,
+                    pubdate: None,
+                }],
+                total: 1,
+                offset: 0,
+                limit: None,
+            })
+        }
+
+        fn list_facets(&self, _kind: LibraryFacetKind) -> CoreResult<Vec<LibraryFacetValue>> {
+            Ok(Vec::new())
+        }
+
+        fn resolve_content(&self, book_id: i64) -> CoreResult<Option<LibraryContent>> {
+            Ok((book_id == 7).then(|| LibraryContent {
+                book_id,
+                format: "epub".to_string(),
+                path: "/fake/book.epub".to_string(),
+                storage_mode: Some("reference".to_string()),
+            }))
+        }
+    }
+
+    #[test]
+    fn catalog_accepts_backend_without_database_and_delegates_domain_calls() {
+        let backend = FakeBackend {
+            last_query: RefCell::new(None),
+        };
+        let catalog = LibraryCatalog::new(&backend);
+
+        assert_eq!(catalog.list_books().unwrap()[0].title, "Fake Book");
+        let query = LibraryQuery::new().with_title("delegated");
+        assert_eq!(catalog.query_books(&query).unwrap().len(), 1);
+        assert_eq!(backend.last_query.borrow().as_ref(), Some(&query));
+
+        assert_eq!(
+            catalog.resolve_content(7).unwrap(),
+            Some(LibraryContent {
+                book_id: 7,
+                format: "epub".to_string(),
+                path: "/fake/book.epub".to_string(),
+                storage_mode: Some("reference".to_string()),
+            })
+        );
     }
 }
