@@ -199,6 +199,14 @@ Accepted commit: `a003eb9f6ecd241dd1fa905b40681014b45dd7d5`.
 
 The next milestone is human runtime verification against the user's real full Calibre library. Do not queue another implementation task until that real-source check identifies either success or a concrete compatibility/performance defect.
 
+## Real-library runtime defect — WSL/UNC SQLite locking
+
+Human acceptance against the real Calibre source at `\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\calibre\en_nonfiction` reached the attached backend but failed during schema validation with SQLite `DatabaseBusy` / `database is locked`.
+
+This is a filesystem/VFS locking compatibility defect at the native-Windows <-> WSL UNC boundary, not a Calibre schema mismatch.
+
+Task `0016.1-wsl-immutable-calibre-access` is ready. It adds an explicit, opt-in immutable read-only mode for static attached Calibre sources. Normal locking read-only remains the default; immutable mode must never be silently selected because SQLite disables locking/change detection and assumes the source is not changing.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -284,12 +292,12 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human-run the merged headless attached-Calibre server against the user's real full Calibre library in read-only mode.
-2. Fix only concrete schema/filesystem/performance defects discovered by that real-source run.
-3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
-4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
-5. Harden full-library query/feed/content-streaming performance.
-6. Return to GUI work only when a service capability needs a visible client or a regression blocks usage.
+1. `0016.1-wsl-immutable-calibre-access` — add explicit immutable read-only SQLite URI mode for static WSL/network-backed attached Calibre sources while preserving normal locking mode as the default.
+2. Human-retry the real full Calibre library using the explicit immutable flag with the source kept static during the server session.
+3. Fix only further concrete real-source schema/filesystem/performance defects.
+4. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
+5. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+6. Harden full-library query/feed/content-streaming performance.
 
 ## Completion standard
 
