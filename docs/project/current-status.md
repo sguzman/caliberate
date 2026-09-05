@@ -258,6 +258,32 @@ Accepted commit: `ee4044d29effff6edb4fc2ccacd3c73f40035fe1`.
 
 Human real-library acceptance should now retry the same WSL-backed library with `--calibre-library-immutable`, keeping the source static for the duration of the process.
 
+## Real full-library headless acceptance — passed
+
+Human Windows runtime acceptance against the user's actual WSL-backed Calibre library succeeded end to end.
+
+Observed real source:
+
+```text
+\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\calibre\en_nonfiction
+```
+
+with explicit static-source mode.
+
+Acceptance evidence:
+
+- `check-config` completed successfully against the real `metadata.db`;
+- the headless server bound successfully at `127.0.0.1:8181`;
+- `/health` returned HTTP 200 / `ok`;
+- OPDS search for `Romanovs` returned real book ID `56016`, title `The Last Days of the Romanovs`;
+- `/opds/books/56016` returned the expected real entry and acquisition link;
+- `/opds/books/56016/download` streamed the actual ebook successfully;
+- the downloaded test artifact size was 354,595 bytes.
+
+This establishes that the source-neutral service and attached-Calibre server work against the user's real full library without importing the source into Caliberate first.
+
+The next service limitation is the single-primary-format compatibility projection.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -343,10 +369,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human-retry the real full WSL-backed Calibre library with `--calibre-library-immutable`, keeping the source static.
-2. Fix only further concrete real-source schema/filesystem/performance defects.
-3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
-4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+1. `0017-library-all-formats` — expose all stored formats per logical book through the source-neutral library service while preserving the current primary-format compatibility path.
+2. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+3. Upgrade OPDS to expose multiple acquisition formats using the same all-format service.
+4. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
 
 ## Completion standard
 
