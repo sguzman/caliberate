@@ -10,6 +10,7 @@ pub struct LibraryBookSummary {
     pub title: String,
     pub format: String,
     pub path: String,
+    pub formats: Vec<crate::catalog::LibraryFormat>,
     pub authors: Vec<String>,
     pub tags: Vec<String>,
     pub series: Option<LibrarySeriesSummary>,

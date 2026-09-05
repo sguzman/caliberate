@@ -13187,6 +13187,10 @@ mod tests {
             title: "Title".to_string(),
             format: "epub".to_string(),
             path: "book.epub".to_string(),
+            formats: vec![caliberate_library::catalog::LibraryFormat {
+                format: "epub".to_string(),
+                size_bytes: None,
+            }],
             authors: vec!["Alice".to_string(), "Bob".to_string()],
             tags: vec!["fiction".to_string(), "classic".to_string()],
             series: Some(caliberate_library::summary::LibrarySeriesSummary {
@@ -13220,6 +13224,10 @@ mod tests {
             title: "Title".to_string(),
             format: "txt".to_string(),
             path: "book.txt".to_string(),
+            formats: vec![caliberate_library::catalog::LibraryFormat {
+                format: "txt".to_string(),
+                size_bytes: None,
+            }],
             authors: Vec::new(),
             tags: Vec::new(),
             series: None,

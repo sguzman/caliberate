@@ -227,11 +227,20 @@ impl LibraryBackend for Database {
 
 impl From<BookSummaryRecord> for LibraryBookSummary {
     fn from(record: BookSummaryRecord) -> Self {
+        let formats = if record.format.is_empty() {
+            Vec::new()
+        } else {
+            vec![LibraryFormat {
+                format: record.format.to_ascii_lowercase(),
+                size_bytes: None,
+            }]
+        };
         Self {
             id: record.id,
             title: record.title,
             format: record.format,
             path: record.path,
+            formats,
             authors: record.authors,
             tags: record.tags,
             series: record.series.map(|series| LibrarySeriesSummary {
@@ -424,6 +433,12 @@ mod tests {
                 size_bytes: None,
             }]
         );
+        let summary = catalog
+            .query_summary_page(&crate::query::LibraryQuery::default())
+            .unwrap();
+        assert_eq!(summary.books[0].formats.len(), 1);
+        assert_eq!(summary.books[0].formats[0].format, "epub");
+        assert_eq!(summary.books[0].formats[0].size_bytes, None);
         assert_eq!(
             catalog.resolve_content_format(1, "EPUB").unwrap(),
             catalog.resolve_content(1).unwrap()
@@ -510,6 +525,10 @@ mod fake_backend_tests {
                     title: "Fake Book".to_string(),
                     format: "epub".to_string(),
                     path: "/fake/book.epub".to_string(),
+                    formats: vec![LibraryFormat {
+                        format: "epub".to_string(),
+                        size_bytes: Some(42),
+                    }],
                     authors: vec!["Fake Author".to_string()],
                     tags: Vec::new(),
                     series: None,

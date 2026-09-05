@@ -385,6 +385,85 @@ mod tests {
     }
 
     #[test]
+    fn summary_page_batches_formats_and_preserves_page_semantics() {
+        let dir = fixture();
+        let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+        db.execute(
+            "INSERT INTO data VALUES(12,1,'pDf',-1,'Book One - Author A')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO data VALUES(13,1,'MOBI',40,'Book One - Author A')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO data VALUES(14,1,'mobi',NULL,'Book One - Author A')",
+            [],
+        )
+        .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        let page = backend
+            .query_summary_page(&LibraryQuery::default())
+            .unwrap();
+        assert_eq!(page.total, 3);
+        assert_eq!(page.books[0].id, 1);
+        assert_eq!(page.books[0].format, "pdf");
+        assert_eq!(
+            page.books[0]
+                .formats
+                .iter()
+                .map(|format| format.format.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pdf", "epub", "mobi"]
+        );
+        assert_eq!(page.books[0].formats[0].size_bytes, Some(20));
+        assert_eq!(page.books[0].formats[1].size_bytes, Some(10));
+        assert_eq!(page.books[0].formats[2].size_bytes, Some(40));
+        assert_eq!(page.books[1].formats.len(), 1);
+        assert_eq!(page.books[2].formats, Vec::new());
+
+        let paged = backend
+            .query_summary_page(&LibraryQuery::default().with_limit(1).with_offset(1))
+            .unwrap();
+        assert_eq!(paged.total, 3);
+        assert_eq!(
+            paged.books.iter().map(|book| book.id).collect::<Vec<_>>(),
+            [2]
+        );
+
+        for id in 4..=103 {
+            db.execute(
+                "INSERT INTO books VALUES(?1,?2,'2026-04-01',NULL,1.0,'','',?3,0,NULL)",
+                rusqlite::params![id, format!("Bulk {id}"), format!("bulk-{id}")],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO data VALUES(?1,?2,'TXT',?3,'Bulk')",
+                rusqlite::params![id + 1000, id, id],
+            )
+            .unwrap();
+        }
+        db.execute("INSERT INTO data VALUES(2000,4,'PDF',NULL,'Bulk')", [])
+            .unwrap();
+        db.execute("INSERT INTO data VALUES(2001,4,'EPUB',-1,'Bulk')", [])
+            .unwrap();
+        let bulk = CalibreLibraryBackend::open(dir.path()).unwrap();
+        let bulk_page = bulk
+            .query_summary_page(&LibraryQuery::default().with_limit(100).with_offset(3))
+            .unwrap();
+        assert_eq!(bulk_page.total, 103);
+        assert_eq!(bulk_page.books.len(), 100);
+        assert_eq!(bulk_page.books[0].id, 4);
+        assert_eq!(bulk_page.books[0].formats.len(), 3);
+        assert_eq!(bulk_page.books[0].formats[0].size_bytes, Some(4));
+        assert_eq!(bulk_page.books[0].formats[1].size_bytes, None);
+        assert_eq!(bulk_page.books[0].formats[2].size_bytes, None);
+        assert_eq!(bulk_page.books[99].id, 103);
+    }
+
+    #[test]
     fn format_specific_resolution_rejects_unsafe_name_and_format() {
         let dir = fixture();
         let db = Connection::open(dir.path().join("metadata.db")).unwrap();

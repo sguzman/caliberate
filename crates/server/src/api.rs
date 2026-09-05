@@ -51,6 +51,8 @@ struct BookItem {
     id: i64,
     title: String,
     primary_format: String,
+    format_count: usize,
+    formats: Vec<SummaryFormatItem>,
     authors: Vec<String>,
     tags: Vec<String>,
     series: Option<SeriesItem>,
@@ -61,6 +63,12 @@ struct BookItem {
     date_added: Option<String>,
     date_modified: Option<String>,
     pubdate: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SummaryFormatItem {
+    format: String,
+    size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -455,6 +463,15 @@ fn summary_item(book: &LibraryBookSummary) -> BookItem {
         id: book.id,
         title: book.title.clone(),
         primary_format: book.format.clone(),
+        format_count: book.formats.len(),
+        formats: book
+            .formats
+            .iter()
+            .map(|format| SummaryFormatItem {
+                format: format.format.clone(),
+                size_bytes: format.size_bytes,
+            })
+            .collect(),
         authors: book.authors.clone(),
         tags: book.tags.clone(),
         series: book.series.as_ref().map(|s| SeriesItem {

@@ -67,8 +67,10 @@ fn attached_state() -> (TempDir, ServerState) {
          CREATE TABLE books_languages_link(id INTEGER PRIMARY KEY,book INTEGER,lang_code INTEGER,item_order INTEGER);
          CREATE TABLE identifiers(id INTEGER PRIMARY KEY,book INTEGER,type TEXT,val TEXT);
          INSERT INTO books VALUES(1,'Attached Two Formats','2026-01-01','2025-01-01',1.0,'Attached Author','Attached Author/Attached Two Formats (1)','attached-1',0,NULL);
+         INSERT INTO books VALUES(2,'Attached Metadata Only','2026-01-02',NULL,1.0,'','','attached-2',0,NULL);
          INSERT INTO data VALUES(10,1,'PDF',10,'Attached Two Formats - Attached Author');
          INSERT INTO data VALUES(11,1,'EPUB',11,'Attached Two Formats - Attached Author');
+         INSERT INTO data VALUES(12,1,'MOBI',12,'Attached Two Formats - Attached Author');
          INSERT INTO authors VALUES(1,'Attached Author');
          INSERT INTO books_authors_link VALUES(1,1,1);
          INSERT INTO tags VALUES(1,'attached');
@@ -85,6 +87,11 @@ fn attached_state() -> (TempDir, ServerState) {
     fs::write(
         book_dir.join("Attached Two Formats - Attached Author.epub"),
         b"epub bytes",
+    )
+    .unwrap();
+    fs::write(
+        book_dir.join("Attached Two Formats - Attached Author.mobi"),
+        b"mobi bytes",
     )
     .unwrap();
     let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
@@ -345,6 +352,18 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     let (status, body) = json_response(app.clone(), "GET", "/api/v1/books", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["items"][0]["title"], "Attached Two Formats");
+    assert_eq!(body["items"][0]["primary_format"], "pdf");
+    assert_eq!(body["items"][0]["format_count"], 3);
+    assert_eq!(body["items"][0]["formats"][0]["format"], "pdf");
+    assert_eq!(body["items"][0]["formats"][1]["format"], "epub");
+    assert_eq!(body["items"][0]["formats"][2]["format"], "mobi");
+    assert_eq!(
+        body["items"][0]["format_count"],
+        body["items"][0]["formats"].as_array().unwrap().len()
+    );
+    assert!(body["items"][0]["formats"][0].get("content_href").is_none());
+    assert_eq!(body["items"][1]["format_count"], 0);
+    assert_eq!(body["items"][1]["formats"].as_array().unwrap().len(), 0);
     assert!(!body.to_string().contains("metadata.db"));
     assert!(!body.to_string().contains("Attached Author/Attached"));
 
@@ -358,17 +377,25 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["primary_format"], "pdf");
+    assert_eq!(body["items"][0]["format_count"], 3);
+    assert_eq!(
+        body["items"][0]["format_count"],
+        body["items"][0]["formats"].as_array().unwrap().len()
+    );
     let (status, body) = json_response(app.clone(), "GET", "/api/v1/books/1", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["primary_format"], "pdf");
     assert_eq!(body["formats"][0]["format"], "pdf");
     assert_eq!(body["formats"][1]["format"], "epub");
+    assert_eq!(body["formats"][2]["format"], "mobi");
     assert!(!body.to_string().contains("storage_mode"));
     let (status, body) =
         json_response(app.clone(), "GET", "/api/v1/books/1/formats", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["formats"][0]["format"], "pdf");
     assert_eq!(body["formats"][1]["format"], "epub");
+    assert_eq!(body["formats"][2]["format"], "mobi");
 
     let (status, content_type, bytes) =
         raw_response(app.clone(), "/api/v1/books/1/content/EPUB").await;
@@ -381,7 +408,10 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     let (status, _, bytes) = raw_response(app.clone(), "/api/v1/books/1/content").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(bytes, b"pdf bytes");
-    let (status, _, _) = raw_response(app, "/api/v1/books/1/content/mobi").await;
+    let (status, _, bytes) = raw_response(app.clone(), "/api/v1/books/1/content/mobi").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"mobi bytes");
+    let (status, _, _) = raw_response(app, "/api/v1/books/1/content/azw3").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(fs::read(dir.path().join("metadata.db")).unwrap(), before);
     assert!(!dir.path().join("must-not-open.db").exists());

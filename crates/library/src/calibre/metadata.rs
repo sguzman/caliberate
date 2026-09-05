@@ -1,9 +1,12 @@
 use super::CalibreLibraryBackend;
 use super::sqlerr;
+use crate::catalog::LibraryFormat;
 use crate::summary::LibrarySeriesSummary;
 use caliberate_core::error::CoreResult;
 use rusqlite::{Connection, params_from_iter, types::Value};
 use std::collections::HashMap;
+
+const FORMAT_ID_CHUNK: usize = 400;
 #[derive(Default, Clone)]
 pub(super) struct Meta {
     pub(super) authors: Vec<String>,
@@ -113,6 +116,57 @@ pub(super) fn load(b: &CalibreLibraryBackend, ids: &[i64]) -> CoreResult<HashMap
         |x, v| x.languages.push(v),
     )?;
     Ok(o)
+}
+
+pub(super) fn load_formats(
+    b: &CalibreLibraryBackend,
+    ids: &[i64],
+) -> CoreResult<HashMap<i64, Vec<LibraryFormat>>> {
+    let mut formats = ids
+        .iter()
+        .map(|id| (*id, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    if ids.is_empty() {
+        return Ok(formats);
+    }
+    let c = b.connection()?;
+    for chunk in ids.chunks(FORMAT_ID_CHUNK) {
+        let placeholders = std::iter::repeat("?")
+            .take(chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let values: Vec<Value> = chunk.iter().copied().map(Value::from).collect();
+        let mut statement = c
+            .prepare(&format!(
+                "SELECT book,format,uncompressed_size FROM data WHERE book IN ({placeholders}) ORDER BY book,id"
+            ))
+            .map_err(|e| sqlerr("prepare Calibre summary formats", e))?;
+        let rows = statement
+            .query_map(params_from_iter(values.into_iter()), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                ))
+            })
+            .map_err(|e| sqlerr("query Calibre summary formats", e))?;
+        for row in rows {
+            let (book_id, raw_format, raw_size) =
+                row.map_err(|e| sqlerr("read Calibre summary format", e))?;
+            let format = raw_format.to_ascii_lowercase();
+            let Some(book_formats) = formats.get_mut(&book_id) else {
+                continue;
+            };
+            if book_formats.iter().any(|item| item.format == format) {
+                continue;
+            }
+            book_formats.push(LibraryFormat {
+                format,
+                size_bytes: raw_size.and_then(|size| u64::try_from(size).ok()),
+            });
+        }
+    }
+    Ok(formats)
 }
 fn bulk_text<F: FnMut(&mut Meta, String)>(
     c: &Connection,

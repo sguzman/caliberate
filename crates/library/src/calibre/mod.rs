@@ -10,7 +10,7 @@ mod query;
 #[cfg(test)]
 mod tests;
 use caliberate_core::error::{CoreError, CoreResult};
-use metadata::load as load_metadata;
+use metadata::{load as load_metadata, load_formats};
 use path::safe_path;
 use query::{filters, like_escape, paging, sort_expr};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params_from_iter, types::Value};
@@ -345,6 +345,7 @@ impl LibraryBackend for CalibreLibraryBackend {
         let total = self.total(q)?;
         let ids: Vec<i64> = books.iter().map(|b| b.id).collect();
         let m = load_metadata(self, &ids)?;
+        let formats = load_formats(self, &ids)?;
         let out = books
             .into_iter()
             .map(|b| {
@@ -354,6 +355,7 @@ impl LibraryBackend for CalibreLibraryBackend {
                     title: b.title,
                     format: b.format,
                     path: b.path,
+                    formats: formats.get(&b.id).cloned().unwrap_or_default(),
                     authors: x.authors,
                     tags: x.tags,
                     series: x.series,

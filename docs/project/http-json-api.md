@@ -24,6 +24,14 @@ same authorization and streaming policy.
 | GET | `/api/v1/books/{id}/content/{format}` | Format-specific content bytes |
 | GET | `/api/v1/facets/{kind}` | Authors, tags, series, publishers, ratings, or languages |
 
+Browse and structured-query summary items include the compatibility
+`primary_format` field plus `format_count` and a batched `formats` array. Each
+summary format has `format` and optional `size_bytes`; summary entries do not
+include content links. This projection is loaded in page-level batches so
+large-library multi-format discovery does not require one format request per
+book. The existing detail and `/formats` endpoints retain their richer
+`content_href` format entries.
+
 Browse and query pagination defaults to `limit=100`, `offset=0`, and is
 bounded to a maximum limit of 500. Supported sorts are `id`, `title`,
 `authors`, `series`, `tags`, `format`, `rating`, `publisher`, `languages`,
