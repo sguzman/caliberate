@@ -91,6 +91,7 @@ fn attached_state() -> (TempDir, ServerState) {
     let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../config/control-plane.toml");
     let mut config = ControlPlane::load_from_path(config_path).unwrap();
+    config.db.sqlite_path = dir.path().join("must-not-open.db");
     config.server.download_enabled = true;
     config.server.download_allow_external = false;
     config.server.enable_auth = false;
@@ -196,6 +197,9 @@ async fn api_rejects_invalid_paging_and_missing_books_with_json_errors() {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"]["code"], "invalid_request");
     }
+    let (status, content_type, _) = raw_response(app.clone(), "/api/v1/books?limit=0").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(content_type.starts_with("application/json"));
     let (status, body) =
         json_response(app.clone(), "GET", "/api/v1/books/999", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -380,4 +384,5 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     let (status, _, _) = raw_response(app, "/api/v1/books/1/content/mobi").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(fs::read(dir.path().join("metadata.db")).unwrap(), before);
+    assert!(!dir.path().join("must-not-open.db").exists());
 }
