@@ -143,6 +143,16 @@ Structured string filters use literal case-insensitive substring semantics with 
 
 Accepted commit: `b852ff149915ba5315aaa3c19cd152068d9ae1e8`.
 
+## GUI service browser filters — integrated
+
+Task `0013-gui-service-browser-filters` moved visible Authors/Tags/Series/Publishers/Ratings/Languages Include/Exclude row filtering onto `LibraryQuery::metadata_filters`.
+
+The GUI now loads the complete service-browser-filtered working set in bounded summary chunks; `apply_filters()` no longer re-evaluates browser filters against formatted `BookRow` strings. Browser saved-search state is validated before the service query is built, preventing stale filter/UI divergence.
+
+Accepted commit: `ba77dbf9ab6eecb7741c615a30ceb1deaf210f8c`.
+
+Native Windows automated validation passed. Interactive Windows GUI verification is still pending.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -189,7 +199,7 @@ OPDS list/get/search/download storage selection consume the library facade. The 
 
 Still not first-class:
 
-- visible GUI browser-filter execution through the service (`0013` ready);
+- remaining local Format/News/search/sort/group semantics needed before universally correct page-at-a-time browsing;
 - true service-backed GUI pagination;
 - arbitrary directory-backed libraries with persistent rescan/reconciliation while leaving files in place;
 - flat-directory source workflow;
@@ -228,10 +238,11 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0013-gui-service-browser-filters` — translate visible BrowserFilter values into library-domain metadata predicates and load the complete service-filtered working set.
-2. Introduce real GUI pagination once the visible filter path no longer depends on an unfiltered full-library row set.
-3. Add an HTTP/JSON adapter over the same service semantics.
-4. Deepen library-source support: directory-backed and attached-Calibre modes.
+1. Human Windows runtime-check the integrated `0013` browser-filter path.
+2. Move remaining page-blocking local query semantics (Format/News/search/sort/group) onto reusable service semantics in bounded tasks.
+3. Introduce real GUI pagination only after those semantics operate on the full result set before page slicing.
+4. Add an HTTP/JSON adapter over the same service semantics.
+5. Deepen library-source support: directory-backed and attached-Calibre modes.
 
 ## Completion standard
 
