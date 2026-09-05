@@ -185,6 +185,20 @@ Accepted commit: `6cb9fdcd59b7d9b96e2cc67be7b6aa5d3b49ae48`.
 
 Synthetic Windows tests cover source-byte preservation, schema safety, path traversal protection, sort/filter parity, paging totals, summaries, facets, and content resolution. Real-library compatibility/performance is still pending human runtime verification.
 
+## Headless attached Calibre server — integrated
+
+Task `0016-headless-attached-calibre-server` added explicit server source selection and the CLI flag:
+
+```text
+calibre-server --calibre-library <PATH>
+```
+
+Existing OPDS list/get/search/download operations now route through the source-neutral `LibraryCatalog` seam. Attached Calibre content is authorized only inside the selected canonical library root and is canonicalized again before streaming, while the configured-Database external-reference policy remains unchanged.
+
+Accepted commit: `a003eb9f6ecd241dd1fa905b40681014b45dd7d5`.
+
+The next milestone is human runtime verification against the user's real full Calibre library. Do not queue another implementation task until that real-source check identifies either success or a concrete compatibility/performance defect.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -270,8 +284,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0016-headless-attached-calibre-server` — add server source selection and `--calibre-library <PATH>` so existing OPDS/content endpoints can serve an attached Calibre source directly.
-2. Human-run the headless server against the user's real Calibre library in read-only mode and fix any schema/filesystem compatibility defects.
+1. Human-run the merged headless attached-Calibre server against the user's real full Calibre library in read-only mode.
+2. Fix only concrete schema/filesystem/performance defects discovered by that real-source run.
 3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
 4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
 5. Harden full-library query/feed/content-streaming performance.
