@@ -38,6 +38,10 @@ pub fn router(state: ServerState) -> Router {
         .route("/opds/books", get(opds::opds_books))
         .route("/opds/books/{id}", get(opds::opds_book_entry))
         .route("/opds/books/{id}/download", get(opds::opds_book_download))
+        .route(
+            "/opds/books/{id}/download/{format}",
+            get(opds::opds_book_format_download),
+        )
         .route("/opds/search", get(opds::opds_search))
         .route("/api/v1/books", get(api::list_books))
         .route("/api/v1/books/query", axum::routing::post(api::query_books))

@@ -29,15 +29,21 @@ fn attached_fixture() -> tempfile::TempDir {
          CREATE TABLE books_languages_link(id INTEGER PRIMARY KEY,book INTEGER,lang_code INTEGER,item_order INTEGER);
          CREATE TABLE identifiers(id INTEGER PRIMARY KEY,book INTEGER,type TEXT,val TEXT);
          INSERT INTO books VALUES(1,'Attached Book','2026-01-01','2025-01-01',1.0,'Attached Author','Attached Author/Attached Book (1)','attached-1',0,NULL);
-         INSERT INTO data VALUES(10,1,'EPUB',12,'Attached Book - Attached Author');
+         INSERT INTO data VALUES(10,1,'PDF',10,'Attached Book - Attached Author');
+         INSERT INTO data VALUES(11,1,'EPUB',12,'Attached Book - Attached Author');
          INSERT INTO authors VALUES(1,'Attached Author');
          INSERT INTO books_authors_link VALUES(1,1,1);"
     ).expect("create attached fixture");
     let book_dir = dir.path().join("Attached Author/Attached Book (1)");
     fs::create_dir_all(&book_dir).expect("book directory");
     fs::write(
+        book_dir.join("Attached Book - Attached Author.pdf"),
+        b"attached pdf bytes",
+    )
+    .expect("pdf content");
+    fs::write(
         book_dir.join("Attached Book - Attached Author.epub"),
-        b"attached bytes",
+        b"attached epub bytes",
     )
     .expect("book content");
     dir
@@ -99,6 +105,56 @@ async fn opds_books_returns_feed() {
 }
 
 #[tokio::test]
+async fn opds_format_links_honor_prefix_and_authentication() {
+    let attached = attached_fixture();
+    let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../config/control-plane.toml");
+    let mut config = ControlPlane::load_from_path(&config_path).unwrap();
+    config.server.url_prefix = "/proxy".into();
+    config.server.enable_auth = true;
+    config.server.api_keys = vec!["secret".into()];
+    config.server.download_enabled = true;
+    let backend =
+        caliberate_library::calibre::CalibreLibraryBackend::open(attached.path()).unwrap();
+    let app = http::router(ServerState::with_attached_calibre(config, backend));
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::get("/proxy/opds/books/1/download/epub")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let entry = app
+        .clone()
+        .oneshot(
+            Request::get("/proxy/opds/books/1")
+                .header("authorization", "Bearer secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let entry_body = response_text(entry).await;
+    assert!(entry_body.contains("/proxy/opds/books/1/download/epub"));
+
+    let download = app
+        .oneshot(
+            Request::get("/proxy/opds/books/1/download/epub")
+                .header("authorization", "Bearer secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn opds_download_returns_file() {
     let library_dir = tempdir().expect("library dir");
     let db_dir = tempdir().expect("db dir");
@@ -124,6 +180,19 @@ async fn opds_download_returns_file() {
 
     let state = ServerState::new(config);
     let app = http::router(state);
+
+    let entry = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/opds/books/{book_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("entry request");
+    let entry_body = response_text(entry).await;
+    assert!(entry_body.contains(&format!("/opds/books/{book_id}/download\"")));
+    assert!(!entry_body.contains(&format!("/opds/books/{book_id}/download/epub")));
 
     let response = app
         .oneshot(
@@ -241,9 +310,16 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
         .await
         .expect("entry request");
     assert_eq!(entry.status(), StatusCode::OK);
-    assert!(response_text(entry).await.contains("Attached Book"));
+    let entry_body = response_text(entry).await;
+    assert!(entry_body.contains("Attached Book"));
+    assert!(entry_body.contains("/opds/books/1/download"));
+    assert!(entry_body.contains("type=\"application/pdf\" title=\"Download\""));
+    assert!(entry_body.contains("/opds/books/1/download/epub"));
+    assert!(entry_body.contains("type=\"application/epub+zip\" title=\"Download EPUB\""));
+    assert!(!entry_body.contains("/download/pdf"));
 
     let download = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/opds/books/1/download")
@@ -255,10 +331,41 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
     assert_eq!(download.status(), StatusCode::OK);
     assert_eq!(
         &download.into_body().collect().await.unwrap().to_bytes()[..],
-        b"attached bytes"
+        b"attached pdf bytes"
     );
+    let epub_download = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/opds/books/1/download/EPUB")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("format download request");
+    assert_eq!(epub_download.status(), StatusCode::OK);
+    assert_eq!(
+        &epub_download
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()[..],
+        b"attached epub bytes"
+    );
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .uri("/opds/books/1/download/mobi")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("missing format request");
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     let metadata_after = fs::read(attached.path().join("metadata.db")).expect("read metadata");
     assert_eq!(metadata_after, metadata_before);
+    assert!(!attached.path().join("must-not-open.db").exists());
 }
 
 #[test]

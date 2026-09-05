@@ -5,6 +5,12 @@ The versioned API is rooted at `/api/v1` (or at
 the same routes use the configured Caliberate database or an attached,
 read-only Calibre backend selected when the server starts.
 
+OPDS keeps its legacy primary acquisition route at
+`/opds/books/{id}/download`. When a book has alternate formats, OPDS adds
+acquisition links for them and serves them at
+`/opds/books/{id}/download/{format}`. JSON and OPDS content routes share the
+same authorization and streaming policy.
+
 ## Routes
 
 | Method | Route | Purpose |

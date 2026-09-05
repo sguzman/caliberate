@@ -20,13 +20,13 @@ pub async fn opds_root(State(state): State<ServerState>) -> Response {
         href: format!("{base}/opds/books"),
         rel: "subsection",
         r#type: "application/atom+xml",
-        title: Some("All books"),
+        title: Some("All books".to_string()),
     });
     links.push(Link {
         href: format!("{base}/opds/search?q={{searchTerms}}"),
         rel: "search",
         r#type: "application/atom+xml",
-        title: Some("Search"),
+        title: Some("Search".to_string()),
     });
     respond_feed("Caliberate OPDS", "urn:caliberate:opds", &links, &[])
 }
@@ -64,8 +64,16 @@ pub async fn opds_books(State(state): State<ServerState>) -> Response {
 }
 
 pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
-    let book = match state.with_catalog(|catalog| catalog.get_book(id)) {
-        Ok(book) => book,
+    let result = state.with_catalog(|catalog| {
+        let book = catalog.get_book(id)?;
+        let formats = match book.as_ref() {
+            Some(_) => catalog.list_formats(id)?,
+            None => Vec::new(),
+        };
+        Ok((book, formats))
+    });
+    let (book, formats) = match result {
+        Ok(result) => result,
         Err(err) => {
             warn!(component = "server", error = %err, "failed to fetch book");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -90,10 +98,28 @@ pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i6
                 href: download_href,
                 rel: "http://opds-spec.org/acquisition",
                 r#type: content::content_type_for_format(&book.format),
-                title: Some("Download"),
+                title: Some("Download".to_string()),
             },
         ],
     };
+
+    let mut entry = entry;
+    for format in formats {
+        if format.format.eq_ignore_ascii_case(&book.format) {
+            continue;
+        }
+        entry.links.push(Link {
+            href: format!(
+                "{}/opds/books/{}/download/{}",
+                opds_base(&state),
+                id,
+                format.format
+            ),
+            rel: "http://opds-spec.org/acquisition",
+            r#type: content::content_type_for_format(&format.format),
+            title: Some(format!("Download {}", format.format.to_ascii_uppercase())),
+        });
+    }
 
     respond_feed(
         "Caliberate Book",
@@ -113,6 +139,21 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         }
     };
 
+    content::stream_content(&state, content).await
+}
+
+pub async fn opds_book_format_download(
+    State(state): State<ServerState>,
+    Path((id, format)): Path<(i64, String)>,
+) -> Response {
+    let content = match state.with_catalog(|catalog| catalog.resolve_content_format(id, &format)) {
+        Ok(Some(content)) => content,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(err) => {
+            warn!(component = "server", error = %err, "failed to resolve format content");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
     content::stream_content(&state, content).await
 }
 
@@ -157,7 +198,7 @@ struct Link<'a> {
     href: String,
     rel: &'a str,
     r#type: &'a str,
-    title: Option<&'a str>,
+    title: Option<String>,
 }
 
 struct FeedEntry {
@@ -202,7 +243,7 @@ fn append_link(buf: &mut String, link: &Link<'_>) {
         link.rel,
         link.r#type
     );
-    if let Some(title) = link.title {
+    if let Some(title) = &link.title {
         let _ = write!(buf, " title=\"{}\"", xml_escape(title));
     }
     buf.push_str(" />\n");
