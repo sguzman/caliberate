@@ -344,6 +344,30 @@ This establishes the JSON API as a working external-consumer interface over the 
 
 The tested book currently has one stored format, so real multi-format source acceptance remains to be exercised with another real book when convenient.
 
+## OPDS multi-format acquisition — integrated
+
+Task `0019-opds-multi-format` upgraded the OPDS adapter to expose alternate stored formats while preserving the legacy primary acquisition route.
+
+Existing primary behavior remains:
+
+```text
+/opds/books/{id}/download
+```
+
+Alternate formats are now exposed as additional acquisition links and streamed through:
+
+```text
+/opds/books/{id}/download/{format}
+```
+
+The OPDS adapter uses `LibraryCatalog::list_formats` / `resolve_content_format`, preserves service format order, excludes the primary format from duplicate alternate links, honors URL prefixes/authentication, and delegates all bytes through the same shared content authorization/canonicalization/streaming policy used by JSON.
+
+Synthetic configured-Database and attached-Calibre tests cover canonical route byte parity, unavailable formats, PDF primary + EPUB/MOBI alternate ordering, case-insensitive resolution, source isolation, unchanged metadata bytes, auth, and prefix behavior.
+
+Accepted commit: `3ea85128cf29b117a0d7e49568094c71f22e4b08`.
+
+Real multi-format OPDS acceptance is still pending against an actual attached book with more than one stored format.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -429,8 +453,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0019-opds-multi-format` — expose alternate stored formats through OPDS acquisition links and format-specific downloads while preserving the legacy primary route.
-2. Human-test OPDS multi-format behavior against a real book with more than one stored format when one is identified.
+1. Human-test OPDS multi-format behavior against a real attached book with more than one stored format.
+2. Fix only concrete real-source defects discovered by that acceptance pass.
 3. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
 4. Continue headless service expansion only where it improves external-consumer capability or source completeness.
 
