@@ -1,6 +1,6 @@
 //! HTTP server wiring.
 
-use crate::{ServerState, auth, opds};
+use crate::{ServerState, api, auth, opds};
 use axum::{Router, routing::get};
 use caliberate_core::error::{CoreError, CoreResult};
 use std::net::SocketAddr;
@@ -39,6 +39,17 @@ pub fn router(state: ServerState) -> Router {
         .route("/opds/books/{id}", get(opds::opds_book_entry))
         .route("/opds/books/{id}/download", get(opds::opds_book_download))
         .route("/opds/search", get(opds::opds_search))
+        .route("/api/v1/books", get(api::list_books))
+        .route("/api/v1/books/query", axum::routing::post(api::query_books))
+        .route("/api/v1/search", get(api::search))
+        .route("/api/v1/books/{id}", get(api::book_detail))
+        .route("/api/v1/books/{id}/formats", get(api::book_formats))
+        .route("/api/v1/books/{id}/content", get(api::primary_content))
+        .route(
+            "/api/v1/books/{id}/content/{format}",
+            get(api::format_content),
+        )
+        .route("/api/v1/facets/{kind}", get(api::facets))
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

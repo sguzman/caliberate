@@ -967,6 +967,7 @@ dependencies = [
  "hyper",
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-util",

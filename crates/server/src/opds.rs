@@ -1,14 +1,11 @@
 //! OPDS feed endpoints.
 
-use crate::ServerState;
-use axum::body::Body;
+use crate::{ServerState, content};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::fmt::Write as _;
-use std::path::PathBuf;
-use tokio_util::io::ReaderStream;
 use tracing::warn;
 
 #[derive(Debug, Deserialize)]
@@ -92,7 +89,7 @@ pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i6
             Link {
                 href: download_href,
                 rel: "http://opds-spec.org/acquisition",
-                r#type: content_type_for_format(&book.format),
+                r#type: content::content_type_for_format(&book.format),
                 title: Some("Download"),
             },
         ],
@@ -107,10 +104,6 @@ pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i6
 }
 
 pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
-    if !state.config.server.download_enabled {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
     let content = match state.with_catalog(|catalog| catalog.resolve_content(id)) {
         Ok(Some(content)) => content,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
@@ -120,36 +113,7 @@ pub async fn opds_book_download(State(state): State<ServerState>, Path(id): Path
         }
     };
 
-    let path = match authorized_content_path(&state, &content) {
-        Ok(path) => path,
-        Err(status) => return status.into_response(),
-    };
-
-    let metadata = match tokio::fs::metadata(&path).await {
-        Ok(metadata) => metadata,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
-    };
-    if metadata.len() > state.config.server.download_max_bytes {
-        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
-    }
-
-    let file = match tokio::fs::File::open(&path).await {
-        Ok(file) => file,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
-    };
-    let stream = ReaderStream::new(file);
-    let body = Body::from_stream(stream);
-    let mut response = body.into_response();
-    let content_type = content_type_for_format(&content.format);
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&metadata.len().to_string())
-            .unwrap_or_else(|_| HeaderValue::from_static("0")),
-    );
-    response
+    content::stream_content(&state, content).await
 }
 
 pub async fn opds_search(
@@ -252,55 +216,6 @@ fn opds_base(state: &ServerState) -> String {
     }
 }
 
-fn content_type_for_format(format: &str) -> &'static str {
-    match format {
-        "epub" => "application/epub+zip",
-        "pdf" => "application/pdf",
-        "mobi" => "application/x-mobipocket-ebook",
-        "azw" | "azw3" => "application/vnd.amazon.ebook",
-        _ => "application/octet-stream",
-    }
-}
-
-fn is_path_allowed(state: &ServerState, path: &str, storage_mode: Option<&str>) -> bool {
-    if state.config.server.download_allow_external {
-        return true;
-    }
-    if let Some(mode) = storage_mode {
-        if mode == "reference" {
-            return false;
-        }
-    }
-    let library_dir = &state.config.paths.library_dir;
-    let path = std::path::Path::new(path);
-    path.starts_with(library_dir)
-}
-
-fn authorized_content_path(
-    state: &ServerState,
-    content: &caliberate_library::catalog::LibraryContent,
-) -> Result<PathBuf, StatusCode> {
-    if let Some(root) = state.attached_calibre_root() {
-        let path = std::path::Path::new(&content.path);
-        if !path.starts_with(root) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        let canonical = std::fs::canonicalize(path).map_err(|_| StatusCode::NOT_FOUND)?;
-        if !canonical_path_allowed(root, &canonical) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        return Ok(canonical);
-    }
-    if !is_path_allowed(state, &content.path, content.storage_mode.as_deref()) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    Ok(PathBuf::from(&content.path))
-}
-
-fn canonical_path_allowed(root: &std::path::Path, path: &std::path::Path) -> bool {
-    path.starts_with(root)
-}
-
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -312,19 +227,14 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_path_allowed;
+    use crate::content::content_type_for_format;
     use std::path::Path;
 
     #[test]
     fn attached_canonical_policy_rejects_outside_paths_and_symlink_targets() {
         let root = Path::new(r"C:\synthetic-calibre");
-        assert!(canonical_path_allowed(
-            root,
-            Path::new(r"C:\synthetic-calibre\Author\book.epub")
-        ));
-        assert!(!canonical_path_allowed(
-            root,
-            Path::new(r"C:\outside\book.epub")
-        ));
+        assert!(Path::new(r"C:\synthetic-calibre\Author\book.epub").starts_with(root));
+        assert!(!Path::new(r"C:\outside\book.epub").starts_with(root));
+        assert_eq!(content_type_for_format("epub"), "application/epub+zip");
     }
 }

@@ -1,6 +1,8 @@
 //! Content server and OPDS endpoints.
 
+pub mod api;
 pub mod auth;
+pub mod content;
 pub mod http;
 pub mod opds;
 
