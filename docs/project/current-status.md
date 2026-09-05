@@ -320,6 +320,30 @@ Accepted commit: `55ee7c70326e0614dc8b7cfdd71252c7da6b78bf`.
 
 The next milestone is human runtime acceptance of the JSON API against the real WSL-backed Calibre library before further protocol expansion.
 
+## Real full-library JSON API acceptance — passed
+
+Human Windows runtime acceptance of the versioned JSON API succeeded against the actual WSL-backed attached Calibre library containing 105,570 books.
+
+Observed real acceptance:
+
+- bounded browse:
+  - `GET /api/v1/books?limit=3&sort=title&direction=asc`
+  - returned `total = 105570`, `offset = 0`, `limit = 3`;
+  - returned rich metadata without filesystem paths;
+- structured query for `Romanovs` returned exactly one real match:
+  - ID `56016`;
+  - title `The Last Days of the Romanovs`;
+  - author `N. Sokolov`;
+  - primary format `epub`;
+- book detail returned the expected versioned self/content hrefs;
+- format discovery returned the real EPUB format with `size_bytes = 354595`;
+- primary JSON content streaming produced a 354,595-byte ebook;
+- format-specific `/content/epub` streaming produced the same 354,595-byte payload.
+
+This establishes the JSON API as a working external-consumer interface over the real full attached Calibre corpus.
+
+The tested book currently has one stored format, so real multi-format source acceptance remains to be exercised with another real book when convenient.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -405,10 +429,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human-run the versioned JSON API against the real WSL-backed Calibre library and verify bounded browse, structured query, detail, formats, and content streaming.
-2. Fix only concrete JSON real-source defects discovered by that acceptance pass.
-3. Upgrade OPDS to expose multiple acquisition formats using the same all-format service.
-4. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
+1. `0019-opds-multi-format` — expose alternate stored formats through OPDS acquisition links and format-specific downloads while preserving the legacy primary route.
+2. Human-test OPDS multi-format behavior against a real book with more than one stored format when one is identified.
+3. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
+4. Continue headless service expansion only where it improves external-consumer capability or source completeness.
 
 ## Completion standard
 
