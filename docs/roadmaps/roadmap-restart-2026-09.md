@@ -25,31 +25,39 @@ Goal: make the existing repository a reliable cross-platform starting point befo
 - GUI launches on native Windows;
 - known OS-specific assumptions have owners/tasks.
 
-## Phase 1 — Establish standalone library modes
+## Phase 1 — Establish canonical catalog, sources, and heterogeneous storage
 
-Goal: ensure the core application model does not assume every book is copied into one Caliberate-owned store and does not require Calibre.
+Goal: make Caliberate's own mutable database the canonical catalog while allowing metadata/content to originate from heterogeneous external sources and storage representations.
 
 ### Objectives
 
-- Define/implement explicit library-source/storage boundaries for:
-  - Caliberate-managed libraries;
-  - arbitrary directory-backed/reference libraries;
-  - existing Calibre-library attachment.
-- Support a flat directory or arbitrary directory tree of ebooks as a valid indexed/reference workflow.
-- Keep source files in place for reference mode.
-- Add rescan/reconciliation behavior for directory-backed sources.
-- Recognize an existing Calibre library root (`metadata.db` plus book files) without launching Calibre.
-- Start Calibre compatibility as read/index/attach mode rather than risky source mutation.
-- Keep Caliberate-owned reading state, annotations, tags/overrides, and indexes separate from externally owned source data.
+- Treat Caliberate's own database as the canonical maintained-library catalog.
+- Define persisted source provenance for:
+  - legacy Calibre libraries;
+  - arbitrary directory-backed/reference sources;
+  - future source kinds.
+- Separate:
+  - logical book identity;
+  - logical formats;
+  - physical asset representations.
+- Preserve existing copy/reference/compression storage behavior while making assets format-aware.
+- Recognize and attach to an existing Calibre library without launching Calibre.
+- Materialize Calibre metadata into the canonical Caliberate database without copying source ebook files.
+- Keep legacy Calibre files as read-only reference assets by default.
+- Add explicit source resync/reconciliation after provenance semantics are stable.
+- Support a flat directory or arbitrary directory tree as a future materialized/reference source.
+- Keep source mutation separate from canonical catalog mutation.
 
 ### Exit gate
 
-- Caliberate can create/use its own managed library;
-- Caliberate can index/read books from an arbitrary source directory without copying them;
-- Caliberate can attach to a representative existing Calibre library and enumerate/open books with Calibre absent;
-- no generic library/GUI code must know Calibre's database schema directly.
+- Caliberate can create/use its own mutable catalog at a user-chosen local DB path;
+- imported legacy Calibre metadata is queryable from the Caliberate DB without reopening Calibre's metadata DB for ordinary catalog queries;
+- referenced legacy content can still be opened when its source is mounted;
+- newly added native books can coexist with imported legacy references in one logical catalog;
+- logical multi-format identity is not inferred from filenames;
+- no generic library/GUI/server code must know Calibre's database schema directly.
 
-This phase can be implemented incrementally and does not need every future writable-compatibility feature before reader work proceeds.
+Direct attached-source querying remains a supported inspection/bootstrap path, not the permanent canonical runtime model.
 
 ## Phase 2 — Decompose GUI concentration without changing behavior
 
