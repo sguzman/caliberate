@@ -63,6 +63,13 @@ mod tests {
         assert_eq!(backend.list_books().unwrap()[0].format, "pdf");
         assert_eq!(backend.get_book(1).unwrap().unwrap().title, "Book One");
         assert_eq!(backend.get_book(1).unwrap().unwrap().format, "pdf");
+        let expected_path = backend
+            .library_root()
+            .join("Author A/Book One (1)/Book One - Author A.pdf");
+        assert_eq!(
+            backend.get_book(1).unwrap().unwrap().path,
+            expected_path.to_string_lossy()
+        );
         assert_eq!(
             backend
                 .query_books(&LibraryQuery::default().with_title("Book One"))
@@ -78,11 +85,23 @@ mod tests {
                 .format,
             "pdf"
         );
+        assert_eq!(
+            backend
+                .query_summary_page(&LibraryQuery::default().with_title("Book One"))
+                .unwrap()
+                .books[0]
+                .path,
+            expected_path.to_string_lossy()
+        );
         assert!(backend.search_books("fiction").unwrap().len() == 1);
         assert_eq!(backend.search_books("Book One").unwrap().len(), 1);
         assert_eq!(backend.search_books("Author A").unwrap().len(), 1);
         assert_eq!(backend.search_books("Series A").unwrap().len(), 1);
         assert_eq!(backend.resolve_content(1).unwrap().unwrap().format, "pdf");
+        assert_eq!(
+            backend.resolve_content(1).unwrap().unwrap().path,
+            expected_path.to_string_lossy()
+        );
         let summary = backend
             .query_summary_page(&LibraryQuery::default())
             .unwrap();
@@ -111,20 +130,44 @@ mod tests {
             1
         );
         assert_eq!(
+            backend.list_facets(LibraryFacetKind::Authors).unwrap()[0].name,
+            "Author A"
+        );
+        assert_eq!(
             backend.list_facets(LibraryFacetKind::Tags).unwrap()[0].name,
             "fiction"
+        );
+        assert_eq!(
+            backend.list_facets(LibraryFacetKind::Tags).unwrap()[0].count,
+            1
         );
         assert_eq!(
             backend.list_facets(LibraryFacetKind::Series).unwrap()[0].name,
             "Series A"
         );
         assert_eq!(
+            backend.list_facets(LibraryFacetKind::Series).unwrap()[0].count,
+            1
+        );
+        assert_eq!(
             backend.list_facets(LibraryFacetKind::Publishers).unwrap()[0].name,
             "Publisher A"
         );
         assert_eq!(
+            backend.list_facets(LibraryFacetKind::Publishers).unwrap()[0].count,
+            1
+        );
+        assert_eq!(
             backend.list_facets(LibraryFacetKind::Languages).unwrap()[0].name,
             "en"
+        );
+        assert_eq!(
+            backend.list_facets(LibraryFacetKind::Languages).unwrap()[0].count,
+            1
+        );
+        assert_eq!(
+            backend.list_facets(LibraryFacetKind::Ratings).unwrap()[0].count,
+            1
         );
         let filtered = LibraryQuery::default().with_metadata_filter(
             LibraryMetadataFilterField::Tags,
@@ -231,30 +274,123 @@ mod tests {
     }
 
     #[test]
-    fn all_sorts_and_filter_modes_are_deterministic() {
+    fn structured_wildcards_are_literal_for_include_and_exclude() {
+        let dir = fixture();
+        let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+        db.execute("INSERT INTO tags VALUES(2,'100% literal'),(3,'100X literal'),(4,'under_score'),(5,'underXscore')", [])
+            .unwrap();
+        db.execute(
+            "INSERT INTO books_tags_link VALUES(2,2,2),(3,3,3),(4,2,4),(5,3,5)",
+            [],
+        )
+        .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        let include_percent = LibraryQuery::default().with_metadata_filter(
+            LibraryMetadataFilterField::Tags,
+            LibraryMetadataFilterMode::Include,
+            "100%",
+        );
+        let exclude_percent = LibraryQuery::default().with_metadata_filter(
+            LibraryMetadataFilterField::Tags,
+            LibraryMetadataFilterMode::Exclude,
+            "100%",
+        );
+        assert_eq!(backend.query_page(&include_percent).unwrap().total, 1);
+        assert_eq!(backend.query_page(&exclude_percent).unwrap().total, 2);
+        let include_underscore = LibraryQuery::default().with_metadata_filter(
+            LibraryMetadataFilterField::Tags,
+            LibraryMetadataFilterMode::Include,
+            "under_",
+        );
+        let exclude_underscore = LibraryQuery::default().with_metadata_filter(
+            LibraryMetadataFilterField::Tags,
+            LibraryMetadataFilterMode::Exclude,
+            "under_",
+        );
+        assert_eq!(backend.query_page(&include_underscore).unwrap().total, 1);
+        assert_eq!(backend.query_page(&exclude_underscore).unwrap().total, 2);
+    }
+
+    #[test]
+    fn multiple_structured_filters_match_only_the_intersection() {
         let dir = fixture();
         let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
-        let fields = [
-            LibrarySortField::Id,
-            LibrarySortField::Title,
-            LibrarySortField::Authors,
-            LibrarySortField::Series,
-            LibrarySortField::Tags,
-            LibrarySortField::Format,
-            LibrarySortField::Rating,
-            LibrarySortField::Publisher,
-            LibrarySortField::Languages,
-            LibrarySortField::DateAdded,
-            LibrarySortField::DateModified,
-            LibrarySortField::PubDate,
+        let query = LibraryQuery::default()
+            .with_metadata_filter(
+                LibraryMetadataFilterField::Authors,
+                LibraryMetadataFilterMode::Include,
+                "Author A",
+            )
+            .with_metadata_filter(
+                LibraryMetadataFilterField::Tags,
+                LibraryMetadataFilterMode::Include,
+                "fiction",
+            );
+        let page = backend.query_page(&query).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.books[0].id, 1);
+    }
+
+    #[test]
+    fn all_sorts_and_filter_modes_are_deterministic() {
+        let dir = fixture();
+        let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+        db.execute("UPDATE books SET series_index=2.0 WHERE id=2", [])
+            .unwrap();
+        db.execute("INSERT INTO books_series_link VALUES(2,2,1)", [])
+            .unwrap();
+        let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
+        let expected = [
+            (LibrarySortField::Id, [1, 2, 3]),
+            (LibrarySortField::Title, [1, 2, 3]),
+            (LibrarySortField::Authors, [3, 1, 2]),
+            (LibrarySortField::Series, [3, 1, 2]),
+            (LibrarySortField::Tags, [2, 3, 1]),
+            (LibrarySortField::Format, [3, 2, 1]),
+            (LibrarySortField::Rating, [2, 3, 1]),
+            (LibrarySortField::Publisher, [2, 3, 1]),
+            (LibrarySortField::Languages, [2, 3, 1]),
+            (LibrarySortField::DateAdded, [1, 2, 3]),
+            (LibrarySortField::DateModified, [2, 3, 1]),
+            (LibrarySortField::PubDate, [2, 3, 1]),
         ];
-        for field in fields {
+        for (field, ids) in expected {
             let page = backend
                 .query_page(&LibraryQuery::default().with_sort(field))
                 .unwrap();
             assert_eq!(page.total, 3);
             assert_eq!(page.books.len(), 3);
+            assert_eq!(
+                page.books.iter().map(|book| book.id).collect::<Vec<_>>(),
+                ids
+            );
         }
+        assert_eq!(
+            backend
+                .query_books(
+                    &LibraryQuery::default()
+                        .with_sort(LibrarySortField::Title)
+                        .descending()
+                )
+                .unwrap()
+                .iter()
+                .map(|book| book.id)
+                .collect::<Vec<_>>(),
+            [3, 2, 1]
+        );
+        assert_eq!(
+            backend
+                .query_books(
+                    &LibraryQuery::default()
+                        .with_sort(LibrarySortField::Series)
+                        .descending()
+                )
+                .unwrap()
+                .iter()
+                .map(|book| book.id)
+                .collect::<Vec<_>>(),
+            [2, 1, 3]
+        );
         for field in [
             LibraryMetadataFilterField::Authors,
             LibraryMetadataFilterField::Tags,
@@ -281,8 +417,19 @@ mod tests {
                 LibraryMetadataFilterMode::Exclude,
                 value,
             );
-            assert_eq!(backend.query_page(&include).unwrap().total, 1);
-            assert_eq!(backend.query_page(&exclude).unwrap().total, 2);
+            let expected_include = if field == LibraryMetadataFilterField::Series {
+                2
+            } else {
+                1
+            };
+            assert_eq!(
+                backend.query_page(&include).unwrap().total,
+                expected_include
+            );
+            assert_eq!(
+                backend.query_page(&exclude).unwrap().total,
+                3 - expected_include
+            );
         }
     }
 
