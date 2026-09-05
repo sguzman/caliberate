@@ -300,6 +300,26 @@ Existing primary-format fields and `resolve_content(book_id)` semantics remain u
 
 Accepted commit: `50b0b5213fdd6fc4faa0d408c5920843f5d8ce23`.
 
+## Versioned HTTP/JSON library API — integrated
+
+Task `0018-http-json-library-api` added the first general-purpose, source-neutral programmatic API under:
+
+```text
+/api/v1
+```
+
+The API now exposes bounded browsing, structured queries, compatibility search, book detail, all-format discovery, primary and format-specific content streaming, and facets.
+
+Protocol DTOs are separate from library-domain structs and JSON metadata responses do not expose filesystem/source paths. Browse/query defaults are bounded to 100 items with a maximum of 500.
+
+OPDS and JSON now share one server-internal content authorization/canonicalization/streaming policy, preserving attached-root containment, configured external-reference rules, download enablement, size limits, and MIME mapping.
+
+Synthetic router tests cover both configured-Database and attached-Calibre sources, including attached source isolation via a `must-not-open.db`, two-format PDF/EPUB behavior, case-insensitive format requests, primary-format compatibility, auth, URL prefixes, JSON error envelopes, and source-byte preservation.
+
+Accepted commit: `55ee7c70326e0614dc8b7cfdd71252c7da6b78bf`.
+
+The next milestone is human runtime acceptance of the JSON API against the real WSL-backed Calibre library before further protocol expansion.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -385,8 +405,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0018-http-json-library-api` — expose the source-neutral library service through a versioned HTTP/JSON API with bounded browsing, structured queries, facets, all-format discovery, and shared content streaming policy.
-2. Human-run the JSON API against the real WSL-backed Calibre library and verify query/detail/multi-format/content behavior.
+1. Human-run the versioned JSON API against the real WSL-backed Calibre library and verify bounded browse, structured query, detail, formats, and content streaming.
+2. Fix only concrete JSON real-source defects discovered by that acceptance pass.
 3. Upgrade OPDS to expose multiple acquisition formats using the same all-format service.
 4. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
 
