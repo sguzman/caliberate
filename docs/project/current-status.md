@@ -173,6 +173,18 @@ Accepted commit: `6bd09c292d5c3edcea1a2349bc0623d3e5b953c6`.
 
 A fake non-Database backend test proves future source adapters can use the same library-domain catalog API.
 
+## Attached Calibre backend — integrated
+
+Task `0015-attached-calibre-backend` added a production read-only `CalibreLibraryBackend` behind `LibraryBackend`.
+
+It opens `metadata.db` with SQLite read-only flags plus `PRAGMA query_only = ON`, validates the required modern Calibre base schema, implements the current library query/filter/sort/facet/summary surface directly against Calibre tables, and reconstructs source ebook paths without importing or mutating the source library.
+
+The adapter uses the current temporary single-format projection by smallest `data.id`, normalizes format names to lowercase, bulk-loads page metadata, and validates source path components before resolving content.
+
+Accepted commit: `6cb9fdcd59b7d9b96e2cc67be7b6aa5d3b49ae48`.
+
+Synthetic Windows tests cover source-byte preservation, schema safety, path traversal protection, sort/filter parity, paging totals, summaries, facets, and content resolution. Real-library compatibility/performance is still pending human runtime verification.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -258,11 +270,11 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0015-attached-calibre-backend` — implement the read-only modern Calibre `metadata.db` backend behind `LibraryBackend`, including query/filter/sort/facets and source file resolution.
-2. Add headless source selection so `calibre-server` can serve an attached Calibre library directly.
+1. `0016-headless-attached-calibre-server` — add server source selection and `--calibre-library <PATH>` so existing OPDS/content endpoints can serve an attached Calibre source directly.
+2. Human-run the headless server against the user's real Calibre library in read-only mode and fix any schema/filesystem compatibility defects.
 3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
 4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
-5. Exercise the user's complete Calibre library headlessly and harden performance/content streaming.
+5. Harden full-library query/feed/content-streaming performance.
 6. Return to GUI work only when a service capability needs a visible client or a regression blocks usage.
 
 ## Completion standard
