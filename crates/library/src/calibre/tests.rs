@@ -55,6 +55,79 @@ mod tests {
     }
 
     #[test]
+    fn open_modes_are_explicit_and_read_only() {
+        let dir = fixture();
+        let normal = CalibreLibraryBackend::open(dir.path()).unwrap();
+        assert_eq!(
+            normal.open_mode(),
+            crate::calibre::CalibreOpenMode::LockingReadOnly
+        );
+        let immutable = CalibreLibraryBackend::open_with_mode(
+            dir.path(),
+            crate::calibre::CalibreOpenMode::ImmutableReadOnly,
+        )
+        .unwrap();
+        assert_eq!(
+            immutable.open_mode(),
+            crate::calibre::CalibreOpenMode::ImmutableReadOnly
+        );
+        assert_eq!(immutable.list_books().unwrap().len(), 3);
+        let error = immutable
+            .connection()
+            .unwrap()
+            .execute_batch("CREATE TABLE should_not_exist(id INTEGER)");
+        assert!(error.is_err());
+    }
+
+    #[test]
+    fn immutable_uri_escapes_windows_path_contents_without_query_injection() {
+        let cases = [
+            (r"C:\Library\metadata.db", "file:C:/Library/metadata.db"),
+            (
+                r"\\server\share\Library\metadata.db",
+                "file://server/share/Library/metadata.db",
+            ),
+            (r"\\?\C:\Library\metadata.db", "file:C:/Library/metadata.db"),
+            (
+                r"\\?\UNC\server\share\Library\metadata.db",
+                "file://server/share/Library/metadata.db",
+            ),
+            (
+                r"C:\A folder\Δ%?#.db",
+                "file:C:/A%20folder/%CE%94%25%3F%23.db",
+            ),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(
+                crate::calibre::sqlite_file_uri(std::path::Path::new(path)).unwrap(),
+                expected
+            );
+        }
+        let uri =
+            crate::calibre::sqlite_file_uri(std::path::Path::new(r"C:\x?mode=rw&immutable=0#x.db"))
+                .unwrap();
+        assert!(uri.contains("%3Fmode%3Drw%26immutable%3D0%23"));
+        assert!(!uri.contains("?mode=rw"));
+    }
+
+    #[test]
+    fn immutable_operations_do_not_change_metadata_bytes() {
+        let dir = fixture();
+        let before = fs::read(dir.path().join("metadata.db")).unwrap();
+        let backend = CalibreLibraryBackend::open_with_mode(
+            dir.path(),
+            crate::calibre::CalibreOpenMode::ImmutableReadOnly,
+        )
+        .unwrap();
+        backend.list_books().unwrap();
+        backend
+            .query_summary_page(&LibraryQuery::default())
+            .unwrap();
+        backend.list_facets(LibraryFacetKind::Authors).unwrap();
+        assert_eq!(fs::read(dir.path().join("metadata.db")).unwrap(), before);
+    }
+
+    #[test]
     fn reads_modern_fixture_without_writing_source() {
         let dir = fixture();
         let db_path = dir.path().join("metadata.db");

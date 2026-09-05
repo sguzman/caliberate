@@ -23,9 +23,21 @@ const ESC: char = '\\';
 pub struct CalibreLibraryBackend {
     root: PathBuf,
     metadata: PathBuf,
+    mode: CalibreOpenMode,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalibreOpenMode {
+    LockingReadOnly,
+    ImmutableReadOnly,
+}
+
 impl CalibreLibraryBackend {
     pub fn open(root: impl AsRef<Path>) -> CoreResult<Self> {
+        Self::open_with_mode(root, CalibreOpenMode::LockingReadOnly)
+    }
+
+    pub fn open_with_mode(root: impl AsRef<Path>, mode: CalibreOpenMode) -> CoreResult<Self> {
         let root = std::fs::canonicalize(root.as_ref())
             .map_err(|e| CoreError::Io("normalize Calibre library root".into(), e))?;
         if !root.is_dir() {
@@ -35,18 +47,44 @@ impl CalibreLibraryBackend {
         if !metadata.is_file() {
             return Err(incompatible("missing metadata.db"));
         }
-        let b = Self { root, metadata };
+        let b = Self {
+            root,
+            metadata,
+            mode,
+        };
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let sidecar = b.metadata.with_file_name(format!("metadata.db{suffix}"));
+            if sidecar.is_file() {
+                tracing::debug!(path=%sidecar.display(), mode=?mode, "Calibre SQLite sidecar present");
+            }
+        }
         let c = b.connection()?;
-        validate_schema(&c)?;
-        tracing::debug!(library_root=%b.root.display(),metadata=%b.metadata.display(),"opened attached Calibre library");
+        validate_schema(&c, mode)?;
+        tracing::debug!(library_root=%b.root.display(),metadata=%b.metadata.display(),mode=?mode,"opened attached Calibre library");
         Ok(b)
     }
     pub fn library_root(&self) -> &Path {
         &self.root
     }
+
+    pub fn open_mode(&self) -> CalibreOpenMode {
+        self.mode
+    }
+
     fn connection(&self) -> CoreResult<Connection> {
-        let c = Connection::open_with_flags(&self.metadata, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| sqlerr("open Calibre metadata read-only", e))?;
+        let c = match self.mode {
+            CalibreOpenMode::LockingReadOnly => {
+                Connection::open_with_flags(&self.metadata, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            }
+            CalibreOpenMode::ImmutableReadOnly => {
+                let uri = sqlite_file_uri(&self.metadata)?;
+                Connection::open_with_flags(
+                    uri,
+                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+                )
+            }
+        }
+        .map_err(|e| sqlerr_with_mode(self.mode, "open Calibre metadata read-only", e))?;
         c.execute_batch("PRAGMA query_only = ON")
             .map_err(|e| sqlerr("enable Calibre query-only protection", e))?;
         Ok(c)
@@ -117,6 +155,51 @@ impl CalibreLibraryBackend {
         let c = self.connection()?;
         c.query_row("SELECT b.path,COALESCE(d.name,''),LOWER(COALESCE(d.format,'')) FROM books b LEFT JOIN data d ON d.id=(SELECT MIN(x.id) FROM data x WHERE x.book=b.id) WHERE b.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|sqlerr("read Calibre primary format",e))
     }
+}
+
+fn sqlite_file_uri(path: &Path) -> CoreResult<String> {
+    let raw = path.to_str().ok_or_else(|| {
+        CoreError::ConfigValidate("Calibre metadata path is not valid Unicode".into())
+    })?;
+    let normalized = raw.replace('\\', "/");
+    let normalized = if let Some(rest) = normalized.strip_prefix("//?/UNC/") {
+        format!("//{rest}")
+    } else if let Some(rest) = normalized.strip_prefix("//?/") {
+        rest.to_string()
+    } else {
+        normalized
+    };
+    if normalized.is_empty() || normalized.contains('\0') {
+        return Err(CoreError::ConfigValidate(
+            "Calibre metadata path cannot form a SQLite URI".into(),
+        ));
+    }
+    let mut uri = String::from("file:");
+    for byte in normalized.as_bytes() {
+        if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':')
+        {
+            uri.push(*byte as char);
+        } else {
+            uri.push('%');
+            uri.push_str(&format!("{byte:02X}"));
+        }
+    }
+    Ok(uri)
+}
+
+fn sqlerr_with_mode(mode: CalibreOpenMode, context: &str, error: rusqlite::Error) -> CoreError {
+    let message = error.to_string();
+    if mode == CalibreOpenMode::LockingReadOnly
+        && (message.contains("database is locked") || message.contains("database is busy"))
+    {
+        return CoreError::Io(
+            format!(
+                "{context} with normal SQLite locking; the source could not be read with normal locking. For a static WSL/network source, explicitly use --calibre-library-immutable; do not modify the library while it is in use"
+            ),
+            std::io::Error::other(error),
+        );
+    }
+    sqlerr("open Calibre metadata read-only", error)
 }
 impl LibraryBackend for CalibreLibraryBackend {
     fn list_books(&self) -> CoreResult<Vec<LibraryBook>> {
@@ -273,7 +356,7 @@ impl LibraryBackend for CalibreLibraryBackend {
     }
 }
 
-fn validate_schema(c: &Connection) -> CoreResult<()> {
+fn validate_schema(c: &Connection, mode: CalibreOpenMode) -> CoreResult<()> {
     let req = [
         (
             "books",
@@ -314,12 +397,12 @@ fn validate_schema(c: &Connection) -> CoreResult<()> {
     for (t, cols) in req {
         let mut s = c
             .prepare(&format!("PRAGMA table_info([{t}])"))
-            .map_err(|e| sqlerr("validate Calibre schema", e))?;
+            .map_err(|e| sqlerr_with_mode(mode, "validate Calibre schema", e))?;
         let ns: Vec<String> = s
             .query_map([], |r| r.get(1))
-            .map_err(|e| sqlerr("validate Calibre schema", e))?
+            .map_err(|e| sqlerr_with_mode(mode, "validate Calibre schema", e))?
             .collect::<Result<_, _>>()
-            .map_err(|e| sqlerr("read Calibre schema", e))?;
+            .map_err(|e| sqlerr_with_mode(mode, "read Calibre schema", e))?;
         if ns.is_empty() {
             return Err(incompatible(&format!("missing required table {t}")));
         }

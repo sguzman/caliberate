@@ -11,6 +11,8 @@ struct ServerCli {
     config: std::path::PathBuf,
     #[arg(long)]
     calibre_library: Option<std::path::PathBuf>,
+    #[arg(long, requires = "calibre_library")]
+    calibre_library_immutable: bool,
     #[arg(long)]
     api_key: Option<String>,
     #[arg(long)]
@@ -91,10 +93,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
     let mut config = bootstrap.config;
     apply_cli_overrides(&cli, &mut config)?;
+    if cli.calibre_library_immutable && cli.calibre_library.is_none() {
+        return Err("--calibre-library-immutable requires --calibre-library <PATH>".into());
+    }
 
     match &cli.command {
         Some(ServerCommand::CheckConfig) => {
-            let _source = resolve_source(cli.calibre_library.as_deref())?;
+            let _source = resolve_source(
+                cli.calibre_library.as_deref(),
+                cli.calibre_library_immutable,
+            )?;
             tracing::info!(component = "calibre-server", "configuration check passed");
             return Ok(());
         }
@@ -188,7 +196,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_time()
         .build()?;
 
-    let source = resolve_source(cli.calibre_library.as_deref())?;
+    let source = resolve_source(
+        cli.calibre_library.as_deref(),
+        cli.calibre_library_immutable,
+    )?;
     runtime.block_on(async move { caliberate_server::run_with_source(&config, source).await })?;
 
     Ok(())
@@ -196,11 +207,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn resolve_source(
     path: Option<&Path>,
+    immutable: bool,
 ) -> Result<caliberate_server::ServerLibrarySource, Box<dyn std::error::Error>> {
     match path {
-        Some(path) => Ok(caliberate_server::ServerLibrarySource::AttachedCalibre(
-            caliberate_library::calibre::CalibreLibraryBackend::open(path)?,
-        )),
+        Some(path) => {
+            let mode = if immutable {
+                tracing::warn!(
+                    component = "calibre-server",
+                    "immutable attached-Calibre mode disables SQLite locking/change detection; do not modify this Calibre library while Caliberate is running"
+                );
+                caliberate_library::calibre::CalibreOpenMode::ImmutableReadOnly
+            } else {
+                caliberate_library::calibre::CalibreOpenMode::LockingReadOnly
+            };
+            Ok(caliberate_server::ServerLibrarySource::AttachedCalibre(
+                caliberate_library::calibre::CalibreLibraryBackend::open_with_mode(path, mode)?,
+            ))
+        }
+        None if immutable => {
+            Err("--calibre-library-immutable requires --calibre-library <PATH>".into())
+        }
         None => Ok(caliberate_server::ServerLibrarySource::ConfiguredDatabase),
     }
 }
@@ -358,9 +384,28 @@ mod tests {
     }
 
     #[test]
+    fn parses_immutable_attached_calibre_flag() {
+        let cli = ServerCli::try_parse_from([
+            "calibre-server",
+            "--calibre-library",
+            "synthetic-library",
+            "--calibre-library-immutable",
+        ])
+        .expect("immutable attached library flags");
+        assert!(cli.calibre_library_immutable);
+    }
+
+    #[test]
+    fn rejects_immutable_flag_without_library() {
+        assert!(
+            ServerCli::try_parse_from(["calibre-server", "--calibre-library-immutable",]).is_err()
+        );
+    }
+
+    #[test]
     fn source_resolution_rejects_incompatible_attached_root() {
         let dir = tempfile::tempdir().expect("temporary directory");
-        let result = super::resolve_source(Some(dir.path()));
+        let result = super::resolve_source(Some(dir.path()), false);
         match result {
             Ok(_) => panic!("invalid root was accepted"),
             Err(error) => assert!(error.to_string().contains("metadata.db")),
@@ -401,6 +446,7 @@ mod tests {
         let cli = ServerCli {
             config: PathBuf::new(),
             calibre_library: None,
+            calibre_library_immutable: false,
             api_key: None,
             host: Some("example.org".to_string()),
             port: Some(9090),
@@ -433,6 +479,7 @@ mod tests {
         let cli = ServerCli {
             config: PathBuf::new(),
             calibre_library: None,
+            calibre_library_immutable: false,
             api_key: None,
             host: None,
             port: None,
@@ -463,6 +510,7 @@ mod tests {
         let cli = ServerCli {
             config: PathBuf::new(),
             calibre_library: None,
+            calibre_library_immutable: false,
             api_key: None,
             host: None,
             port: None,
@@ -494,6 +542,7 @@ mod tests {
         let cli = ServerCli {
             config: PathBuf::new(),
             calibre_library: None,
+            calibre_library_immutable: false,
             api_key: None,
             host: None,
             port: None,
@@ -526,6 +575,7 @@ mod tests {
         let cli = ServerCli {
             config: PathBuf::new(),
             calibre_library: None,
+            calibre_library_immutable: false,
             api_key: None,
             host: None,
             port: None,
