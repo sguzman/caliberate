@@ -141,8 +141,27 @@ impl LibraryBackend for Database {
     fn query_summary_page(&self, query: &LibraryQuery) -> CoreResult<LibrarySummaryPage> {
         let records = self.search_book_summaries_query(&query.to_db_query())?;
         let total = self.count_books_query(&query.to_db_query())?;
+        let ids = records.iter().map(|record| record.id).collect::<Vec<_>>();
+        let format_rows = self.list_book_formats_for_books(&ids)?;
         Ok(LibrarySummaryPage {
-            books: records.into_iter().map(LibraryBookSummary::from).collect(),
+            books: records
+                .into_iter()
+                .map(|record| {
+                    let id = record.id;
+                    let mut summary = LibraryBookSummary::from(record);
+                    summary.formats = format_rows
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|format| LibraryFormat {
+                            format: format.format,
+                            size_bytes: format.size_bytes,
+                        })
+                        .collect();
+                    summary
+                })
+                .collect(),
             total,
             offset: query.offset.unwrap_or(0),
             limit: query.limit,
@@ -173,21 +192,11 @@ impl LibraryBackend for Database {
         let Some(book) = self.get_book(book_id)? else {
             return Ok(None);
         };
-
-        let assets = self.list_assets_for_book(book_id)?;
-        if let Some(asset) = assets
-            .iter()
-            .find(|asset| asset.storage_mode == "copy")
-            .or_else(|| assets.first())
-        {
-            return Ok(Some(LibraryContent {
-                book_id: book.id,
-                format: book.format,
-                path: asset.stored_path.clone(),
-                storage_mode: Some(asset.storage_mode.clone()),
-            }));
+        if !book.format.is_empty() {
+            if let Some(content) = self.resolve_content_format(book_id, &book.format)? {
+                return Ok(Some(content));
+            }
         }
-
         Ok(Some(LibraryContent {
             book_id: book.id,
             format: book.format,
@@ -197,16 +206,26 @@ impl LibraryBackend for Database {
     }
 
     fn list_formats(&self, book_id: i64) -> CoreResult<Vec<LibraryFormat>> {
-        let Some(book) = self.get_book(book_id)? else {
-            return Ok(Vec::new());
-        };
-        if book.format.is_empty() {
-            return Ok(Vec::new());
+        let rows = Database::list_book_formats(self, book_id)?;
+        if rows.is_empty() {
+            let Some(book) = self.get_book(book_id)? else {
+                return Ok(Vec::new());
+            };
+            if book.format.is_empty() {
+                return Ok(Vec::new());
+            }
+            return Ok(vec![LibraryFormat {
+                format: book.format.to_ascii_lowercase(),
+                size_bytes: None,
+            }]);
         }
-        Ok(vec![LibraryFormat {
-            format: book.format.to_ascii_lowercase(),
-            size_bytes: None,
-        }])
+        Ok(rows
+            .into_iter()
+            .map(|row| LibraryFormat {
+                format: row.format,
+                size_bytes: row.size_bytes,
+            })
+            .collect())
     }
 
     fn resolve_content_format(
@@ -217,8 +236,34 @@ impl LibraryBackend for Database {
         let Some(book) = self.get_book(book_id)? else {
             return Ok(None);
         };
+        if !book.format.eq_ignore_ascii_case(format)
+            && self.get_book_format(book_id, format)?.is_none()
+        {
+            return Ok(None);
+        }
+        let logical = self.get_book_format(book_id, format)?;
+        if let Some(logical) = logical {
+            let asset = self
+                .list_assets_for_book(book_id)?
+                .into_iter()
+                .filter(|asset| asset.book_format_id == Some(logical.id))
+                .min_by_key(|asset| (asset.storage_mode != "copy", asset.id));
+            if let Some(asset) = asset {
+                return Ok(Some(LibraryContent {
+                    book_id,
+                    format: logical.format,
+                    path: asset.stored_path,
+                    storage_mode: Some(asset.storage_mode),
+                }));
+            }
+        }
         if book.format.eq_ignore_ascii_case(format) {
-            self.resolve_content(book_id)
+            Ok(Some(LibraryContent {
+                book_id,
+                format: book.format.to_ascii_lowercase(),
+                path: book.path,
+                storage_mode: None,
+            }))
         } else {
             Ok(None)
         }
@@ -446,6 +491,96 @@ mod tests {
         assert_eq!(catalog.resolve_content_format(1, "pdf").unwrap(), None);
         assert_eq!(catalog.list_formats(999).unwrap(), Vec::new());
         assert_eq!(catalog.resolve_content_format(999, "epub").unwrap(), None);
+    }
+
+    #[test]
+    fn managed_summary_and_content_use_canonical_logical_formats() {
+        let (_temp_dir, db) = seeded_database();
+        let pdf = db.upsert_book_format(1, "PDF", Some(200)).unwrap();
+        let mobi = db.upsert_book_format(1, "MOBI", None).unwrap();
+        let empty = db
+            .add_book("Empty", "", "", "2026-04-03T00:00:00Z")
+            .unwrap();
+        db.add_asset(
+            1,
+            "reference",
+            "/reference/epub",
+            None,
+            10,
+            10,
+            None,
+            false,
+            "2026-04-03T00:00:00Z",
+        )
+        .unwrap();
+        db.add_asset_for_format(
+            1,
+            pdf,
+            None,
+            "reference",
+            "/reference/pdf",
+            None,
+            200,
+            200,
+            None,
+            false,
+            "2026-04-03T00:00:00Z",
+        )
+        .unwrap();
+        db.add_asset_for_format(
+            1,
+            db.get_book_format(1, "epub").unwrap().unwrap().id,
+            None,
+            "copy",
+            "/managed/epub",
+            None,
+            10,
+            10,
+            None,
+            false,
+            "2026-04-04T00:00:00Z",
+        )
+        .unwrap();
+        let catalog = LibraryCatalog::new(&db);
+        let summary = catalog
+            .query_summary_page(&crate::query::LibraryQuery::default())
+            .unwrap();
+        assert_eq!(summary.total, 3);
+        assert_eq!(summary.books[0].format, "epub");
+        assert_eq!(
+            summary.books[0]
+                .formats
+                .iter()
+                .map(|format| format.format.as_str())
+                .collect::<Vec<_>>(),
+            ["epub", "pdf", "mobi"]
+        );
+        assert_eq!(summary.books[2].id, empty);
+        assert!(summary.books[2].formats.is_empty());
+        assert_eq!(
+            catalog
+                .resolve_content_format(1, "PDF")
+                .unwrap()
+                .unwrap()
+                .path,
+            "/reference/pdf"
+        );
+        assert_eq!(
+            catalog
+                .resolve_content_format(1, "EPUB")
+                .unwrap()
+                .unwrap()
+                .path,
+            "/managed/epub"
+        );
+        let page = catalog
+            .query_summary_page(&crate::query::LibraryQuery::default().with_limit(1))
+            .unwrap();
+        assert_eq!(page.total, 3);
+        assert_eq!(page.books.len(), 1);
+        assert_eq!(page.books[0].id, 1);
+        assert_eq!(pdf, db.get_book_format(1, "pdf").unwrap().unwrap().id);
+        assert_eq!(mobi, db.get_book_format(1, "mobi").unwrap().unwrap().id);
     }
 
     fn seeded_database() -> (TempDir, Database) {
