@@ -242,6 +242,22 @@ The current bundled SQLite rejects arbitrary non-localhost URI authorities, so a
 
 Task `0016.2-windows-unc-static-calibre-access` is ready. It keeps local immutable URI behavior, but uses the Windows `win32-none` no-lock VFS on explicitly-selected static UNC/WSL sources, still with read-only flags and `PRAGMA query_only = ON`.
 
+## Windows UNC static Calibre access — integrated
+
+Task `0016.2-windows-unc-static-calibre-access` fixed the real WSL/UNC static-source open path.
+
+For explicitly-static attached Calibre sources:
+
+- normal local Windows paths keep SQLite immutable URI mode;
+- Windows UNC/WSL paths use the ordinary UNC filesystem path with `SQLITE_OPEN_READ_ONLY` and the built-in `win32-none` VFS;
+- both still execute `PRAGMA query_only = ON`.
+
+Normal locking read-only remains the default and no automatic fallback was added.
+
+Accepted commit: `ee4044d29effff6edb4fc2ccacd3c73f40035fe1`.
+
+Human real-library acceptance should now retry the same WSL-backed library with `--calibre-library-immutable`, keeping the source static for the duration of the process.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -327,11 +343,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0016.2-windows-unc-static-calibre-access` — support explicitly-static Windows UNC/WSL Calibre sources via read-only `win32-none` VFS while preserving local immutable URI mode.
-2. Human-retry the real full WSL-backed Calibre library with `--calibre-library-immutable`, keeping the source static.
-3. Fix only further concrete real-source schema/filesystem/performance defects.
-4. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
-5. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+1. Human-retry the real full WSL-backed Calibre library with `--calibre-library-immutable`, keeping the source static.
+2. Fix only further concrete real-source schema/filesystem/performance defects.
+3. Expose all Calibre formats per logical book instead of the current single-format compatibility projection.
+4. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
 
 ## Completion standard
 
