@@ -284,6 +284,22 @@ This establishes that the source-neutral service and attached-Calibre server wor
 
 The next service limitation is the single-primary-format compatibility projection.
 
+## Library all-format service — integrated
+
+Task `0017-library-all-formats` extended the source-neutral library domain with additive per-book all-format APIs:
+
+- `LibraryFormat`;
+- `LibraryCatalog::list_formats(book_id)`;
+- `LibraryCatalog::resolve_content_format(book_id, format)`.
+
+Attached Calibre sources now expose every `data` row in deterministic `data.id` order, normalize format names, report valid `uncompressed_size` values, deduplicate malformed case-only duplicates by lowest row ID, and resolve a requested format through the existing safe source-path policy.
+
+The configured Caliberate database intentionally exposes only its canonical `books.format` because its current schema does not model true logical multi-format identity.
+
+Existing primary-format fields and `resolve_content(book_id)` semantics remain unchanged for GUI/OPDS compatibility.
+
+Accepted commit: `50b0b5213fdd6fc4faa0d408c5920843f5d8ce23`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -369,8 +385,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0017-library-all-formats` — expose all stored formats per logical book through the source-neutral library service while preserving the current primary-format compatibility path.
-2. Add an HTTP/JSON API over the same library-domain service semantics; keep OPDS as a parallel adapter.
+1. `0018-http-json-library-api` — expose the source-neutral library service through a versioned HTTP/JSON API with bounded browsing, structured queries, facets, all-format discovery, and shared content streaming policy.
+2. Human-run the JSON API against the real WSL-backed Calibre library and verify query/detail/multi-format/content behavior.
 3. Upgrade OPDS to expose multiple acquisition formats using the same all-format service.
 4. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
 
