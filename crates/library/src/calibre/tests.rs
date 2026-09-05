@@ -82,31 +82,41 @@ mod tests {
     #[test]
     fn immutable_uri_escapes_windows_path_contents_without_query_injection() {
         let cases = [
-            (r"C:\Library\metadata.db", "file:C:/Library/metadata.db"),
+            (
+                r"C:\Library\metadata.db",
+                "file:C:/Library/metadata.db?mode=ro&immutable=1",
+            ),
             (
                 r"\\server\share\Library\metadata.db",
-                "file://server/share/Library/metadata.db",
+                "file://server/share/Library/metadata.db?mode=ro&immutable=1",
             ),
-            (r"\\?\C:\Library\metadata.db", "file:C:/Library/metadata.db"),
+            (
+                r"\\?\C:\Library\metadata.db",
+                "file:C:/Library/metadata.db?mode=ro&immutable=1",
+            ),
             (
                 r"\\?\UNC\server\share\Library\metadata.db",
-                "file://server/share/Library/metadata.db",
+                "file://server/share/Library/metadata.db?mode=ro&immutable=1",
             ),
             (
-                r"C:\A folder\Δ%?#.db",
-                "file:C:/A%20folder/%CE%94%25%3F%23.db",
+                r"C:\A folder\Δ%?#&.db",
+                "file:C:/A%20folder/%CE%94%25%3F%23%26.db?mode=ro&immutable=1",
             ),
         ];
         for (path, expected) in cases {
             assert_eq!(
-                crate::calibre::sqlite_file_uri(std::path::Path::new(path)).unwrap(),
+                crate::calibre::immutable_sqlite_uri(std::path::Path::new(path)).unwrap(),
                 expected
             );
         }
-        let uri =
-            crate::calibre::sqlite_file_uri(std::path::Path::new(r"C:\x?mode=rw&immutable=0#x.db"))
-                .unwrap();
-        assert!(uri.contains("%3Fmode%3Drw%26immutable%3D0%23"));
+        let uri = crate::calibre::immutable_sqlite_uri(std::path::Path::new(
+            r"C:\x?mode=rw&immutable=0#x.db",
+        ))
+        .unwrap();
+        assert!(uri.contains("%3Fmode%3Drw%26immutable%3D0%23x.db?"));
+        assert_eq!(uri.matches('?').count(), 1);
+        assert_eq!(uri.matches('&').count(), 1);
+        assert!(uri.ends_with("?mode=ro&immutable=1"));
         assert!(!uri.contains("?mode=rw"));
     }
 

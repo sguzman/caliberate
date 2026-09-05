@@ -77,7 +77,7 @@ impl CalibreLibraryBackend {
                 Connection::open_with_flags(&self.metadata, OpenFlags::SQLITE_OPEN_READ_ONLY)
             }
             CalibreOpenMode::ImmutableReadOnly => {
-                let uri = sqlite_file_uri(&self.metadata)?;
+                let uri = immutable_sqlite_uri(&self.metadata)?;
                 Connection::open_with_flags(
                     uri,
                     OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
@@ -185,6 +185,10 @@ fn sqlite_file_uri(path: &Path) -> CoreResult<String> {
         }
     }
     Ok(uri)
+}
+
+fn immutable_sqlite_uri(path: &Path) -> CoreResult<String> {
+    Ok(format!("{}?mode=ro&immutable=1", sqlite_file_uri(path)?))
 }
 
 fn sqlerr_with_mode(mode: CalibreOpenMode, context: &str, error: rusqlite::Error) -> CoreError {
