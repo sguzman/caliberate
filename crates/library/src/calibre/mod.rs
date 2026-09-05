@@ -75,16 +75,12 @@ impl CalibreLibraryBackend {
         let c = match self.mode {
             CalibreOpenMode::LockingReadOnly => {
                 Connection::open_with_flags(&self.metadata, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .map_err(|e| {
+                        sqlerr_with_mode(self.mode, "open Calibre metadata read-only", e)
+                    })?
             }
-            CalibreOpenMode::ImmutableReadOnly => {
-                let uri = immutable_sqlite_uri(&self.metadata)?;
-                Connection::open_with_flags(
-                    uri,
-                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-                )
-            }
-        }
-        .map_err(|e| sqlerr_with_mode(self.mode, "open Calibre metadata read-only", e))?;
+            CalibreOpenMode::ImmutableReadOnly => immutable_connection(&self.metadata)?,
+        };
         c.execute_batch("PRAGMA query_only = ON")
             .map_err(|e| sqlerr("enable Calibre query-only protection", e))?;
         Ok(c)
@@ -189,6 +185,58 @@ fn sqlite_file_uri(path: &Path) -> CoreResult<String> {
 
 fn immutable_sqlite_uri(path: &Path) -> CoreResult<String> {
     Ok(format!("{}?mode=ro&immutable=1", sqlite_file_uri(path)?))
+}
+
+fn is_windows_unc_path(path: &Path) -> bool {
+    let path = path.to_string_lossy().to_ascii_lowercase();
+    path.starts_with(r"\\") && (!path.starts_with(r"\\?\") || path.starts_with(r"\\?\unc\"))
+}
+
+#[cfg(windows)]
+fn ordinary_windows_unc_path(path: &Path) -> PathBuf {
+    let path = path.to_string_lossy();
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path.to_string().into()
+    }
+}
+
+fn immutable_connection(path: &Path) -> CoreResult<Connection> {
+    #[cfg(windows)]
+    if is_windows_unc_path(path) {
+        let ordinary_path = ordinary_windows_unc_path(path);
+        tracing::debug!(path=%ordinary_path.display(), "attached Calibre static source using win32-none VFS");
+        return Connection::open_with_flags_and_vfs(
+            &ordinary_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+            "win32-none",
+        )
+        .map_err(|e| {
+            CoreError::Io(
+                format!(
+                    "open Calibre UNC metadata with win32-none VFS at {} in static mode; keep the source unchanged while it is in use",
+                    ordinary_path.display()
+                ),
+                std::io::Error::other(e),
+            )
+        });
+    }
+
+    let uri = immutable_sqlite_uri(path)?;
+    Connection::open_with_flags(
+        uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| {
+        sqlerr_with_mode(
+            CalibreOpenMode::ImmutableReadOnly,
+            "open Calibre metadata read-only",
+            e,
+        )
+    })
 }
 
 fn sqlerr_with_mode(mode: CalibreOpenMode, context: &str, error: rusqlite::Error) -> CoreError {

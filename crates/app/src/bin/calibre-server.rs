@@ -11,7 +11,11 @@ struct ServerCli {
     config: std::path::PathBuf,
     #[arg(long)]
     calibre_library: Option<std::path::PathBuf>,
-    #[arg(long, requires = "calibre_library")]
+    #[arg(
+        long,
+        requires = "calibre_library",
+        help = "Use static-source read-only mode; local paths use SQLite immutable mode and Windows UNC paths use the no-lock win32-none VFS"
+    )]
     calibre_library_immutable: bool,
     #[arg(long)]
     api_key: Option<String>,

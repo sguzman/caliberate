@@ -121,6 +121,50 @@ mod tests {
     }
 
     #[test]
+    fn classifies_windows_unc_and_verbatim_unc_without_misclassifying_drives() {
+        assert!(crate::calibre::is_windows_unc_path(std::path::Path::new(
+            r"\\server\share\metadata.db",
+        )));
+        assert!(crate::calibre::is_windows_unc_path(std::path::Path::new(
+            r"\\wsl$\Ubuntu\mnt\metadata.db",
+        )));
+        assert!(crate::calibre::is_windows_unc_path(std::path::Path::new(
+            r"\\?\UNC\server\share\metadata.db",
+        )));
+        assert!(!crate::calibre::is_windows_unc_path(std::path::Path::new(
+            r"C:\Library\metadata.db",
+        )));
+        assert!(!crate::calibre::is_windows_unc_path(std::path::Path::new(
+            r"\\?\C:\Library\metadata.db",
+        )));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bundled_win32_none_vfs_opens_a_synthetic_fixture_read_only() {
+        let dir = fixture();
+        let db_path = dir.path().join("metadata.db");
+        let connection = Connection::open_with_flags_and_vfs(
+            &db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+            "win32-none",
+        )
+        .expect("bundled win32-none VFS");
+        connection.execute_batch("PRAGMA query_only = ON").unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM books", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert!(
+            connection
+                .execute_batch("CREATE TABLE must_not_exist(id INTEGER)")
+                .is_err()
+        );
+    }
+
+    #[test]
     fn immutable_operations_do_not_change_metadata_bytes() {
         let dir = fixture();
         let before = fs::read(dir.path().join("metadata.db")).unwrap();
