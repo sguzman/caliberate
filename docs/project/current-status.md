@@ -368,6 +368,18 @@ Accepted commit: `3ea85128cf29b117a0d7e49568094c71f22e4b08`.
 
 Real multi-format OPDS acceptance is still pending against an actual attached book with more than one stored format.
 
+## Real multi-format discovery attempt — N+1 gap exposed
+
+Human runtime acceptance attempted to locate a real multi-format book in the attached 105,570-book Calibre corpus using the existing JSON API.
+
+The first 5,000 books were scanned in 500-book pages. No multi-format specimen was found in that sample.
+
+The important result is architectural: each page still required a separate `/books/{id}/formats` request per book, so continuing across the full corpus would require roughly 105k additional HTTP requests.
+
+This is not treated as an OPDS failure. Synthetic task `0019` coverage already proves multi-format protocol behavior.
+
+Task `0020-batched-summary-formats` is ready to eliminate this N+1 discovery gap by projecting all formats into bounded summary pages using page-level backend batching.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -453,10 +465,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human-test OPDS multi-format behavior against a real attached book with more than one stored format.
-2. Fix only concrete real-source defects discovered by that acceptance pass.
-3. Harden full-library query/feed/content-streaming performance only from measured real-source behavior.
-4. Continue headless service expansion only where it improves external-consumer capability or source completeness.
+1. `0020-batched-summary-formats` — add page-level all-format projection to library summaries and JSON browse/query results without N+1 per-book format calls.
+2. Re-run real full-library multi-format discovery using only bounded summary pages.
+3. If a real multi-format book is found, complete real OPDS alternate-format acceptance against that specimen.
+4. Continue headless service hardening from measured full-corpus behavior.
 
 ## Completion standard
 
