@@ -167,6 +167,34 @@ fn sources_formats_and_assets_are_canonical_and_batched() {
             .any(|asset| asset.id == old_asset && asset.source_id.is_none())
     );
 
+    let metadata_only_asset = db
+        .add_asset(
+            empty,
+            "reference",
+            "/synthetic/metadata-only.pdf",
+            Some("/synthetic/metadata-only.epub"),
+            12,
+            12,
+            None,
+            false,
+            "now",
+        )
+        .expect("metadata-only asset should be accepted");
+    let metadata_only = db
+        .list_assets_for_book(empty)
+        .unwrap()
+        .into_iter()
+        .find(|asset| asset.id == metadata_only_asset)
+        .expect("metadata-only asset row");
+    assert_eq!(metadata_only.book_format_id, None);
+    assert_eq!(metadata_only.source_id, None);
+    assert!(db.list_book_formats(empty).unwrap().is_empty());
+    assert_eq!(metadata_only.stored_path, "/synthetic/metadata-only.pdf");
+    assert_eq!(
+        metadata_only.source_path.as_deref(),
+        Some("/synthetic/metadata-only.epub")
+    );
+
     let mut db = db;
     db.delete_book_with_assets(book)
         .expect("delete canonical book");
