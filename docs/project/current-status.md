@@ -406,6 +406,28 @@ JSON browse/query summaries now expose additive `format_count` and path-free `fo
 
 Accepted commit: `c27af97a3fa1a9fc7d79fee043cc3803553d07c5`.
 
+## Canonical provenance and logical formats — integrated
+
+Task `0021-canonical-provenance-formats` made the Caliberate-owned SQLite database explicitly represent external source provenance, canonical logical formats, and format-aware physical assets.
+
+Implemented foundations:
+
+- `library_sources`;
+- `source_books`;
+- `book_formats`;
+- nullable `assets.book_format_id` / `assets.source_id`;
+- schema 10 -> 11 migration/backfill for existing managed libraries;
+- stable source/source-book APIs;
+- batched logical-format loading;
+- compatibility `add_asset` auto-linking without filename inference;
+- explicit format-aware asset insertion;
+- managed `LibraryBackend` multi-format summaries and format-specific resolution;
+- canonical deletion cleanup that retains source registry rows.
+
+The task-specific DB implementation lives in `crates/db/src/database/canonical.rs` rather than further growing the historical DB god file.
+
+Accepted commit: `15ce9ac84fade39653243beda1651cdf86dced20`.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -491,10 +513,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0021-canonical-provenance-formats` — formalize external source provenance, canonical logical formats, and format-aware asset representations in the Caliberate-owned DB.
-2. Materialize/import an attached Calibre source into the canonical Caliberate DB without copying ebook files.
-3. Run the headless server from the local canonical DB and verify imported metadata + legacy reference content against the real 105,570-book corpus.
-4. Add explicit incremental source resync/reconciliation, then deepen managed/archive storage representations.
+1. `0022-calibre-materialization` — materialize a read-only Calibre source into the canonical Caliberate DB using keyset-paged source reads, chunked canonical writes, and reference assets without copying/scanning ebook files.
+2. Human-run the full 105,570-book materialization into a local Caliberate DB and verify ordinary queries no longer depend on Calibre metadata.db.
+3. Run the existing headless server from the materialized local DB and verify legacy reference content streams correctly.
+4. Add explicit source resync/reconciliation, then progressive managed-storage adoption and source-retirement auditing.
 
 ## Completion standard
 
