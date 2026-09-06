@@ -679,7 +679,14 @@ Observed real state:
 
 Therefore correctness acceptance passed, but performance acceptance failed. With only one ~355 KiB managed candidate, the 25-minute runtime is catalog-query dominated.
 
-Task `0025.2-retirement-audit-query-plan` is ready to eliminate the correlated per-mapped-book dependency query shape, align indexes with the final set queries, and add per-metric catalog timing diagnostics.
+Task `0025.2-retirement-audit-query-plan` is implemented on its bounded
+branch. It replaces the correlated mapped-book dependency scans with
+source-wide set joins and checked derived counts, installs only the matching
+partial audit indexes (dropping the superseded 0025.1 indexes), adds focused
+query-plan evidence, and emits per-metric catalog timings through the existing
+progress seam to stderr only. The synthetic production-path regression now
+covers 25,000 mapped books with a managed subset and no wall-clock assertion.
+Real-corpus performance rerun remains pending.
 
 ## Current product priority
 

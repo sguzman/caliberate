@@ -5,6 +5,7 @@ use caliberate_core::error::{CoreError, CoreResult};
 use rusqlite::types::Value;
 use rusqlite::{OptionalExtension, params, params_from_iter};
 use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibrarySourceRow {
@@ -125,30 +126,51 @@ impl Database {
     pub(super) fn ensure_source_audit_indexes(&self) -> CoreResult<()> {
         self.conn
             .execute_batch(
-                "CREATE INDEX IF NOT EXISTS idx_assets_source_mode_format_book
-                     ON assets(source_id, storage_mode, book_format_id, book_id);
-                 CREATE INDEX IF NOT EXISTS idx_assets_format_mode_source_id
-                     ON assets(book_format_id, storage_mode, source_id, id);
-                 CREATE INDEX IF NOT EXISTS idx_assets_source_book
-                     ON assets(source_id, book_id);",
+                "DROP INDEX IF EXISTS idx_assets_source_mode_format_book;
+                 DROP INDEX IF EXISTS idx_assets_format_mode_source_id;
+                 DROP INDEX IF EXISTS idx_assets_source_book;
+                 CREATE INDEX IF NOT EXISTS idx_assets_source_reference_book_format
+                     ON assets(source_id, book_id, book_format_id)
+                     WHERE storage_mode='reference';
+                 CREATE INDEX IF NOT EXISTS idx_assets_managed_copy_format_id
+                     ON assets(book_format_id, id)
+                     WHERE storage_mode='copy' AND source_id IS NULL;",
             )
             .map_err(|err| sqlite_error("create source audit indexes", err))
     }
 
     pub fn audit_source_counts(&self, source_id: i64) -> CoreResult<SourceAuditCounts> {
-        let mapped_books = self.audit_count(
+        self.audit_source_counts_with_timings(source_id, |_, _| {})
+    }
+
+    pub fn audit_source_counts_with_timings<F>(
+        &self,
+        source_id: i64,
+        mut timing: F,
+    ) -> CoreResult<SourceAuditCounts>
+    where
+        F: FnMut(&'static str, u128),
+    {
+        let mapped_books = self.audit_count_timed(
+            "mapped_books",
             "SELECT COUNT(*) FROM source_books WHERE source_id=?1",
             source_id,
+            &mut timing,
         )?;
-        let source_reference_assets = self.audit_count(
+        let source_reference_assets = self.audit_count_timed(
+            "source_reference_assets",
             "SELECT COUNT(*) FROM assets WHERE source_id=?1 AND storage_mode='reference'",
             source_id,
+            &mut timing,
         )?;
-        let source_backed_formats = self.audit_count(
+        let source_backed_formats = self.audit_count_timed(
+            "source_backed_formats",
             "SELECT COUNT(DISTINCT book_format_id) FROM assets WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NOT NULL",
             source_id,
+            &mut timing,
         )?;
-        let managed_backed_formats = self.audit_count(
+        let managed_backed_formats = self.audit_count_timed(
+            "managed_backed_formats",
             "SELECT COUNT(DISTINCT reference.book_format_id)
              FROM assets reference
              WHERE reference.source_id=?1 AND reference.storage_mode='reference'
@@ -159,8 +181,10 @@ impl Database {
                    AND managed.storage_mode='copy' AND managed.source_id IS NULL
                )",
             source_id,
+            &mut timing,
         )?;
-        let source_dependent_formats = self.audit_count(
+        let source_dependent_formats = self.audit_count_timed(
+            "source_dependent_formats",
             "SELECT COUNT(*) FROM (
                  SELECT DISTINCT reference.book_format_id
                  FROM assets reference
@@ -173,61 +197,65 @@ impl Database {
                    )
              )",
             source_id,
+            &mut timing,
         )?;
-        let metadata_only_source_books = self.audit_count(
-            "SELECT COUNT(*) FROM source_books mapped
+        let mapped_books_with_formats = self.audit_count_timed(
+            "mapped_books_with_formats",
+            "SELECT COUNT(DISTINCT mapped.book_id)
+             FROM source_books mapped
+             JOIN assets reference
+               ON reference.source_id=mapped.source_id
+              AND reference.book_id=mapped.book_id
+              AND reference.storage_mode='reference'
+              AND reference.book_format_id IS NOT NULL
+             WHERE mapped.source_id=?1",
+            source_id,
+            &mut timing,
+        )?;
+        let source_books_with_dependencies = self.audit_count_timed(
+            "source_books_with_dependencies",
+            "SELECT COUNT(DISTINCT mapped.book_id)
+             FROM source_books mapped
+             JOIN assets reference
+               ON reference.source_id=mapped.source_id
+              AND reference.book_id=mapped.book_id
+              AND reference.storage_mode='reference'
+              AND reference.book_format_id IS NOT NULL
              WHERE mapped.source_id=?1
                AND NOT EXISTS (
-                 SELECT 1 FROM assets reference
-                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
-                   AND reference.book_id=mapped.book_id
-                   AND reference.book_format_id IS NOT NULL
+                 SELECT 1 FROM assets managed
+                 WHERE managed.book_format_id=reference.book_format_id
+                   AND managed.storage_mode='copy' AND managed.source_id IS NULL
                )",
             source_id,
+            &mut timing,
         )?;
-        let fully_managed_source_books = self.audit_count(
-            "SELECT COUNT(*) FROM source_books mapped
-             WHERE mapped.source_id=?1
-               AND EXISTS (
-                 SELECT 1 FROM assets reference
-                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
-                   AND reference.book_id=mapped.book_id
-                   AND reference.book_format_id IS NOT NULL
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM assets dependent
-                 WHERE dependent.source_id=?1 AND dependent.storage_mode='reference'
-                   AND dependent.book_id=mapped.book_id
-                   AND dependent.book_format_id IS NOT NULL
-                   AND NOT EXISTS (
-                     SELECT 1 FROM assets managed
-                     WHERE managed.book_format_id=dependent.book_format_id
-                       AND managed.storage_mode='copy' AND managed.source_id IS NULL
-                   )
-               )",
-            source_id,
-        )?;
-        let source_books_with_dependencies = self.audit_count(
-            "SELECT COUNT(*) FROM source_books mapped
-             WHERE mapped.source_id=?1
-               AND EXISTS (
-                 SELECT 1 FROM assets dependent
-                 WHERE dependent.source_id=?1 AND dependent.storage_mode='reference'
-                   AND dependent.book_id=mapped.book_id
-                   AND dependent.book_format_id IS NOT NULL
-                   AND NOT EXISTS (
-                     SELECT 1 FROM assets managed
-                     WHERE managed.book_format_id=dependent.book_format_id
-                       AND managed.storage_mode='copy' AND managed.source_id IS NULL
-                   )
-               )",
-            source_id,
-        )?;
-        let unlinked_source_assets = self.audit_count(
+        let derived_started = Instant::now();
+        let metadata_only_source_books = mapped_books
+            .checked_sub(mapped_books_with_formats)
+            .ok_or_else(|| {
+                CoreError::ConfigValidate(
+                    "source audit mapped-format count exceeds mapped-book count".into(),
+                )
+            })?;
+        let fully_managed_source_books = mapped_books_with_formats
+            .checked_sub(source_books_with_dependencies)
+            .ok_or_else(|| {
+                CoreError::ConfigValidate(
+                    "source audit dependent-book count exceeds mapped-format book count".into(),
+                )
+            })?;
+        let derived_elapsed = derived_started.elapsed().as_millis();
+        timing("metadata_only_source_books", derived_elapsed);
+        timing("fully_managed_source_books", derived_elapsed);
+        let unlinked_source_assets = self.audit_count_timed(
+            "unlinked_source_assets",
             "SELECT COUNT(*) FROM assets WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NULL",
             source_id,
+            &mut timing,
         )?;
-        let orphan_source_assets = self.audit_count(
+        let orphan_source_assets = self.audit_count_timed(
+            "orphan_source_assets",
             "SELECT COUNT(*) FROM assets source_asset
              WHERE source_asset.source_id=?1
                AND NOT EXISTS (
@@ -235,6 +263,7 @@ impl Database {
                  WHERE mapped.source_id=?1 AND mapped.book_id=source_asset.book_id
                )",
             source_id,
+            &mut timing,
         )?;
         Ok(SourceAuditCounts {
             source_id,
@@ -251,10 +280,23 @@ impl Database {
         })
     }
 
-    fn audit_count(&self, sql: &str, source_id: i64) -> CoreResult<u64> {
-        self.conn
+    fn audit_count_timed<F>(
+        &self,
+        name: &'static str,
+        sql: &str,
+        source_id: i64,
+        timing: &mut F,
+    ) -> CoreResult<u64>
+    where
+        F: FnMut(&'static str, u128),
+    {
+        let started = Instant::now();
+        let result = self
+            .conn
             .query_row(sql, params![source_id], |row| count_u64(row, 0))
-            .map_err(|err| sqlite_error("count source audit rows", err))
+            .map_err(|err| sqlite_error("count source audit rows", err));
+        timing(name, started.elapsed().as_millis());
+        result
     }
 
     pub fn list_source_managed_candidates(
@@ -911,6 +953,75 @@ mod audit_tests {
         assert_eq!(counts.source_reference_assets, 0);
         assert_eq!(counts.source_backed_formats, 0);
         assert_eq!(counts.orphan_source_assets, 1);
+    }
+
+    #[test]
+    fn source_audit_set_queries_are_indexable() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/control-plane.toml");
+        let mut config = ControlPlane::load_from_path(config_path).unwrap();
+        config.db.sqlite_path = dir.path().join("library.db");
+        let db = Database::open_with_fts(&config.db, &config.fts).unwrap();
+        let source_id = db
+            .upsert_library_source("fixture", "never-open", None, true)
+            .unwrap();
+        db.add_book("Mapped", "epub", "", "2026").unwrap();
+        db.upsert_source_book(source_id, 1, "1", None, None, None)
+            .unwrap();
+        let format = db.get_book_format(1, "epub").unwrap().unwrap();
+        db.add_asset_for_format(
+            1,
+            format.id,
+            Some(source_id),
+            "reference",
+            "Z:\\never-open\\book.epub",
+            None,
+            1,
+            1,
+            None,
+            false,
+            "2026",
+        )
+        .unwrap();
+
+        let mapped_sql = "SELECT COUNT(DISTINCT mapped.book_id)
+             FROM source_books mapped
+             JOIN assets reference
+               ON reference.source_id=mapped.source_id
+              AND reference.book_id=mapped.book_id
+              AND reference.storage_mode='reference'
+              AND reference.book_format_id IS NOT NULL
+             WHERE mapped.source_id=?1";
+        let dependent_sql = "SELECT COUNT(DISTINCT mapped.book_id)
+             FROM source_books mapped
+             JOIN assets reference
+               ON reference.source_id=mapped.source_id
+              AND reference.book_id=mapped.book_id
+              AND reference.storage_mode='reference'
+              AND reference.book_format_id IS NOT NULL
+             WHERE mapped.source_id=?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets managed
+                 WHERE managed.book_format_id=reference.book_format_id
+                   AND managed.storage_mode='copy' AND managed.source_id IS NULL
+               )";
+        let plan_details = |sql: &str| {
+            let mut statement = db
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap();
+            statement
+                .query_map(params![source_id], |row| row.get::<_, String>(3))
+                .unwrap()
+                .map(|row| row.unwrap())
+                .collect::<Vec<_>>()
+        };
+        let mapped_plan = plan_details(mapped_sql).join(" ");
+        let dependent_plan = plan_details(dependent_sql).join(" ");
+        assert!(mapped_plan.contains("idx_assets_source_reference_book_format"));
+        assert!(dependent_plan.contains("idx_assets_source_reference_book_format"));
+        assert!(dependent_plan.contains("idx_assets_managed_copy_format_id"));
     }
 }
 

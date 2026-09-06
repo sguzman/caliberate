@@ -1203,6 +1203,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         id,
                         options,
                         |event| match event {
+                            SourceRetirementAuditProgress::CatalogMetricComplete {
+                                name,
+                                elapsed_ms,
+                            } => {
+                                eprintln!("[audit] {name}: {elapsed_ms} ms");
+                            }
                             SourceRetirementAuditProgress::CatalogCountsComplete => {
                                 eprintln!("[audit] catalog counts complete");
                             }

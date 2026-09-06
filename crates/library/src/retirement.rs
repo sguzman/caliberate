@@ -20,10 +20,20 @@ pub struct SourceRetirementAuditOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceRetirementAuditProgress {
+    CatalogMetricComplete {
+        name: &'static str,
+        elapsed_ms: u128,
+    },
     CatalogCountsComplete,
     VerificationStarted,
-    VerificationPageComplete { processed: u64, verified: u64 },
-    VerificationComplete { processed: u64, verified: u64 },
+    VerificationPageComplete {
+        processed: u64,
+        verified: u64,
+    },
+    VerificationComplete {
+        processed: u64,
+        verified: u64,
+    },
 }
 
 impl Default for SourceRetirementAuditOptions {
@@ -98,7 +108,9 @@ where
     let source = db.get_library_source(source_id)?.ok_or_else(|| {
         CoreError::ConfigValidate(format!("library source {source_id} does not exist"))
     })?;
-    let counts = db.audit_source_counts(source_id)?;
+    let counts = db.audit_source_counts_with_timings(source_id, |name, elapsed_ms| {
+        progress(SourceRetirementAuditProgress::CatalogMetricComplete { name, elapsed_ms });
+    })?;
     progress(SourceRetirementAuditProgress::CatalogCountsComplete);
     let catalog_ready = counts.source_dependent_formats == 0
         && counts.unlinked_source_assets == 0
@@ -491,9 +503,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            catalog_only,
-            vec![SourceRetirementAuditProgress::CatalogCountsComplete]
+            catalog_only
+                .iter()
+                .filter(|event| {
+                    matches!(event, SourceRetirementAuditProgress::CatalogCountsComplete)
+                })
+                .count(),
+            1
         );
+        assert!(!catalog_only.iter().any(|event| {
+            matches!(
+                event,
+                SourceRetirementAuditProgress::VerificationStarted
+                    | SourceRetirementAuditProgress::VerificationPageComplete { .. }
+                    | SourceRetirementAuditProgress::VerificationComplete { .. }
+            )
+        }));
+        assert!(catalog_only.iter().any(|event| {
+            matches!(
+                event,
+                SourceRetirementAuditProgress::CatalogMetricComplete { .. }
+            )
+        }));
 
         for book_id in 1..=2 {
             db.add_book(&format!("Book {book_id}"), "epub", "", "2026")
@@ -552,8 +583,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(audit.managed_candidates_verified, 2);
+        let phase_events = events
+            .into_iter()
+            .filter(|event| {
+                !matches!(
+                    event,
+                    SourceRetirementAuditProgress::CatalogMetricComplete { .. }
+                )
+            })
+            .collect::<Vec<_>>();
         assert_eq!(
-            events,
+            phase_events,
             vec![
                 SourceRetirementAuditProgress::CatalogCountsComplete,
                 SourceRetirementAuditProgress::VerificationStarted,
@@ -706,9 +746,9 @@ mod tests {
     #[test]
     fn scaled_audit_uses_production_path_without_materializing_source_ids() {
         let (_dir, config, db, source_id) = fixture();
-        // Five thousand rows keeps the native Windows suite practical while
-        // exercising the same aggregate production path at useful scale.
-        const BOOKS: i64 = 5_000;
+        // Twenty-five thousand rows materially exercises the aggregate
+        // production path while keeping the native Windows suite practical.
+        const BOOKS: i64 = 25_000;
         let db_path = config.db.sqlite_path.clone();
         drop(db);
         let mut connection = rusqlite::Connection::open(&db_path).unwrap();
@@ -744,6 +784,18 @@ mod tests {
                     rusqlite::params![book_id, source_id, format!("Z:\\never-open\\scaled-{book_id}.epub")],
                 )
                 .unwrap();
+            if book_id % 1_000 == 0 {
+                transaction
+                    .execute(
+                        "INSERT INTO assets(id,book_id,book_format_id,source_id,storage_mode,stored_path,size_bytes,stored_size_bytes,is_compressed,created_at) VALUES (?1,?2,?2,NULL,'copy',?3,1,1,0,'2026')",
+                        rusqlite::params![
+                            BOOKS + book_id,
+                            book_id,
+                            format!("Z:\\never-open\\managed-{book_id}.epub")
+                        ],
+                    )
+                    .unwrap();
+            }
         }
         transaction.commit().unwrap();
         let db = Database::open_with_fts(&config.db, &config.fts).unwrap();
@@ -757,11 +809,11 @@ mod tests {
         assert_eq!(audit.mapped_books, BOOKS as u64);
         assert_eq!(audit.source_reference_assets, BOOKS as u64);
         assert_eq!(audit.source_backed_formats, BOOKS as u64);
-        assert_eq!(audit.managed_backed_formats, 0);
-        assert_eq!(audit.source_dependent_formats, BOOKS as u64);
+        assert_eq!(audit.managed_backed_formats, 25);
+        assert_eq!(audit.source_dependent_formats, BOOKS as u64 - 25);
         assert_eq!(audit.metadata_only_source_books, 0);
-        assert_eq!(audit.fully_managed_source_books, 0);
-        assert_eq!(audit.source_books_with_dependencies, BOOKS as u64);
+        assert_eq!(audit.fully_managed_source_books, 25);
+        assert_eq!(audit.source_books_with_dependencies, BOOKS as u64 - 25);
         assert_eq!(audit.unlinked_source_assets, 0);
         assert_eq!(audit.orphan_source_assets, 0);
         assert!(!audit.catalog_ready);
