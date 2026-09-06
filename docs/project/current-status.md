@@ -550,6 +550,54 @@ Real Windows/WSL human acceptance against the Romanovs EPUB remains pending. Int
 \\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\books\managed
 ```
 
+## Real single-format managed adoption acceptance — passed
+
+Human Windows/WSL acceptance of task `0024-adopt-reference-format` succeeded against the real materialized Romanovs EPUB.
+
+Canonical book:
+
+```text
+Caliberate book ID: 53937
+logical format: epub
+```
+
+Legacy source:
+
+```text
+\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\calibre\en_nonfiction\N. Sokolov\The Last Days of the Romanovs (56016)\The Last Days of the Romanovs - N. Sokolov.epub
+```
+
+Managed root:
+
+```text
+\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\books\managed
+```
+
+Observed adoption:
+
+```text
+source_asset_id=55316
+managed_asset_id=106950
+logical_size_bytes=354595
+stored_size_bytes=351485
+compressed=true
+reused_existing_object=false
+already_adopted=false
+checksum_sha256=3eed4a855957498d2eeed8ac74583638b9b28a8bc745ab8008bc9413468e4ca9
+```
+
+Managed object:
+
+```text
+...\books\managed\objects\sha256\3e\3eed4a855957498d2eeed8ac74583638b9b28a8bc745ab8008bc9413468e4ca9.epub.zst
+```
+
+The original Calibre file SHA-256 before/after adoption was unchanged and equal to the managed object's logical checksum.
+
+The configured-database server was launched with external-reference downloads explicitly disabled. Downloading canonical book `53937` still returned 354,595 logical EPUB bytes whose SHA-256 exactly matched the original legacy EPUB. This proves the managed representation, not the external reference, served the content.
+
+This is the first real format whose runtime content dependency has been physically supplanted by Caliberate-managed storage while retaining the legacy reference as fallback/provenance.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
