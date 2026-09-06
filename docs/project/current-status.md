@@ -497,6 +497,25 @@ distinguishes logical format from physical encoding and the server streams
 zstd copies as decoded logical bytes with logical-size download limits. Do not
 migrate real legacy content until the explicit adoption task is implemented.
 
+## Transparent managed compressed-content serving — integrated
+
+Task `0023-transparent-compressed-content` separated logical ebook format from physical storage encoding and made zstd-managed copies transparently consumable through the existing content service.
+
+Implemented behavior:
+
+- `LibraryContentEncoding::{Identity,Zstd}`;
+- logical and stored size propagation;
+- managed compressed copies remain preferred through the existing copy-before-reference rule;
+- attached-Calibre content remains identity encoded;
+- shared HTTP content streaming authorizes the physical path first, then asynchronously zstd-decodes without whole-file buffering;
+- download limits are checked against known logical decoded size for compressed assets;
+- JSON/OPDS wire shapes remain unchanged and continue returning original logical ebook bytes;
+- corrupt preferred zstd streams terminate as body errors without panic or silent fallback.
+
+Accepted commit: `6869883e6b26ff5cfb134659380b2bfd0962bb08`.
+
+This clears the representation seam required before progressive legacy-content adoption.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
