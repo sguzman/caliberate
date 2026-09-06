@@ -11,12 +11,21 @@ pub struct LibraryBook {
     pub path: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryContentEncoding {
+    Identity,
+    Zstd,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryContent {
     pub book_id: i64,
     pub format: String,
     pub path: String,
     pub storage_mode: Option<String>,
+    pub encoding: LibraryContentEncoding,
+    pub size_bytes: Option<u64>,
+    pub stored_size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +211,9 @@ impl LibraryBackend for Database {
             format: book.format,
             path: book.path,
             storage_mode: None,
+            encoding: LibraryContentEncoding::Identity,
+            size_bytes: None,
+            stored_size_bytes: None,
         }))
     }
 
@@ -254,6 +266,13 @@ impl LibraryBackend for Database {
                     format: logical.format,
                     path: asset.stored_path,
                     storage_mode: Some(asset.storage_mode),
+                    encoding: if asset.is_compressed {
+                        LibraryContentEncoding::Zstd
+                    } else {
+                        LibraryContentEncoding::Identity
+                    },
+                    size_bytes: Some(asset.size_bytes),
+                    stored_size_bytes: Some(asset.stored_size_bytes),
                 }));
             }
         }
@@ -263,6 +282,9 @@ impl LibraryBackend for Database {
                 format: book.format.to_ascii_lowercase(),
                 path: book.path,
                 storage_mode: None,
+                encoding: LibraryContentEncoding::Identity,
+                size_bytes: None,
+                stored_size_bytes: None,
             }))
         } else {
             Ok(None)
@@ -305,7 +327,7 @@ impl From<BookSummaryRecord> for LibraryBookSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::{LibraryBook, LibraryCatalog};
+    use super::{LibraryBook, LibraryCatalog, LibraryContentEncoding};
     use caliberate_db::database::Database;
     use tempfile::TempDir;
 
@@ -364,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_copied_asset_before_earlier_reference_asset() {
+    fn resolves_compressed_copy_before_earlier_reference_asset() {
         let (_temp_dir, db) = seeded_database();
         db.add_asset(
             1,
@@ -381,12 +403,12 @@ mod tests {
         db.add_asset(
             1,
             "copy",
-            "C:/managed/hobbit.epub",
+            "C:/managed/hobbit.epub.zst",
             None,
             10,
             10,
             None,
-            false,
+            true,
             "2026-04-04T00:00:00Z",
         )
         .expect("add copied asset");
@@ -398,8 +420,11 @@ mod tests {
 
         assert_eq!(content.book_id, 1);
         assert_eq!(content.format, "epub");
-        assert_eq!(content.path, "C:/managed/hobbit.epub");
+        assert_eq!(content.path, "C:/managed/hobbit.epub.zst");
         assert_eq!(content.storage_mode.as_deref(), Some("copy"));
+        assert_eq!(content.encoding, LibraryContentEncoding::Zstd);
+        assert_eq!(content.size_bytes, Some(10));
+        assert_eq!(content.stored_size_bytes, Some(10));
     }
 
     #[test]
@@ -437,6 +462,9 @@ mod tests {
 
         assert_eq!(content.path, "C:/books/first.epub");
         assert_eq!(content.storage_mode.as_deref(), Some("reference"));
+        assert_eq!(content.encoding, LibraryContentEncoding::Identity);
+        assert_eq!(content.size_bytes, Some(10));
+        assert_eq!(content.stored_size_bytes, Some(10));
     }
 
     #[test]
@@ -452,6 +480,9 @@ mod tests {
         assert_eq!(content.format, "epub");
         assert_eq!(content.path, "/library/hobbit.epub");
         assert_eq!(content.storage_mode, None);
+        assert_eq!(content.encoding, LibraryContentEncoding::Identity);
+        assert_eq!(content.size_bytes, None);
+        assert_eq!(content.stored_size_bytes, None);
     }
 
     #[test]
@@ -605,7 +636,10 @@ mod tests {
 
 #[cfg(test)]
 mod fake_backend_tests {
-    use super::{LibraryBackend, LibraryBook, LibraryCatalog, LibraryContent, LibraryFormat};
+    use super::{
+        LibraryBackend, LibraryBook, LibraryCatalog, LibraryContent, LibraryContentEncoding,
+        LibraryFormat,
+    };
     use crate::query::{LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage};
     use crate::summary::{LibraryBookSummary, LibrarySummaryPage};
     use caliberate_core::error::CoreResult;
@@ -691,6 +725,9 @@ mod fake_backend_tests {
                 format: "epub".to_string(),
                 path: "/fake/book.epub".to_string(),
                 storage_mode: Some("reference".to_string()),
+                encoding: super::LibraryContentEncoding::Identity,
+                size_bytes: None,
+                stored_size_bytes: None,
             }))
         }
 
@@ -747,6 +784,9 @@ mod fake_backend_tests {
                 format: "epub".to_string(),
                 path: "/fake/book.epub".to_string(),
                 storage_mode: Some("reference".to_string()),
+                encoding: LibraryContentEncoding::Identity,
+                size_bytes: None,
+                stored_size_bytes: None,
             })
         );
     }

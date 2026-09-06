@@ -416,3 +416,96 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     assert_eq!(fs::read(dir.path().join("metadata.db")).unwrap(), before);
     assert!(!dir.path().join("must-not-open.db").exists());
 }
+
+fn compressed_state(download_max_bytes: u64) -> (TempDir, ServerState, Vec<u8>, Vec<u8>) {
+    let (dir, mut state) = state();
+    let logical = vec![b'x'; 4096];
+    let stored = zstd::stream::encode_all(logical.as_slice(), 3).unwrap();
+    let compressed_path = state.config.paths.library_dir.join("alpha.epub.zst");
+    fs::write(&compressed_path, &stored).unwrap();
+    let db = Database::open_with_fts(&state.config.db, &state.config.fts).unwrap();
+    db.add_asset(
+        1,
+        "reference",
+        "C:/outside/reference.epub",
+        None,
+        logical.len() as u64,
+        logical.len() as u64,
+        None,
+        false,
+        "2026-01-01",
+    )
+    .unwrap();
+    db.add_asset(
+        1,
+        "copy",
+        &compressed_path.to_string_lossy(),
+        None,
+        logical.len() as u64,
+        stored.len() as u64,
+        None,
+        true,
+        "2026-01-02",
+    )
+    .unwrap();
+    state.config.server.download_max_bytes = download_max_bytes;
+    (dir, state, logical, stored)
+}
+
+#[tokio::test]
+async fn compressed_managed_content_is_streamed_as_logical_bytes() {
+    let (_dir, state, logical, stored) = compressed_state(8192);
+    for uri in [
+        "/api/v1/books/1/content",
+        "/api/v1/books/1/content/epub",
+        "/opds/books/1/download",
+    ] {
+        let response = http::router(state.clone())
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "application/epub+zip");
+        assert_eq!(
+            response.headers()["content-length"],
+            logical.len().to_string()
+        );
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(bytes.as_ref(), logical.as_slice());
+        assert_ne!(bytes.as_ref(), stored.as_slice());
+    }
+}
+
+#[tokio::test]
+async fn compressed_content_uses_logical_download_limit() {
+    let (_dir, state, logical, stored) = compressed_state(1024);
+    assert!(stored.len() < 1024);
+    assert!(logical.len() > 1024);
+    let (status, _, _) =
+        raw_response(http::router(state.clone()), "/api/v1/books/1/content/epub").await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+    let mut allowed = state;
+    allowed.config.server.download_max_bytes = logical.len() as u64;
+    let (status, _, bytes) =
+        raw_response(http::router(allowed), "/api/v1/books/1/content/epub").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, logical);
+}
+
+#[tokio::test]
+async fn corrupt_preferred_zstd_content_terminates_with_body_error() {
+    let (_dir, state, _logical, _stored) = compressed_state(8192);
+    let compressed_path = state.config.paths.library_dir.join("alpha.epub.zst");
+    fs::write(&compressed_path, b"not zstd").unwrap();
+    let response = http::router(state)
+        .oneshot(
+            Request::get("/api/v1/books/1/content/epub")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.into_body().collect().await.is_err());
+}

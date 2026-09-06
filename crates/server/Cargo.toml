@@ -8,6 +8,7 @@ caliberate-core = { path = "../core" }
 caliberate-db = { path = "../db" }
 caliberate-library = { path = "../library" }
 axum = "0.8.8"
+async-compression = { version = "0.4.44", features = ["tokio", "zstd"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.50.0", features = ["rt-multi-thread", "signal", "time", "fs"] }
@@ -21,3 +22,4 @@ hyper = "1.7.0"
 tempfile = "3.27.0"
 tower = "0.5.2"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+zstd = "0.13.3"

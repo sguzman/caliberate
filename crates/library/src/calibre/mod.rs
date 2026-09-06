@@ -1,5 +1,7 @@
 //! Read-only adapter for an attached modern Calibre library.
-use crate::catalog::{LibraryBackend, LibraryBook, LibraryContent, LibraryFormat};
+use crate::catalog::{
+    LibraryBackend, LibraryBook, LibraryContent, LibraryContentEncoding, LibraryFormat,
+};
 use crate::query::{
     LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage, LibrarySortField,
 };
@@ -148,9 +150,9 @@ impl CalibreLibraryBackend {
         .map(|n| n as usize)
         .map_err(|e| sqlerr("count Calibre books", e))
     }
-    fn primary(&self, id: i64) -> CoreResult<Option<(String, String, String)>> {
+    fn primary(&self, id: i64) -> CoreResult<Option<(String, String, String, Option<u64>)>> {
         let c = self.connection()?;
-        c.query_row("SELECT b.path,COALESCE(d.name,''),LOWER(COALESCE(d.format,'')) FROM books b LEFT JOIN data d ON d.id=(SELECT MIN(x.id) FROM data x WHERE x.book=b.id) WHERE b.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|e|sqlerr("read Calibre primary format",e))
+        c.query_row("SELECT b.path,COALESCE(d.name,''),LOWER(COALESCE(d.format,'')),d.uncompressed_size FROM books b LEFT JOIN data d ON d.id=(SELECT MIN(x.id) FROM data x WHERE x.book=b.id) WHERE b.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get::<_,Option<i64>>(3)?.and_then(|size| u64::try_from(size).ok())))).optional().map_err(|e|sqlerr("read Calibre primary format",e))
     }
 }
 
@@ -259,7 +261,7 @@ impl LibraryBackend for CalibreLibraryBackend {
         self.rows(&LibraryQuery::default(), false)
     }
     fn get_book(&self, id: i64) -> CoreResult<Option<LibraryBook>> {
-        let Some((book_path, name, format)) = self.primary(id)? else {
+        let Some((book_path, name, format, _size_bytes)) = self.primary(id)? else {
             return Ok(None);
         };
         let c = self.connection()?;
@@ -395,7 +397,7 @@ impl LibraryBackend for CalibreLibraryBackend {
             .collect()
     }
     fn resolve_content(&self, id: i64) -> CoreResult<Option<LibraryContent>> {
-        let Some((bp, name, format)) = self.primary(id)? else {
+        let Some((bp, name, format, size_bytes)) = self.primary(id)? else {
             return Ok(None);
         };
         if name.is_empty() || format.is_empty() {
@@ -407,6 +409,9 @@ impl LibraryBackend for CalibreLibraryBackend {
             format: format.to_ascii_lowercase(),
             path: p.to_string_lossy().into_owned(),
             storage_mode: Some("reference".into()),
+            encoding: LibraryContentEncoding::Identity,
+            size_bytes,
+            stored_size_bytes: size_bytes,
         }))
     }
 
@@ -446,13 +451,13 @@ impl LibraryBackend for CalibreLibraryBackend {
         let c = self.connection()?;
         let row = c
             .query_row(
-                "SELECT b.path, d.name, d.format FROM books b JOIN data d ON d.book=b.id WHERE b.id=?1 AND LOWER(d.format)=LOWER(?2) ORDER BY d.id ASC LIMIT 1",
+                "SELECT b.path, d.name, d.format, d.uncompressed_size FROM books b JOIN data d ON d.book=b.id WHERE b.id=?1 AND LOWER(d.format)=LOWER(?2) ORDER BY d.id ASC LIMIT 1",
                 rusqlite::params![book_id, requested_format],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<i64>>(3)?.and_then(|size| u64::try_from(size).ok()))),
             )
             .optional()
             .map_err(|e| sqlerr("read Calibre format content", e))?;
-        let Some((book_path, name, format)) = row else {
+        let Some((book_path, name, format, size_bytes)) = row else {
             return Ok(None);
         };
         if name.is_empty() || format.is_empty() {
@@ -465,6 +470,9 @@ impl LibraryBackend for CalibreLibraryBackend {
             format: normalized_format,
             path: path.to_string_lossy().into_owned(),
             storage_mode: Some("reference".into()),
+            encoding: LibraryContentEncoding::Identity,
+            size_bytes,
+            stored_size_bytes: size_bytes,
         }))
     }
 }

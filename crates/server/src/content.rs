@@ -1,11 +1,13 @@
 //! Shared authorization and streaming policy for library content.
 
 use crate::ServerState;
+use async_compression::tokio::bufread::ZstdDecoder;
 use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use caliberate_library::catalog::LibraryContent;
+use caliberate_library::catalog::{LibraryContent, LibraryContentEncoding};
 use std::path::{Path, PathBuf};
+use tokio::io::BufReader;
 use tokio_util::io::ReaderStream;
 
 pub async fn stream_content(state: &ServerState, content: LibraryContent) -> Response {
@@ -20,21 +22,30 @@ pub async fn stream_content(state: &ServerState, content: LibraryContent) -> Res
         Ok(metadata) => metadata,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
-    if metadata.len() > state.config.server.download_max_bytes {
+    let logical_size = content.size_bytes.unwrap_or(metadata.len());
+    if logical_size > state.config.server.download_max_bytes {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
     let file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),
     };
-    let mut response = Body::from_stream(ReaderStream::new(file)).into_response();
+    let mut response = match content.encoding {
+        LibraryContentEncoding::Identity => {
+            Body::from_stream(ReaderStream::new(file)).into_response()
+        }
+        LibraryContentEncoding::Zstd => {
+            let decoder = ZstdDecoder::new(BufReader::new(file));
+            Body::from_stream(ReaderStream::new(decoder)).into_response()
+        }
+    };
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static(content_type_for_format(&content.format)),
     );
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(&metadata.len().to_string())
+        HeaderValue::from_str(&logical_size.to_string())
             .unwrap_or_else(|_| HeaderValue::from_static("0")),
     );
     response

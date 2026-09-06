@@ -492,7 +492,10 @@ legacy Calibre tree           -> physical reference bytes only
 
 Calibre's `metadata.db` is no longer required in the ordinary runtime catalog path for the materialized library.
 
-A newly identified blocker for progressive managed adoption is transparent compressed-content serving: `LocalAssetStore` can write zstd-compressed managed copies, but `LibraryContent`/server streaming currently do not carry or decode the asset compression flag. Do not migrate real legacy content into compressed managed storage until that seam is fixed.
+Managed compressed-content serving is now implemented: `LibraryContent`
+distinguishes logical format from physical encoding and the server streams
+zstd copies as decoded logical bytes with logical-size download limits. Do not
+migrate real legacy content until the explicit adoption task is implemented.
 
 ## Current product priority
 
@@ -579,8 +582,7 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Add transparent managed compressed-content resolution/streaming so a logical EPUB/PDF remains consumable when its preferred physical representation is zstd-compressed.
-2. Add explicit per-book/per-format legacy-reference adoption into Caliberate-managed storage while retaining the legacy reference as fallback.
+1. Add explicit per-book/per-format legacy-reference adoption into Caliberate-managed storage while retaining the legacy reference as fallback.
 3. Human-adopt one real legacy book and prove the server continues serving identical logical bytes from the managed representation.
 4. Then add source resync/reconciliation and source-retirement auditing, followed by deeper pack/chunk storage experiments.
 

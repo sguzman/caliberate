@@ -128,6 +128,11 @@ future archived format
 
 Consumers such as the server, reader, conversion pipeline, device sender, and TTS should ask the library/storage layer to resolve content rather than assuming a filesystem path.
 
+Logical format is independent of physical encoding. Managed zstd-compressed
+representations are decoded by the content service while being served, so
+consumers receive the original logical ebook bytes. Legacy reference adoption
+remains a separate explicit operation.
+
 ## Deletion semantics
 
 Deleting a canonical Caliberate record and deleting underlying bytes are separate operations.

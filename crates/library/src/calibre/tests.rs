@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::calibre::CalibreLibraryBackend;
-    use crate::catalog::LibraryBackend;
+    use crate::catalog::{LibraryBackend, LibraryContentEncoding};
     use crate::query::{
         LibraryFacetKind, LibraryMetadataFilterField, LibraryMetadataFilterMode, LibraryQuery,
         LibrarySortField,
@@ -341,6 +341,10 @@ mod tests {
         assert_ne!(pdf.path, epub.path);
         assert_eq!(pdf.storage_mode.as_deref(), Some("reference"));
         assert_eq!(epub.storage_mode.as_deref(), Some("reference"));
+        assert_eq!(pdf.encoding, LibraryContentEncoding::Identity);
+        assert_eq!(epub.encoding, LibraryContentEncoding::Identity);
+        assert_eq!(pdf.size_bytes, Some(20));
+        assert_eq!(epub.size_bytes, Some(10));
         assert_eq!(backend.resolve_content(1).unwrap().unwrap().format, "pdf");
         assert_eq!(backend.list_formats(999).unwrap(), Vec::new());
         assert_eq!(backend.resolve_content_format(999, "pdf").unwrap(), None);
