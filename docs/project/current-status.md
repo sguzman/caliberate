@@ -428,6 +428,27 @@ The task-specific DB implementation lives in `crates/db/src/database/canonical.r
 
 Accepted commit: `15ce9ac84fade39653243beda1651cdf86dced20`.
 
+## Calibre canonical materialization — integrated
+
+Task `0022-calibre-materialization` added a resumable offramp from direct attached-Calibre operation into the Caliberate-owned canonical database.
+
+Implemented behavior:
+
+- keyset-paged Calibre source reads by `books.id`;
+- hard-bounded public page size `1..=500`;
+- batched relation and format loading with bounded ID chunks;
+- one canonical target SQLite transaction per source page;
+- canonical book/metadata/source-book/format/reference-asset materialization;
+- metadata-derived safe Calibre reference paths without ebook filesystem scanning;
+- repeat import skips existing `(source_id, external_id)` mappings and preserves local canonical edits;
+- partial committed pages resume safely;
+- source completion timestamp updates only after a full successful pass;
+- `calibredb import-calibre --source ... --database ... [--immutable]`.
+
+Accepted commit: `b4222e733e6c9e76086db87825013662f36f9cd6`.
+
+Real full-corpus materialization into a local Caliberate DB is the next human acceptance gate.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -513,10 +534,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. `0022-calibre-materialization` — materialize a read-only Calibre source into the canonical Caliberate DB using keyset-paged source reads, chunked canonical writes, and reference assets without copying/scanning ebook files.
-2. Human-run the full 105,570-book materialization into a local Caliberate DB and verify ordinary queries no longer depend on Calibre metadata.db.
-3. Run the existing headless server from the materialized local DB and verify legacy reference content streams correctly.
-4. Add explicit source resync/reconciliation, then progressive managed-storage adoption and source-retirement auditing.
+1. Human-run the full 105,570-book materialization into a local Caliberate DB and verify completion counters.
+2. Run ordinary managed-Database queries against the local materialized DB without using attached-Calibre metadata queries.
+3. Run the headless server from the materialized local DB and verify legacy reference content streams correctly.
+4. Only after real acceptance, add explicit source resync/reconciliation, progressive managed-storage adoption, and source-retirement auditing.
 
 Task 0022 now has a synthetic, bounded materialization path and CLI command.
 It is validated only against synthetic sources; the full real-library run and
