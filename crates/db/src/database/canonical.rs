@@ -573,6 +573,20 @@ impl Database {
             )
             .map_err(|err| sqlite_error("insert materialized book", err))?;
             let book_id = tx.last_insert_rowid();
+            if let Some(sort) = &record.sort {
+                tx.execute(
+                    "UPDATE books SET sort=?1 WHERE id=?2",
+                    params![sort, book_id],
+                )
+                .map_err(|err| sqlite_error("set materialized book sort", err))?;
+            }
+            if let Some(uuid) = &record.uuid {
+                tx.execute(
+                    "UPDATE books SET uuid=?1 WHERE id=?2",
+                    params![uuid, book_id],
+                )
+                .map_err(|err| sqlite_error("set materialized book uuid", err))?;
+            }
             materialize_relations(&tx, book_id, record)?;
             tx.execute(
                 "INSERT INTO source_books (source_id,book_id,external_id,external_uuid,external_modified,last_seen_at)

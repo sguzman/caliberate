@@ -547,6 +547,18 @@ mod tests {
         );
         assert_eq!(target.list_book_tags(1).unwrap(), ["fiction"]);
         assert_eq!(target.get_book_series(1).unwrap().unwrap().name, "Series A");
+        let extras = target.get_book_extras(1).unwrap();
+        assert_eq!(extras.sort.as_deref(), Some("Book One sort"));
+        assert_eq!(extras.timestamp.as_deref(), Some("2026-01-01"));
+        assert_eq!(extras.pubdate.as_deref(), Some("2025-01-01"));
+        assert_eq!(extras.author_sort.as_deref(), Some("sort"));
+        assert_eq!(extras.uuid.as_deref(), Some("uuid-1"));
+        assert!(extras.has_cover);
+        assert_eq!(extras.last_modified.as_deref(), Some("2026-01-02"));
+        assert_eq!(extras.publisher.as_deref(), Some("Publisher A"));
+        assert_eq!(extras.rating, Some(8));
+        assert_eq!(extras.languages, ["es", "en"]);
+        assert_eq!(target.list_book_identifiers(1).unwrap()[0].value, "abc-1");
         assert_eq!(
             target.get_book_comment(1).unwrap().as_deref(),
             Some("description")
