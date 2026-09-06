@@ -608,6 +608,23 @@ containment, physical/logical sizes, checksums, and zstd decoding without
 opening source files or attached-Calibre metadata. Source detachment, deletion,
 resync, and repair remain future work.
 
+## Source retirement/readiness audit — integrated
+
+Task `0025-source-retirement-audit` added a read-only per-source dependency/readiness audit over the canonical Caliberate catalog.
+
+Implemented behavior:
+
+- aggregate SQL counts mapped books, source reference assets, distinct source-backed logical formats, managed-backed formats, source-dependent formats, metadata-only source books, fully-managed source books, dependent source books, unlinked source assets, and orphan source-linked assets;
+- catalog readiness is computed from the canonical graph without opening the external source;
+- optional managed verification keyset-pages preferred Caliberate-owned copies in bounded chunks and checks managed-root containment, file presence, stored/logical size, required SHA-256 checksum, checksum parity, and zstd decoding;
+- verification never opens/stats/hashes legacy/reference source files and never opens source `metadata.db`;
+- retirement readiness requires an explicit full managed verification pass and zero catalog/verification defects;
+- `calibredb sources audit --for-machine` emits machine-clean JSON on stdout while ordinary commands continue honoring configured stdout logging.
+
+Accepted commit: `050ba79edc848be189352b01d31023de7e5c917c`.
+
+Real full-corpus acceptance against the materialized source remains pending. The expected present state is approximately one managed-backed format out of 106,949 source-backed formats, so the source should correctly report not ready for retirement.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
