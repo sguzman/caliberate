@@ -10,6 +10,7 @@ use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
+use caliberate_library::adopt::{AdoptFormatRequest, adopt_format};
 use caliberate_library::calibre::{
     CalibreLibraryBackend, CalibreOpenMode,
     materialize::{CalibreMaterializeOptions, materialize_calibre_source},
@@ -259,6 +260,14 @@ enum FormatsCommand {
         mode: Option<IngestModeValue>,
         #[arg(long)]
         format: Option<String>,
+    },
+    Adopt {
+        #[arg(long)]
+        id: i64,
+        #[arg(long)]
+        format: String,
+        #[arg(long)]
+        asset_id: Option<i64>,
     },
     Remove {
         #[arg(long)]
@@ -1056,6 +1065,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &created_at,
                 )?;
                 println!("Added format {format} for book {id}");
+            }
+            FormatsCommand::Adopt {
+                id,
+                format,
+                asset_id,
+            } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let store = caliberate_assets::managed::ManagedObjectStore::from_config(&config);
+                let result = adopt_format(
+                    &db,
+                    &store,
+                    AdoptFormatRequest {
+                        book_id: id,
+                        format,
+                        reference_asset_id: asset_id,
+                    },
+                )?;
+                println!("book_id={}", result.book_id);
+                println!("format={}", result.format);
+                println!("source_asset_id={}", result.source_asset_id);
+                println!("managed_asset_id={}", result.managed_asset_id);
+                println!("stored_path={}", result.stored_path.display());
+                println!("logical_size_bytes={}", result.logical_size_bytes);
+                println!("stored_size_bytes={}", result.stored_size_bytes);
+                println!("checksum_sha256={}", result.checksum_sha256);
+                println!("compressed={}", result.is_compressed);
+                println!("reused_existing_object={}", result.reused_existing_object);
+                println!("already_adopted={}", result.already_adopted);
             }
             FormatsCommand::Remove {
                 id,

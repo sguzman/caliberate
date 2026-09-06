@@ -1,7 +1,9 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use caliberate_assets::managed::ManagedObjectStore;
 use caliberate_core::config::ControlPlane;
 use caliberate_db::database::Database;
+use caliberate_library::adopt::{AdoptFormatRequest, adopt_format};
 use caliberate_library::calibre::CalibreLibraryBackend;
 use caliberate_server::{ServerState, http};
 use http_body_util::BodyExt;
@@ -342,6 +344,60 @@ async fn configured_external_reference_is_forbidden_and_auth_protects_api() {
     let app = http::router(configured_state);
     let (status, _, _) = raw_response(app, "/api/v1/books/1/content").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn adopted_managed_content_serves_when_external_downloads_are_disabled() {
+    let (dir, mut state) = state();
+    let source = dir.path().join("legacy-reference.epub");
+    let logical = b"legacy reference bytes";
+    fs::write(&source, logical).unwrap();
+    let db = Database::open_with_fts(&state.config.db, &state.config.fts).unwrap();
+    db.add_asset(
+        1,
+        "reference",
+        &source.to_string_lossy(),
+        None,
+        logical.len() as u64,
+        logical.len() as u64,
+        None,
+        false,
+        "2026-01-01",
+    )
+    .unwrap();
+    let store = ManagedObjectStore::from_config(&state.config);
+    let adoption = adopt_format(
+        &db,
+        &store,
+        AdoptFormatRequest {
+            book_id: 1,
+            format: "epub".into(),
+            reference_asset_id: None,
+        },
+    )
+    .unwrap();
+    assert!(
+        adoption
+            .stored_path
+            .starts_with(&state.config.paths.library_dir)
+    );
+    assert!(source.exists());
+    state.config.server.download_allow_external = false;
+    for uri in [
+        "/api/v1/books/1/content",
+        "/api/v1/books/1/content/epub",
+        "/opds/books/1/download",
+    ] {
+        let response = http::router(state.clone())
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            logical.as_slice()
+        );
+    }
 }
 
 #[tokio::test]

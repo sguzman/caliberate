@@ -973,6 +973,7 @@ dependencies = [
  "async-compression",
  "axum",
  "bytes",
+ "caliberate-assets",
  "caliberate-core",
  "caliberate-db",
  "caliberate-library",

@@ -133,6 +133,12 @@ representations are decoded by the content service while being served, so
 consumers receive the original logical ebook bytes. Legacy reference adoption
 remains a separate explicit operation.
 
+The first adoption operation creates the progressive hybrid state: an
+external-only logical format gains a SHA-256 content-addressed managed copy
+that is preferred while the external reference is retained. Adoption does not
+permit source retirement or reference deletion; the current managed v1 object
+layout is independent of future pack/chunk storage.
+
 ## Deletion semantics
 
 Deleting a canonical Caliberate record and deleting underlying bytes are separate operations.

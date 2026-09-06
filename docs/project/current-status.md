@@ -516,6 +516,17 @@ Accepted commit: `6869883e6b26ff5cfb134659380b2bfd0962bb08`.
 
 This clears the representation seam required before progressive legacy-content adoption.
 
+## Single-format reference adoption — integrated
+
+Task `0024-adopt-reference-format` added explicit single-format adoption from
+an external reference into a content-addressed Caliberate-managed object.
+Adoption is additive: the managed copy is preferred while the original
+reference and source provenance remain available as fallback. Objects are
+SHA-256 addressed under `objects/sha256/<prefix>/`, optionally zstd-compressed
+using existing asset policy, verified before asset registration, and reused
+idempotently. Bulk adoption, source retirement/resync, reference deletion, and
+pack/chunk storage remain future work.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -602,8 +613,8 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 ## Immediate work queue
 
 1. Add explicit per-book/per-format legacy-reference adoption into Caliberate-managed storage while retaining the legacy reference as fallback.
-3. Human-adopt one real legacy book and prove the server continues serving identical logical bytes from the managed representation.
-4. Then add source resync/reconciliation and source-retirement auditing, followed by deeper pack/chunk storage experiments.
+2. Human-adopt one real legacy book and prove the server continues serving identical logical bytes from the managed representation.
+3. Then add source resync/reconciliation and source-retirement auditing, followed by deeper pack/chunk storage experiments.
 
 ## Completion standard
 
