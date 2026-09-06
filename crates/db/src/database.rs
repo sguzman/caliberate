@@ -14,7 +14,8 @@ use tracing::info;
 pub mod canonical;
 pub use canonical::{
     BookFormatRow, CanonicalAssetImport, CanonicalBookImport, CanonicalFormatImport,
-    CanonicalMaterializeBatchResult, LibrarySourceRow, SourceBookRow,
+    CanonicalMaterializeBatchResult, LibrarySourceRow, SourceAuditCounts, SourceBookRow,
+    SourceManagedCandidate,
 };
 
 const SCHEMA_VERSION: i64 = 11;

@@ -598,6 +598,16 @@ The configured-database server was launched with external-reference downloads ex
 
 This is the first real format whose runtime content dependency has been physically supplanted by Caliberate-managed storage while retaining the legacy reference as fallback/provenance.
 
+## Source retirement/readiness audit — implemented
+
+Task `0025-source-retirement-audit` adds a read-only canonical source audit.
+`catalog_ready` is computed from aggregate canonical-DB relationships, while
+`retirement_ready` additionally requires an explicit bounded verification of
+preferred Caliberate-managed copies. Verification checks managed-root
+containment, physical/logical sizes, checksums, and zstd decoding without
+opening source files or attached-Calibre metadata. Source detachment, deletion,
+resync, and repair remain future work.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.

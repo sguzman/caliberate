@@ -196,6 +196,14 @@ stat, hash, or copy ebook files. Re-running the operation resumes from
 `source_books` mappings without overwriting canonical edits; source resync and
 managed-storage adoption remain separate operations.
 
+Source retirement is now measurable without reopening the source. The
+read-only source audit derives `catalog_ready` exclusively from canonical
+source mappings, logical formats, and owned managed-copy assets. An explicit
+managed-verification pass checks only preferred Caliberate-owned files under
+the configured managed root, producing the stronger `retirement_ready` result.
+Source detachment/deletion remains future work; the audit never probes or
+mutates legacy reference files or a source `metadata.db`.
+
 ## Non-goal
 
 Direct attached-Calibre querying remains valuable for inspection/bootstrap/testing, but it is not the long-term canonical runtime model for a maintained Caliberate library.

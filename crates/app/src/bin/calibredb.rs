@@ -16,6 +16,7 @@ use caliberate_library::calibre::{
     materialize::{CalibreMaterializeOptions, materialize_calibre_source},
 };
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
+use caliberate_library::retirement::{SourceRetirementAuditOptions, audit_source};
 use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 
 #[derive(Debug, Parser)]
@@ -110,6 +111,10 @@ enum CalibredbCommand {
     Assets {
         #[command(subcommand)]
         command: AssetsCommand,
+    },
+    Sources {
+        #[command(subcommand)]
+        command: SourcesCommand,
     },
     Fts {
         #[command(subcommand)]
@@ -227,6 +232,21 @@ enum AssetsCommand {
     Compact {
         #[arg(long, default_value_t = false)]
         apply: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SourcesCommand {
+    List,
+    Audit {
+        #[arg(long)]
+        id: i64,
+        #[arg(long, default_value_t = false)]
+        verify_managed: bool,
+        #[arg(long, default_value_t = 50)]
+        problem_limit: usize,
+        #[arg(long, default_value_t = false)]
+        for_machine: bool,
     },
 }
 
@@ -1138,6 +1158,92 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Removed {deleted} formats for book {id}");
             }
         },
+        Some(CalibredbCommand::Sources { command }) => match command {
+            SourcesCommand::List => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                for source in db.list_library_sources()? {
+                    println!(
+                        "id={}\tkind={}\tlabel={}\tlocator={}\tread_only={}\tlast_sync_at={}",
+                        source.id,
+                        source.kind,
+                        source.label.as_deref().unwrap_or(""),
+                        source.locator,
+                        source.read_only,
+                        source.last_sync_at.as_deref().unwrap_or("")
+                    );
+                }
+            }
+            SourcesCommand::Audit {
+                id,
+                verify_managed,
+                problem_limit,
+                for_machine,
+            } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let audit = audit_source(
+                    &db,
+                    &config.paths.library_dir,
+                    id,
+                    SourceRetirementAuditOptions {
+                        verify_managed,
+                        problem_limit,
+                        ..Default::default()
+                    },
+                )?;
+                if for_machine {
+                    println!("{}", source_audit_json(&audit));
+                } else {
+                    println!("source_id={}", audit.source.id);
+                    println!("mapped_books={}", audit.mapped_books);
+                    println!("source_reference_assets={}", audit.source_reference_assets);
+                    println!("source_backed_formats={}", audit.source_backed_formats);
+                    println!("managed_backed_formats={}", audit.managed_backed_formats);
+                    println!(
+                        "source_dependent_formats={}",
+                        audit.source_dependent_formats
+                    );
+                    println!(
+                        "metadata_only_source_books={}",
+                        audit.metadata_only_source_books
+                    );
+                    println!(
+                        "fully_managed_source_books={}",
+                        audit.fully_managed_source_books
+                    );
+                    println!(
+                        "source_books_with_dependencies={}",
+                        audit.source_books_with_dependencies
+                    );
+                    println!("unlinked_source_assets={}", audit.unlinked_source_assets);
+                    println!("orphan_source_assets={}", audit.orphan_source_assets);
+                    println!(
+                        "managed_coverage_percent={:.2}",
+                        audit.managed_coverage_percent
+                    );
+                    println!("catalog_ready={}", audit.catalog_ready);
+                    println!("verification_performed={}", audit.verification_performed);
+                    println!(
+                        "managed_candidates_verified={}",
+                        audit.managed_candidates_verified
+                    );
+                    println!("missing_managed_files={}", audit.missing_managed_files);
+                    println!(
+                        "managed_paths_outside_root={}",
+                        audit.managed_paths_outside_root
+                    );
+                    println!("stored_size_mismatches={}", audit.stored_size_mismatches);
+                    println!("logical_size_mismatches={}", audit.logical_size_mismatches);
+                    println!("missing_checksums={}", audit.missing_checksums);
+                    println!("checksum_mismatches={}", audit.checksum_mismatches);
+                    println!("decode_errors={}", audit.decode_errors);
+                    println!("verification_errors={}", audit.verification_errors);
+                    println!("retirement_ready={}", audit.retirement_ready);
+                    for problem in audit.problems {
+                        println!("problem={} {}", problem.kind, problem.message);
+                    }
+                }
+            }
+        },
         Some(CalibredbCommand::Notes { command }) => match command {
             NotesCommand::Add { book_id, text } => {
                 let mut db = Database::open_with_fts(&config.db, &config.fts)?;
@@ -1437,6 +1543,53 @@ fn format_from_path(path: &str) -> Option<String> {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_string())
+}
+
+fn source_audit_json(
+    audit: &caliberate_library::retirement::SourceRetirementAudit,
+) -> serde_json::Value {
+    let problems = audit
+        .problems
+        .iter()
+        .map(|problem| {
+            serde_json::json!({
+                "kind": problem.kind,
+                "book_id": problem.book_id,
+                "book_format_id": problem.book_format_id,
+                "format": problem.format,
+                "asset_id": problem.asset_id,
+                "path": problem.path.as_ref().map(|path| path.to_string_lossy().to_string()),
+                "message": problem.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "source_id": audit.source.id,
+        "mapped_books": audit.mapped_books,
+        "source_reference_assets": audit.source_reference_assets,
+        "source_backed_formats": audit.source_backed_formats,
+        "managed_backed_formats": audit.managed_backed_formats,
+        "source_dependent_formats": audit.source_dependent_formats,
+        "metadata_only_source_books": audit.metadata_only_source_books,
+        "fully_managed_source_books": audit.fully_managed_source_books,
+        "source_books_with_dependencies": audit.source_books_with_dependencies,
+        "unlinked_source_assets": audit.unlinked_source_assets,
+        "orphan_source_assets": audit.orphan_source_assets,
+        "managed_coverage_percent": audit.managed_coverage_percent,
+        "catalog_ready": audit.catalog_ready,
+        "verification_performed": audit.verification_performed,
+        "managed_candidates_verified": audit.managed_candidates_verified,
+        "missing_managed_files": audit.missing_managed_files,
+        "managed_paths_outside_root": audit.managed_paths_outside_root,
+        "stored_size_mismatches": audit.stored_size_mismatches,
+        "logical_size_mismatches": audit.logical_size_mismatches,
+        "missing_checksums": audit.missing_checksums,
+        "checksum_mismatches": audit.checksum_mismatches,
+        "decode_errors": audit.decode_errors,
+        "verification_errors": audit.verification_errors,
+        "retirement_ready": audit.retirement_ready,
+        "problems": problems,
+    })
 }
 
 fn parse_identifiers(

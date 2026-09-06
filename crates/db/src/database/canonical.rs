@@ -93,7 +93,137 @@ pub struct CanonicalMaterializeBatchResult {
     pub last_external_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceAuditCounts {
+    pub source_id: i64,
+    pub mapped_books: u64,
+    pub source_reference_assets: u64,
+    pub source_backed_formats: u64,
+    pub managed_backed_formats: u64,
+    pub source_dependent_formats: u64,
+    pub metadata_only_source_books: u64,
+    pub fully_managed_source_books: u64,
+    pub source_books_with_dependencies: u64,
+    pub unlinked_source_assets: u64,
+    pub orphan_source_assets: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceManagedCandidate {
+    pub book_id: i64,
+    pub book_format_id: i64,
+    pub format: String,
+    pub asset_id: i64,
+    pub stored_path: String,
+    pub size_bytes: u64,
+    pub stored_size_bytes: u64,
+    pub checksum: Option<String>,
+    pub is_compressed: bool,
+}
+
 impl Database {
+    pub fn audit_source_counts(&self, source_id: i64) -> CoreResult<SourceAuditCounts> {
+        self.conn.query_row(
+            "WITH
+             mapped AS (SELECT book_id FROM source_books WHERE source_id=?1),
+             refs AS (SELECT a.* FROM assets a WHERE a.source_id=?1 AND a.storage_mode='reference'),
+             backed AS (SELECT DISTINCT book_format_id FROM refs WHERE book_format_id IS NOT NULL),
+             managed AS (SELECT DISTINCT a.book_format_id FROM assets a JOIN backed b ON b.book_format_id=a.book_format_id WHERE a.storage_mode='copy' AND a.source_id IS NULL),
+             dependent AS (SELECT book_format_id FROM backed EXCEPT SELECT book_format_id FROM managed),
+             mapped_formats AS (SELECT m.book_id, COUNT(DISTINCT r.book_format_id) AS formats, COUNT(DISTINCT d.book_format_id) AS dependent FROM mapped m LEFT JOIN refs r ON r.book_id=m.book_id AND r.book_format_id IS NOT NULL LEFT JOIN dependent d ON d.book_format_id=r.book_format_id GROUP BY m.book_id),
+             unlinked AS (SELECT COUNT(*) AS n FROM refs WHERE book_format_id IS NULL),
+             orphaned AS (SELECT COUNT(*) AS n FROM refs r WHERE NOT EXISTS (SELECT 1 FROM source_books sb WHERE sb.source_id=?1 AND sb.book_id=r.book_id))
+             SELECT
+               (SELECT COUNT(*) FROM mapped), (SELECT COUNT(*) FROM refs),
+               (SELECT COUNT(*) FROM backed), (SELECT COUNT(*) FROM managed),
+               (SELECT COUNT(*) FROM dependent),
+               (SELECT COUNT(*) FROM mapped_formats WHERE formats=0),
+               (SELECT COUNT(*) FROM mapped_formats WHERE formats>0 AND dependent=0),
+               (SELECT COUNT(*) FROM mapped_formats WHERE dependent>0),
+               (SELECT n FROM unlinked), (SELECT n FROM orphaned)",
+            params![source_id],
+            |row| {
+                Ok(SourceAuditCounts {
+                    source_id,
+                    mapped_books: row.get::<_, i64>(0)? as u64,
+                    source_reference_assets: row.get::<_, i64>(1)? as u64,
+                    source_backed_formats: row.get::<_, i64>(2)? as u64,
+                    managed_backed_formats: row.get::<_, i64>(3)? as u64,
+                    source_dependent_formats: row.get::<_, i64>(4)? as u64,
+                    metadata_only_source_books: row.get::<_, i64>(5)? as u64,
+                    fully_managed_source_books: row.get::<_, i64>(6)? as u64,
+                    source_books_with_dependencies: row.get::<_, i64>(7)? as u64,
+                    unlinked_source_assets: row.get::<_, i64>(8)? as u64,
+                    orphan_source_assets: row.get::<_, i64>(9)? as u64,
+                })
+            },
+        ).map_err(|err| sqlite_error("audit source counts", err))
+    }
+
+    pub fn list_source_managed_candidates(
+        &self,
+        source_id: i64,
+        after: Option<(i64, i64)>,
+        page_size: usize,
+    ) -> CoreResult<Vec<SourceManagedCandidate>> {
+        let limit = page_size.clamp(1, 500) as i64;
+        let (cursor_clause, params): (String, Vec<Value>) =
+            if let Some((format_id, asset_id)) = after {
+                (
+                    "AND (a.book_format_id > ?2 OR (a.book_format_id = ?2 AND a.id > ?3))".into(),
+                    vec![
+                        Value::from(source_id),
+                        Value::from(format_id),
+                        Value::from(asset_id),
+                    ],
+                )
+            } else {
+                (String::new(), vec![Value::from(source_id)])
+            };
+        let sql = format!(
+            "WITH source_formats AS (
+                 SELECT DISTINCT book_format_id FROM assets
+                 WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NOT NULL
+             )
+             SELECT a.book_id,a.book_format_id,bf.format,a.id,a.stored_path,a.size_bytes,
+                    a.stored_size_bytes,a.checksum,a.is_compressed
+             FROM assets a JOIN source_formats sf ON sf.book_format_id=a.book_format_id
+             JOIN book_formats bf ON bf.id=a.book_format_id
+             WHERE a.storage_mode='copy' AND a.source_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets earlier
+                 WHERE earlier.book_format_id=a.book_format_id
+                   AND earlier.storage_mode='copy' AND earlier.source_id IS NULL
+                   AND earlier.id < a.id
+               ) {cursor_clause}
+             ORDER BY a.book_format_id,a.id LIMIT ?{}",
+            params.len() + 1
+        );
+        let mut values = params;
+        values.push(Value::from(limit));
+        let mut statement = self
+            .conn
+            .prepare(&sql)
+            .map_err(|err| sqlite_error("prepare source managed candidates", err))?;
+        let rows = statement
+            .query_map(params_from_iter(values), |row| {
+                Ok(SourceManagedCandidate {
+                    book_id: row.get(0)?,
+                    book_format_id: row.get(1)?,
+                    format: row.get(2)?,
+                    asset_id: row.get(3)?,
+                    stored_path: row.get(4)?,
+                    size_bytes: u64::try_from(row.get::<_, i64>(5)?).unwrap_or_default(),
+                    stored_size_bytes: u64::try_from(row.get::<_, i64>(6)?).unwrap_or_default(),
+                    checksum: row.get(7)?,
+                    is_compressed: row.get::<_, i64>(8)? != 0,
+                })
+            })
+            .map_err(|err| sqlite_error("query source managed candidates", err))?;
+        rows.map(|row| row.map_err(|err| sqlite_error("read source managed candidate", err)))
+            .collect()
+    }
+
     pub(super) fn backfill_canonical_formats(&self) -> CoreResult<()> {
         self.conn
             .execute(
