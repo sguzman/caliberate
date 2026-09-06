@@ -18,6 +18,14 @@ pub struct SourceRetirementAuditOptions {
     pub problem_limit: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceRetirementAuditProgress {
+    CatalogCountsComplete,
+    VerificationStarted,
+    VerificationPageComplete { processed: u64, verified: u64 },
+    VerificationComplete { processed: u64, verified: u64 },
+}
+
 impl Default for SourceRetirementAuditOptions {
     fn default() -> Self {
         Self {
@@ -74,10 +82,24 @@ pub fn audit_source(
     source_id: i64,
     options: SourceRetirementAuditOptions,
 ) -> CoreResult<SourceRetirementAudit> {
+    audit_source_with_progress(db, managed_root, source_id, options, |_| {})
+}
+
+pub fn audit_source_with_progress<F>(
+    db: &Database,
+    managed_root: &Path,
+    source_id: i64,
+    options: SourceRetirementAuditOptions,
+    mut progress: F,
+) -> CoreResult<SourceRetirementAudit>
+where
+    F: FnMut(SourceRetirementAuditProgress),
+{
     let source = db.get_library_source(source_id)?.ok_or_else(|| {
         CoreError::ConfigValidate(format!("library source {source_id} does not exist"))
     })?;
     let counts = db.audit_source_counts(source_id)?;
+    progress(SourceRetirementAuditProgress::CatalogCountsComplete);
     let catalog_ready = counts.source_dependent_formats == 0
         && counts.unlinked_source_assets == 0
         && counts.orphan_source_assets == 0;
@@ -118,6 +140,8 @@ pub fn audit_source(
         let page_size = options.page_size.clamp(1, MAX_PAGE_SIZE);
         let problem_limit = options.problem_limit.min(MAX_PROBLEM_LIMIT);
         let mut cursor = None;
+        let mut processed = 0;
+        progress(SourceRetirementAuditProgress::VerificationStarted);
         loop {
             let page = db.list_source_managed_candidates(source_id, cursor, page_size)?;
             if page.is_empty() {
@@ -126,9 +150,18 @@ pub fn audit_source(
             for candidate in &page {
                 verify_candidate(&mut audit, managed_root, candidate, problem_limit);
             }
+            processed += page.len() as u64;
+            progress(SourceRetirementAuditProgress::VerificationPageComplete {
+                processed,
+                verified: audit.managed_candidates_verified,
+            });
             let last = page.last().expect("non-empty candidate page");
             cursor = Some((last.book_format_id, last.asset_id));
         }
+        progress(SourceRetirementAuditProgress::VerificationComplete {
+            processed,
+            verified: audit.managed_candidates_verified,
+        });
     }
     audit.retirement_ready = audit.verification_performed
         && audit.catalog_ready
@@ -260,7 +293,10 @@ fn verify_candidate(
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceRetirementAuditOptions, audit_source};
+    use super::{
+        SourceRetirementAuditOptions, SourceRetirementAuditProgress, audit_source,
+        audit_source_with_progress,
+    };
     use caliberate_core::config::ControlPlane;
     use caliberate_db::database::Database;
     use std::fs;
@@ -440,6 +476,101 @@ mod tests {
         assert_eq!(audit.problems.len(), 1);
         assert_eq!(audit.checksum_mismatches, 1);
         assert!(!audit.retirement_ready);
+    }
+
+    #[test]
+    fn audit_progress_reports_phase_order_and_catalog_only_boundary() {
+        let (_dir, config, db, source_id) = fixture();
+        let mut catalog_only = Vec::new();
+        audit_source_with_progress(
+            &db,
+            &config.paths.library_dir,
+            source_id,
+            Default::default(),
+            |event| catalog_only.push(event),
+        )
+        .unwrap();
+        assert_eq!(
+            catalog_only,
+            vec![SourceRetirementAuditProgress::CatalogCountsComplete]
+        );
+
+        for book_id in 1..=2 {
+            db.add_book(&format!("Book {book_id}"), "epub", "", "2026")
+                .unwrap();
+            db.upsert_source_book(source_id, book_id, &book_id.to_string(), None, None, None)
+                .unwrap();
+            let format = db.get_book_format(book_id, "epub").unwrap().unwrap();
+            db.add_asset_for_format(
+                book_id,
+                format.id,
+                Some(source_id),
+                "reference",
+                &format!("Z:\\never-open\\legacy-{book_id}.epub"),
+                None,
+                4,
+                4,
+                None,
+                false,
+                "2026",
+            )
+            .unwrap();
+            let managed = config
+                .paths
+                .library_dir
+                .join(format!("managed-{book_id}.epub"));
+            fs::create_dir_all(managed.parent().unwrap()).unwrap();
+            fs::write(&managed, b"good").unwrap();
+            let checksum = caliberate_assets::hashing::hash_file_sha256(&managed).unwrap();
+            db.add_asset_for_format(
+                book_id,
+                format.id,
+                None,
+                "copy",
+                &managed.to_string_lossy(),
+                None,
+                4,
+                4,
+                Some(&checksum),
+                false,
+                "2026",
+            )
+            .unwrap();
+        }
+
+        let mut events = Vec::new();
+        let audit = audit_source_with_progress(
+            &db,
+            &config.paths.library_dir,
+            source_id,
+            SourceRetirementAuditOptions {
+                verify_managed: true,
+                page_size: 1,
+                ..Default::default()
+            },
+            |event| events.push(event),
+        )
+        .unwrap();
+        assert_eq!(audit.managed_candidates_verified, 2);
+        assert_eq!(
+            events,
+            vec![
+                SourceRetirementAuditProgress::CatalogCountsComplete,
+                SourceRetirementAuditProgress::VerificationStarted,
+                SourceRetirementAuditProgress::VerificationPageComplete {
+                    processed: 1,
+                    verified: 1,
+                },
+                SourceRetirementAuditProgress::VerificationPageComplete {
+                    processed: 2,
+                    verified: 2,
+                },
+                SourceRetirementAuditProgress::VerificationComplete {
+                    processed: 2,
+                    verified: 2,
+                },
+            ]
+        );
     }
 
     #[test]

@@ -16,7 +16,10 @@ use caliberate_library::calibre::{
     materialize::{CalibreMaterializeOptions, materialize_calibre_source},
 };
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
-use caliberate_library::retirement::{SourceRetirementAuditOptions, audit_source};
+use caliberate_library::retirement::{
+    SourceRetirementAuditOptions, SourceRetirementAuditProgress, audit_source,
+    audit_source_with_progress,
+};
 use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 
 #[derive(Debug, Parser)]
@@ -1188,26 +1191,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if for_machine {
                     eprintln!("[audit] counting source dependencies...");
                 }
-                let audit = audit_source(
-                    &db,
-                    &config.paths.library_dir,
-                    id,
-                    SourceRetirementAuditOptions {
-                        verify_managed,
-                        problem_limit,
-                        ..Default::default()
-                    },
-                )?;
-                if for_machine {
-                    eprintln!("[audit] catalog counts complete");
-                    if verify_managed {
-                        eprintln!("[audit] verifying managed replacements...");
-                        eprintln!(
-                            "[audit] verified {} managed replacements",
-                            audit.managed_candidates_verified
-                        );
-                    }
-                }
+                let options = SourceRetirementAuditOptions {
+                    verify_managed,
+                    problem_limit,
+                    ..Default::default()
+                };
+                let audit = if for_machine {
+                    audit_source_with_progress(
+                        &db,
+                        &config.paths.library_dir,
+                        id,
+                        options,
+                        |event| match event {
+                            SourceRetirementAuditProgress::CatalogCountsComplete => {
+                                eprintln!("[audit] catalog counts complete");
+                            }
+                            SourceRetirementAuditProgress::VerificationStarted => {
+                                eprintln!("[audit] verifying managed replacements...");
+                            }
+                            SourceRetirementAuditProgress::VerificationPageComplete {
+                                processed,
+                                verified,
+                            } => {
+                                eprintln!(
+                                    "[audit] verified {verified} of {processed} managed replacements"
+                                );
+                            }
+                            SourceRetirementAuditProgress::VerificationComplete {
+                                processed: _,
+                                verified,
+                            } => {
+                                eprintln!("[audit] verified {verified} managed replacements");
+                            }
+                        },
+                    )?
+                } else {
+                    audit_source(&db, &config.paths.library_dir, id, options)?
+                };
                 if for_machine {
                     println!("{}", source_audit_json(&audit));
                 } else {
