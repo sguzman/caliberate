@@ -625,6 +625,14 @@ Accepted commit: `050ba79edc848be189352b01d31023de7e5c917c`.
 
 Real full-corpus acceptance against the materialized source remains pending. The expected present state is approximately one managed-backed format out of 106,949 source-backed formats, so the source should correctly report not ready for retirement.
 
+## Real retirement-audit performance defect
+
+Human Windows acceptance of the integrated source-retirement audit against the 105,570-book canonical database stalled for more than five minutes before producing machine JSON.
+
+The current real library has only one managed replacement (~355 KiB), so the bottleneck is not managed verification volume. The defect is in the catalog aggregate/query-plan path over the ~106,949 source-backed formats.
+
+Task `0025.1-retirement-audit-performance` is ready. It preserves all readiness semantics while replacing the monolithic aggregate CTE with simpler indexable set queries, adding only the composite indexes required by those queries, and emitting coarse machine-mode progress to stderr while preserving clean JSON stdout.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
