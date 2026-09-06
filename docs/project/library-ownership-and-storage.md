@@ -178,6 +178,13 @@ The next work should extend these pieces rather than creating a second competing
 5. Expand managed storage policies, including structured archive/compressed representations.
 6. Add canonical write/mutation APIs to the headless service after ownership semantics are stable.
 
+The materialization path is now an explicit metadata operation: it reads a
+Calibre source in bounded keyset pages, writes each page in one canonical DB
+transaction, and records metadata-derived reference assets. It does not scan,
+stat, hash, or copy ebook files. Re-running the operation resumes from
+`source_books` mappings without overwriting canonical edits; source resync and
+managed-storage adoption remain separate operations.
+
 ## Non-goal
 
 Direct attached-Calibre querying remains valuable for inspection/bootstrap/testing, but it is not the long-term canonical runtime model for a maintained Caliberate library.

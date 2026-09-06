@@ -10,6 +10,10 @@ use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
+use caliberate_library::calibre::{
+    CalibreLibraryBackend, CalibreOpenMode,
+    materialize::{CalibreMaterializeOptions, materialize_calibre_source},
+};
 use caliberate_library::ingest::{IngestOutcome, IngestRequest, Ingestor};
 use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 
@@ -32,6 +36,16 @@ struct CalibredbCli {
 
 #[derive(Debug, Subcommand)]
 enum CalibredbCommand {
+    ImportCalibre {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        database: PathBuf,
+        #[arg(long, default_value_t = false)]
+        immutable: bool,
+        #[arg(long)]
+        label: Option<String>,
+    },
     CheckConfig,
     Init,
     Add {
@@ -418,6 +432,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     apply_library_override(&mut config, &cli)?;
 
     match cli.command {
+        Some(CalibredbCommand::ImportCalibre {
+            source,
+            database,
+            immutable,
+            label,
+        }) => {
+            let source = expand_home(&source)?;
+            let mode = if immutable {
+                CalibreOpenMode::ImmutableReadOnly
+            } else {
+                CalibreOpenMode::LockingReadOnly
+            };
+            let source_backend = CalibreLibraryBackend::open_with_mode(&source, mode)?;
+            let database = expand_home(&database)?;
+            if let Some(parent) = database.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let source_metadata =
+                std::fs::canonicalize(source_backend.library_root().join("metadata.db"))?;
+            let target_identity =
+                std::fs::canonicalize(&database).or_else(|_| {
+                    let parent = database
+                        .parent()
+                        .ok_or_else(|| std::io::Error::other("target database has no parent"))?;
+                    Ok::<PathBuf, std::io::Error>(std::fs::canonicalize(parent)?.join(
+                        database.file_name().ok_or_else(|| {
+                            std::io::Error::other("target database has no filename")
+                        })?,
+                    ))
+                })?;
+            if source_metadata == target_identity {
+                return Err("target database must not be the Calibre source metadata.db".into());
+            }
+            let mut target =
+                Database::open_path_with_fts(&database, cli.timeout as u64 * 1000, &config.fts)?;
+            let report = materialize_calibre_source(
+                &source_backend,
+                &mut target,
+                CalibreMaterializeOptions {
+                    label,
+                    ..Default::default()
+                },
+            )?;
+            println!(
+                "Materialized source {}: seen={}, imported={}, skipped_existing={}, metadata_only={}, logical_formats={}, reference_assets={}, last_external_id={}, completed={}",
+                report.source_id,
+                report.source_books_seen,
+                report.imported_books,
+                report.skipped_existing,
+                report.metadata_only_books,
+                report.logical_formats,
+                report.reference_assets,
+                report.last_external_id.as_deref().unwrap_or(""),
+                report.completed,
+            );
+        }
         Some(CalibredbCommand::CheckConfig) => {
             tracing::info!(component = "calibredb", "configuration check passed");
         }

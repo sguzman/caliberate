@@ -4,6 +4,7 @@ use crate::query::{
     LibraryFacetKind, LibraryFacetValue, LibraryQuery, LibraryQueryPage, LibrarySortField,
 };
 use crate::summary::{LibraryBookSummary, LibrarySummaryPage};
+pub mod materialize;
 mod metadata;
 mod path;
 mod query;

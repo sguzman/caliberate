@@ -38,6 +38,61 @@ pub struct BookFormatRow {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CanonicalAssetImport {
+    pub storage_mode: String,
+    pub stored_path: String,
+    pub source_path: Option<String>,
+    pub size_bytes: u64,
+    pub stored_size_bytes: u64,
+    pub checksum: Option<String>,
+    pub is_compressed: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CanonicalFormatImport {
+    pub format: String,
+    pub size_bytes: Option<u64>,
+    pub representations: Vec<CanonicalAssetImport>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CanonicalBookImport {
+    pub external_id: String,
+    pub external_uuid: Option<String>,
+    pub external_modified: Option<String>,
+    pub title: String,
+    pub sort: Option<String>,
+    pub timestamp: Option<String>,
+    pub pubdate: Option<String>,
+    pub series_index: f64,
+    pub author_sort: Option<String>,
+    pub uuid: Option<String>,
+    pub has_cover: bool,
+    pub last_modified: Option<String>,
+    pub authors: Vec<String>,
+    pub tags: Vec<String>,
+    pub series: Option<(String, f64)>,
+    pub publisher: Option<String>,
+    pub rating: Option<i64>,
+    pub languages: Vec<String>,
+    pub identifiers: Vec<(String, String)>,
+    pub comment: Option<String>,
+    pub primary_format: String,
+    pub primary_path: String,
+    pub formats: Vec<CanonicalFormatImport>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CanonicalMaterializeBatchResult {
+    pub imported_books: usize,
+    pub skipped_existing: usize,
+    pub metadata_only_books: usize,
+    pub logical_formats: usize,
+    pub reference_assets: usize,
+    pub last_external_id: Option<String>,
+}
+
 impl Database {
     pub(super) fn backfill_canonical_formats(&self) -> CoreResult<()> {
         self.conn
@@ -470,4 +525,253 @@ impl Database {
         ).map_err(|err| sqlite_error("insert asset", err))?;
         Ok(self.conn.last_insert_rowid())
     }
+
+    pub fn materialize_source_books(
+        &mut self,
+        source_id: i64,
+        records: &[CanonicalBookImport],
+        seen_at: &str,
+    ) -> CoreResult<CanonicalMaterializeBatchResult> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|err| sqlite_error("begin canonical materialization chunk", err))?;
+        let mut result = CanonicalMaterializeBatchResult::default();
+        for record in records {
+            result.last_external_id = Some(record.external_id.clone());
+            let existing: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM source_books WHERE source_id=?1 AND external_id=?2",
+                    params![source_id, record.external_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|err| sqlite_error("check materialized source book", err))?;
+            if existing.is_some() {
+                result.skipped_existing += 1;
+                continue;
+            }
+
+            let primary_format = record.primary_format.to_ascii_lowercase();
+            tx.execute(
+                "INSERT INTO books (title,sort,timestamp,pubdate,series_index,author_sort,uuid,has_cover,last_modified,format,path,created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                params![
+                    record.title,
+                    record.sort,
+                    record.timestamp,
+                    record.pubdate,
+                    record.series_index,
+                    record.author_sort,
+                    record.uuid,
+                    if record.has_cover { 1 } else { 0 },
+                    record.last_modified.as_deref().unwrap_or(""),
+                    primary_format,
+                    record.primary_path,
+                    seen_at,
+                ],
+            )
+            .map_err(|err| sqlite_error("insert materialized book", err))?;
+            let book_id = tx.last_insert_rowid();
+            materialize_relations(&tx, book_id, record)?;
+            tx.execute(
+                "INSERT INTO source_books (source_id,book_id,external_id,external_uuid,external_modified,last_seen_at)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+                params![
+                    source_id,
+                    book_id,
+                    record.external_id,
+                    record.external_uuid,
+                    record.external_modified,
+                    seen_at,
+                ],
+            )
+            .map_err(|err| sqlite_error("insert materialized source mapping", err))?;
+
+            if record.formats.is_empty() {
+                result.metadata_only_books += 1;
+            }
+            for format in &record.formats {
+                let normalized = format.format.to_ascii_lowercase();
+                if normalized.is_empty() {
+                    continue;
+                }
+                tx.execute(
+                    "INSERT INTO book_formats (book_id,format,size_bytes) VALUES (?1,?2,?3)",
+                    params![
+                        book_id,
+                        normalized,
+                        format.size_bytes.map(|size| size as i64)
+                    ],
+                )
+                .map_err(|err| sqlite_error("insert materialized book format", err))?;
+                let format_id = tx.last_insert_rowid();
+                result.logical_formats += 1;
+                for asset in &format.representations {
+                    tx.execute(
+                        "INSERT INTO assets (book_id,book_format_id,source_id,storage_mode,stored_path,source_path,size_bytes,stored_size_bytes,checksum,is_compressed,created_at)
+                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                        params![
+                            book_id,
+                            format_id,
+                            source_id,
+                            "reference",
+                            asset.stored_path,
+                            Option::<&str>::None,
+                            asset.size_bytes as i64,
+                            asset.stored_size_bytes as i64,
+                            Option::<&str>::None,
+                            0,
+                            seen_at,
+                        ],
+                    )
+                    .map_err(|err| sqlite_error("insert materialized reference asset", err))?;
+                    result.reference_assets += 1;
+                }
+            }
+            result.imported_books += 1;
+        }
+        tx.commit()
+            .map_err(|err| sqlite_error("commit canonical materialization chunk", err))?;
+        Ok(result)
+    }
+}
+
+fn materialize_relations(
+    tx: &rusqlite::Transaction<'_>,
+    book_id: i64,
+    record: &CanonicalBookImport,
+) -> CoreResult<()> {
+    for author in &record.authors {
+        tx.execute(
+            "INSERT OR IGNORE INTO authors (name) VALUES (?1)",
+            params![author],
+        )
+        .map_err(|err| sqlite_error("insert materialized author", err))?;
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM authors WHERE name=?1",
+                params![author],
+                |row| row.get(0),
+            )
+            .map_err(|err| sqlite_error("read materialized author", err))?;
+        tx.execute(
+            "INSERT OR IGNORE INTO books_authors_link (book,author) VALUES (?1,?2)",
+            params![book_id, id],
+        )
+        .map_err(|err| sqlite_error("link materialized author", err))?;
+    }
+    for tag in &record.tags {
+        tx.execute(
+            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
+            params![tag],
+        )
+        .map_err(|err| sqlite_error("insert materialized tag", err))?;
+        let id: i64 = tx
+            .query_row("SELECT id FROM tags WHERE name=?1", params![tag], |row| {
+                row.get(0)
+            })
+            .map_err(|err| sqlite_error("read materialized tag", err))?;
+        tx.execute(
+            "INSERT OR IGNORE INTO books_tags_link (book,tag) VALUES (?1,?2)",
+            params![book_id, id],
+        )
+        .map_err(|err| sqlite_error("link materialized tag", err))?;
+    }
+    if let Some((name, index)) = &record.series {
+        tx.execute(
+            "INSERT OR IGNORE INTO series (name) VALUES (?1)",
+            params![name],
+        )
+        .map_err(|err| sqlite_error("insert materialized series", err))?;
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM series WHERE name=?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .map_err(|err| sqlite_error("read materialized series", err))?;
+        tx.execute(
+            "INSERT INTO books_series_link (book,series) VALUES (?1,?2)",
+            params![book_id, id],
+        )
+        .map_err(|err| sqlite_error("link materialized series", err))?;
+        tx.execute(
+            "UPDATE books SET series_index=?1 WHERE id=?2",
+            params![index, book_id],
+        )
+        .map_err(|err| sqlite_error("set materialized series index", err))?;
+    }
+    if let Some(publisher) = &record.publisher {
+        tx.execute(
+            "INSERT OR IGNORE INTO publishers (name) VALUES (?1)",
+            params![publisher],
+        )
+        .map_err(|err| sqlite_error("insert materialized publisher", err))?;
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM publishers WHERE name=?1",
+                params![publisher],
+                |row| row.get(0),
+            )
+            .map_err(|err| sqlite_error("read materialized publisher", err))?;
+        tx.execute(
+            "INSERT INTO books_publishers_link (book,publisher) VALUES (?1,?2)",
+            params![book_id, id],
+        )
+        .map_err(|err| sqlite_error("link materialized publisher", err))?;
+    }
+    if let Some(rating) = record.rating {
+        tx.execute(
+            "INSERT OR IGNORE INTO ratings (rating) VALUES (?1)",
+            params![rating],
+        )
+        .map_err(|err| sqlite_error("insert materialized rating", err))?;
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM ratings WHERE rating=?1",
+                params![rating],
+                |row| row.get(0),
+            )
+            .map_err(|err| sqlite_error("read materialized rating", err))?;
+        tx.execute(
+            "INSERT INTO books_ratings_link (book,rating) VALUES (?1,?2)",
+            params![book_id, id],
+        )
+        .map_err(|err| sqlite_error("link materialized rating", err))?;
+    }
+    for (order, language) in record.languages.iter().enumerate() {
+        tx.execute(
+            "INSERT OR IGNORE INTO languages (lang_code) VALUES (?1)",
+            params![language],
+        )
+        .map_err(|err| sqlite_error("insert materialized language", err))?;
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM languages WHERE lang_code=?1",
+                params![language],
+                |row| row.get(0),
+            )
+            .map_err(|err| sqlite_error("read materialized language", err))?;
+        tx.execute(
+            "INSERT INTO books_languages_link (book,lang_code,item_order) VALUES (?1,?2,?3)",
+            params![book_id, id, order as i64],
+        )
+        .map_err(|err| sqlite_error("link materialized language", err))?;
+    }
+    for (kind, value) in &record.identifiers {
+        tx.execute(
+            "INSERT OR REPLACE INTO identifiers (book,type,val) VALUES (?1,?2,?3)",
+            params![book_id, kind, value],
+        )
+        .map_err(|err| sqlite_error("insert materialized identifier", err))?;
+    }
+    if let Some(comment) = &record.comment {
+        tx.execute(
+            "INSERT OR REPLACE INTO comments (book,text) VALUES (?1,?2)",
+            params![book_id, comment],
+        )
+        .map_err(|err| sqlite_error("insert materialized comment", err))?;
+    }
+    Ok(())
 }

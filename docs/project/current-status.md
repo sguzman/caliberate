@@ -518,6 +518,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 3. Run the existing headless server from the materialized local DB and verify legacy reference content streams correctly.
 4. Add explicit source resync/reconciliation, then progressive managed-storage adoption and source-retirement auditing.
 
+Task 0022 now has a synthetic, bounded materialization path and CLI command.
+It is validated only against synthetic sources; the full real-library run and
+human verification remain pending.
+
 ## Completion standard
 
 A roadmap checkbox, UI control, struct field, or stub does not establish feature completion. Completion requires executable behavior plus evidence appropriate to the feature: tests, runtime validation, or both.

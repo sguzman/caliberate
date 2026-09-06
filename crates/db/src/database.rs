@@ -12,7 +12,10 @@ use std::path::Path;
 use tracing::info;
 
 pub mod canonical;
-pub use canonical::{BookFormatRow, LibrarySourceRow, SourceBookRow};
+pub use canonical::{
+    BookFormatRow, CanonicalAssetImport, CanonicalBookImport, CanonicalFormatImport,
+    CanonicalMaterializeBatchResult, LibrarySourceRow, SourceBookRow,
+};
 
 const SCHEMA_VERSION: i64 = 11;
 
