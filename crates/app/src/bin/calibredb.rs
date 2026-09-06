@@ -459,7 +459,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bootstrap = caliberate_app::bootstrap::init_with_options(
         &cli.config,
         caliberate_app::bootstrap::BootstrapOptions {
-            stdout_logging: Some(!machine_output_requested(&cli.command)),
+            stdout_logging: stdout_logging_override(&cli.command),
         },
     )?;
     let mut config = bootstrap.config;
@@ -1468,15 +1468,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn machine_output_requested(command: &Option<CalibredbCommand>) -> bool {
-    match command {
+fn stdout_logging_override(command: &Option<CalibredbCommand>) -> Option<bool> {
+    let machine = match command {
         Some(CalibredbCommand::List { for_machine, .. })
         | Some(CalibredbCommand::Search { for_machine, .. }) => *for_machine,
         Some(CalibredbCommand::Sources {
             command: SourcesCommand::Audit { for_machine, .. },
         }) => *for_machine,
         _ => false,
-    }
+    };
+    machine.then_some(false)
 }
 
 fn apply_library_override(
@@ -1510,7 +1511,7 @@ fn apply_library_override(
 
 #[cfg(test)]
 mod tests {
-    use super::{CalibredbCli, CalibredbCommand, SourcesCommand, machine_output_requested};
+    use super::{CalibredbCli, CalibredbCommand, SourcesCommand, stdout_logging_override};
     use clap::Parser;
 
     #[test]
@@ -1524,11 +1525,20 @@ mod tests {
             "--for-machine",
         ])
         .unwrap();
-        assert!(machine_output_requested(&audit.command));
+        assert_eq!(stdout_logging_override(&audit.command), Some(false));
         let list = CalibredbCli::try_parse_from(["calibredb", "list", "--for-machine"]).unwrap();
-        assert!(machine_output_requested(&list.command));
+        assert_eq!(stdout_logging_override(&list.command), Some(false));
+        let search = CalibredbCli::try_parse_from([
+            "calibredb",
+            "search",
+            "--query",
+            "book",
+            "--for-machine",
+        ])
+        .unwrap();
+        assert_eq!(stdout_logging_override(&search.command), Some(false));
         let human = CalibredbCli::try_parse_from(["calibredb", "sources", "list"]).unwrap();
-        assert!(!machine_output_requested(&human.command));
+        assert_eq!(stdout_logging_override(&human.command), None);
         assert!(matches!(
             audit.command,
             Some(CalibredbCommand::Sources {
