@@ -449,6 +449,51 @@ Accepted commit: `b4222e733e6c9e76086db87825013662f36f9cd6`.
 
 Real full-corpus materialization into a local Caliberate DB is the next human acceptance gate.
 
+## Materialized local-catalog hybrid acceptance — passed
+
+Human Windows runtime acceptance proved the Calibre -> canonical Caliberate offramp end to end against the actual 105,570-book corpus.
+
+Real materialization result:
+
+```text
+source_id=1
+seen=105570
+imported=105570
+skipped_existing=0
+metadata_only=0
+logical_formats=106949
+reference_assets=106949
+last_external_id=107655
+completed=true
+```
+
+Canonical DB:
+
+```text
+A:\Data\Books\db\caliberate.sqlite
+```
+
+The managed-Database CLI then opened that local DB directly, without attached-Calibre mode, and found `The Last Days of the Romanovs` as canonical Caliberate book ID `53937`.
+
+The headless server was launched with no `--calibre-library` argument and reported:
+
+```text
+source=configured database
+```
+
+JSON search returned canonical ID `53937`; its EPUB format reported `size_bytes=354595`; and `/api/v1/books/53937/content` streamed exactly 354,595 bytes from the legacy reference asset.
+
+This proves the intended hybrid state:
+
+```text
+Caliberate-owned local SQLite -> catalog/query/API identity
+legacy Calibre tree           -> physical reference bytes only
+```
+
+Calibre's `metadata.db` is no longer required in the ordinary runtime catalog path for the materialized library.
+
+A newly identified blocker for progressive managed adoption is transparent compressed-content serving: `LocalAssetStore` can write zstd-compressed managed copies, but `LibraryContent`/server streaming currently do not carry or decode the asset compression flag. Do not migrate real legacy content into compressed managed storage until that seam is fixed.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
@@ -534,14 +579,10 @@ The conversion CLI and orchestration exist, but practical cross-format conversio
 
 ## Immediate work queue
 
-1. Human-run the full 105,570-book materialization into a local Caliberate DB and verify completion counters.
-2. Run ordinary managed-Database queries against the local materialized DB without using attached-Calibre metadata queries.
-3. Run the headless server from the materialized local DB and verify legacy reference content streams correctly.
-4. Only after real acceptance, add explicit source resync/reconciliation, progressive managed-storage adoption, and source-retirement auditing.
-
-Task 0022 now has a synthetic, bounded materialization path and CLI command.
-It is validated only against synthetic sources; the full real-library run and
-human verification remain pending.
+1. Add transparent managed compressed-content resolution/streaming so a logical EPUB/PDF remains consumable when its preferred physical representation is zstd-compressed.
+2. Add explicit per-book/per-format legacy-reference adoption into Caliberate-managed storage while retaining the legacy reference as fallback.
+3. Human-adopt one real legacy book and prove the server continues serving identical logical bytes from the managed representation.
+4. Then add source resync/reconciliation and source-retirement auditing, followed by deeper pack/chunk storage experiments.
 
 ## Completion standard
 
