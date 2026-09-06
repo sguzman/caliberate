@@ -132,6 +132,9 @@ impl Database {
                  CREATE INDEX IF NOT EXISTS idx_assets_source_reference_book_format
                      ON assets(source_id, book_id, book_format_id)
                      WHERE storage_mode='reference';
+                 CREATE INDEX IF NOT EXISTS idx_assets_source_reference_format_book
+                     ON assets(source_id, book_format_id, book_id)
+                     WHERE storage_mode='reference';
                  CREATE INDEX IF NOT EXISTS idx_assets_managed_copy_format_id
                      ON assets(book_format_id, id)
                      WHERE storage_mode='copy' AND source_id IS NULL;",
@@ -203,7 +206,7 @@ impl Database {
             "mapped_books_with_formats",
             "SELECT COUNT(DISTINCT mapped.book_id)
              FROM source_books mapped
-             JOIN assets reference
+             JOIN assets reference INDEXED BY idx_assets_source_reference_book_format
                ON reference.source_id=mapped.source_id
               AND reference.book_id=mapped.book_id
               AND reference.storage_mode='reference'
@@ -216,7 +219,7 @@ impl Database {
             "source_books_with_dependencies",
             "SELECT COUNT(DISTINCT mapped.book_id)
              FROM source_books mapped
-             JOIN assets reference
+             JOIN assets reference INDEXED BY idx_assets_source_reference_book_format
                ON reference.source_id=mapped.source_id
               AND reference.book_id=mapped.book_id
               AND reference.storage_mode='reference'
@@ -987,7 +990,7 @@ mod audit_tests {
 
         let mapped_sql = "SELECT COUNT(DISTINCT mapped.book_id)
              FROM source_books mapped
-             JOIN assets reference
+             JOIN assets reference INDEXED BY idx_assets_source_reference_book_format
                ON reference.source_id=mapped.source_id
               AND reference.book_id=mapped.book_id
               AND reference.storage_mode='reference'
@@ -995,7 +998,7 @@ mod audit_tests {
              WHERE mapped.source_id=?1";
         let dependent_sql = "SELECT COUNT(DISTINCT mapped.book_id)
              FROM source_books mapped
-             JOIN assets reference
+             JOIN assets reference INDEXED BY idx_assets_source_reference_book_format
                ON reference.source_id=mapped.source_id
               AND reference.book_id=mapped.book_id
               AND reference.storage_mode='reference'
@@ -1022,6 +1025,25 @@ mod audit_tests {
         assert!(mapped_plan.contains("idx_assets_source_reference_book_format"));
         assert!(dependent_plan.contains("idx_assets_source_reference_book_format"));
         assert!(dependent_plan.contains("idx_assets_managed_copy_format_id"));
+
+        let membership_sql = "SELECT 1 FROM assets a
+             WHERE a.storage_mode='copy' AND a.source_id IS NULL
+               AND EXISTS (
+                 SELECT 1 FROM assets reference
+                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+                   AND reference.book_format_id=a.book_format_id
+               )";
+        let mut statement = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {membership_sql}"))
+            .unwrap();
+        let membership_plan = statement
+            .query_map(params![source_id], |row| row.get::<_, String>(3))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(membership_plan.contains("idx_assets_source_reference_format_book"));
     }
 }
 

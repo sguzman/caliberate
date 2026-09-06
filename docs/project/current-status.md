@@ -681,9 +681,9 @@ Therefore correctness acceptance passed, but performance acceptance failed. With
 
 Task `0025.2-retirement-audit-query-plan` is implemented on its bounded
 branch. It replaces the correlated mapped-book dependency scans with
-source-wide set joins and checked derived counts, installs only the matching
-partial audit indexes (dropping the superseded 0025.1 indexes), adds focused
-query-plan evidence, and emits per-metric catalog timings through the existing
+source-wide set joins and checked derived counts, installs the complementary
+book- and format-oriented partial source-reference indexes (dropping the
+superseded 0025.1 indexes), adds focused query-plan evidence, and emits per-metric catalog timings through the existing
 progress seam to stderr only. The synthetic production-path regression now
 covers 25,000 mapped books with a managed subset and no wall-clock assertion.
 Real-corpus performance rerun remains pending.
