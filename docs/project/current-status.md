@@ -688,6 +688,24 @@ progress seam to stderr only. The synthetic production-path regression now
 covers 25,000 mapped books with a managed subset and no wall-clock assertion.
 Real-corpus performance rerun remains pending.
 
+## Retirement audit query-plan correction — integrated
+
+Task `0025.2-retirement-audit-query-plan` removed the remaining real-corpus catalog-query pathology identified by the 1,527.46-second acceptance run.
+
+Integrated behavior:
+- mapped-book dependency metrics now use source-wide set joins instead of correlated per-book probes;
+- metadata-only and fully-managed book counts are derived by checked exact subtraction;
+- complementary partial source-reference indexes support both the book axis and format axis;
+- the managed-copy partial index supports same-format lookup and preferred-copy ordering;
+- focused EXPLAIN QUERY PLAN coverage locks book-level dependency and managed-candidate membership lookups to the intended indexes;
+- per-metric catalog timings are emitted through the audit progress seam and rendered to stderr only;
+- the synthetic production-path regression now covers 25,000 mapped books with managed copies;
+- all readiness/count semantics and machine JSON stdout behavior remain unchanged.
+
+Accepted commit: `21c63bdecaadeed3fa7f0c49c8fd9eb3991f85a6`.
+
+Real 105,570-book performance acceptance remains the immediate gate.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
