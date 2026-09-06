@@ -640,6 +640,23 @@ while preserving clean JSON stdout. A 5,000-row synthetic production-path
 regression covers scale without a wall-clock assertion; real-corpus acceptance
 remains pending.
 
+## Retirement audit performance correction — integrated
+
+Task `0025.1-retirement-audit-performance` fixed the >5 minute real-corpus retirement-audit stall.
+
+Integrated behavior:
+- replaced the monolithic audit CTE with a fixed set of simpler indexed aggregate queries;
+- added targeted source-audit composite indexes, installed idempotently for existing schema-v11 databases and fresh databases;
+- preserved all 0025 readiness/count semantics and bounded keyset-paged managed verification;
+- added a 5,000-book synthetic scale regression over the production audit path;
+- machine stdout remains JSON-only;
+- audit progress is now emitted at the actual catalog/verification phase boundaries through a library progress observer and rendered to stderr by the CLI;
+- multi-page verification progress is emitted from inside the verification loop.
+
+Accepted commit: `673cf1373687db711421504c8d8196aad04b9058`.
+
+Real full-corpus rerun is the next acceptance gate.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
