@@ -285,9 +285,12 @@ mod tests {
         let (dir, config, db, source_id) = fixture();
         db.add_book("Book A", "epub", "", "2026-01-01").unwrap();
         db.add_book("Book B", "epub", "", "2026-01-01").unwrap();
+        db.add_book("Book C", "", "", "2026-01-01").unwrap();
         db.upsert_source_book(source_id, 1, "a", None, None, None)
             .unwrap();
         db.upsert_source_book(source_id, 2, "b", None, None, None)
+            .unwrap();
+        db.upsert_source_book(source_id, 3, "c", None, None, None)
             .unwrap();
         let format_a = db.get_book_format(1, "epub").unwrap().unwrap();
         let format_b = db.get_book_format(2, "epub").unwrap().unwrap();
@@ -320,11 +323,11 @@ mod tests {
         )
         .unwrap();
         let counts = db.audit_source_counts(source_id).unwrap();
-        assert_eq!(counts.mapped_books, 2);
+        assert_eq!(counts.mapped_books, 3);
         assert_eq!(counts.source_reference_assets, 2);
         assert_eq!(counts.source_backed_formats, 2);
         assert_eq!(counts.source_dependent_formats, 2);
-        assert_eq!(counts.metadata_only_source_books, 0);
+        assert_eq!(counts.metadata_only_source_books, 1);
         assert_eq!(counts.source_books_with_dependencies, 2);
         assert!(
             !audit_source(
@@ -337,6 +340,50 @@ mod tests {
             .catalog_ready
         );
         assert!(!dir.path().join("never-open").exists());
+
+        db.add_asset_for_format(
+            1,
+            format_a.id,
+            None,
+            "copy",
+            "managed-a.epub",
+            None,
+            1,
+            1,
+            Some("a"),
+            false,
+            "2026",
+        )
+        .unwrap();
+        db.add_asset_for_format(
+            2,
+            format_b.id,
+            None,
+            "copy",
+            "managed-b.epub",
+            None,
+            1,
+            1,
+            Some("b"),
+            false,
+            "2026",
+        )
+        .unwrap();
+        let repaired = audit_source(
+            &db,
+            &config.paths.library_dir,
+            source_id,
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(repaired.mapped_books, 3);
+        assert_eq!(repaired.source_backed_formats, 2);
+        assert_eq!(repaired.managed_backed_formats, 2);
+        assert_eq!(repaired.source_dependent_formats, 0);
+        assert_eq!(repaired.metadata_only_source_books, 1);
+        assert_eq!(repaired.fully_managed_source_books, 2);
+        assert_eq!(repaired.source_books_with_dependencies, 0);
+        assert!(repaired.catalog_ready);
     }
 
     #[test]
@@ -392,6 +439,136 @@ mod tests {
         let audit = audit_source(&db, &config.paths.library_dir, source_id, options).unwrap();
         assert_eq!(audit.problems.len(), 1);
         assert_eq!(audit.checksum_mismatches, 1);
+        assert!(!audit.retirement_ready);
+    }
+
+    #[test]
+    fn verifies_all_managed_failure_classes_with_bounded_problems() {
+        use caliberate_assets::compression::compress_file;
+        use std::fs;
+
+        let (dir, config, db, source_id) = fixture();
+        let root = &config.paths.library_dir;
+        fs::create_dir_all(root).unwrap();
+        let checksum =
+            |path: &std::path::Path| caliberate_assets::hashing::hash_file_sha256(path).unwrap();
+        let add = |book_id: i64,
+                   path: &std::path::Path,
+                   logical_size: u64,
+                   stored_size: u64,
+                   checksum: Option<&str>,
+                   compressed: bool| {
+            db.add_book(&format!("Book {book_id}"), "epub", "", "2026")
+                .unwrap();
+            db.upsert_source_book(source_id, book_id, &book_id.to_string(), None, None, None)
+                .unwrap();
+            let format = db.get_book_format(book_id, "epub").unwrap().unwrap();
+            db.add_asset_for_format(
+                book_id,
+                format.id,
+                Some(source_id),
+                "reference",
+                &format!("Z:\\never-open\\legacy-{book_id}.epub"),
+                None,
+                4,
+                4,
+                None,
+                false,
+                "2026",
+            )
+            .unwrap();
+            db.add_asset_for_format(
+                book_id,
+                format.id,
+                None,
+                "copy",
+                &path.to_string_lossy(),
+                None,
+                logical_size,
+                stored_size,
+                checksum,
+                compressed,
+                "2026",
+            )
+            .unwrap();
+        };
+
+        let healthy = root.join("healthy.epub");
+        fs::write(&healthy, b"good").unwrap();
+        let healthy_checksum = checksum(&healthy);
+        add(1, &healthy, 4, 4, Some(&healthy_checksum), false);
+
+        let zstd_source = dir.path().join("synthetic-zstd-source.epub");
+        fs::write(&zstd_source, b"zstd").unwrap();
+        let zstd = root.join("healthy.epub.zst");
+        compress_file(&zstd_source, &zstd, 3).unwrap();
+        let zstd_checksum = checksum(&zstd_source);
+        add(
+            2,
+            &zstd,
+            4,
+            fs::metadata(&zstd).unwrap().len(),
+            Some(&zstd_checksum),
+            true,
+        );
+
+        add(3, &root.join("missing.epub"), 4, 4, Some("missing"), false);
+
+        let outside = dir.path().join("outside.epub");
+        fs::write(&outside, b"good").unwrap();
+        add(4, &outside, 4, 4, Some(&healthy_checksum), false);
+
+        let stored_mismatch = root.join("stored-mismatch.epub");
+        fs::write(&stored_mismatch, b"good").unwrap();
+        add(5, &stored_mismatch, 4, 99, Some(&healthy_checksum), false);
+
+        let logical_mismatch = root.join("logical-mismatch.epub");
+        fs::write(&logical_mismatch, b"bad!").unwrap();
+        add(
+            6,
+            &logical_mismatch,
+            5,
+            4,
+            Some(&checksum(&logical_mismatch)),
+            false,
+        );
+
+        let missing_checksum = root.join("missing-checksum.epub");
+        fs::write(&missing_checksum, b"good").unwrap();
+        add(7, &missing_checksum, 4, 4, None, false);
+
+        let checksum_mismatch = root.join("checksum-mismatch.epub");
+        fs::write(&checksum_mismatch, b"good").unwrap();
+        add(8, &checksum_mismatch, 4, 4, Some(&"0".repeat(64)), false);
+
+        let corrupt_zstd = root.join("corrupt.epub.zst");
+        fs::write(&corrupt_zstd, b"not zstd").unwrap();
+        add(9, &corrupt_zstd, 4, 8, Some("corrupt"), true);
+
+        let audit = audit_source(
+            &db,
+            root,
+            source_id,
+            SourceRetirementAuditOptions {
+                verify_managed: true,
+                page_size: 1,
+                problem_limit: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!(audit.source_backed_formats, 9);
+        assert_eq!(audit.managed_backed_formats, 9);
+        assert_eq!(audit.managed_candidates_verified, 2);
+        assert_eq!(audit.missing_managed_files, 1);
+        assert_eq!(audit.managed_paths_outside_root, 1);
+        assert_eq!(audit.stored_size_mismatches, 1);
+        assert_eq!(audit.logical_size_mismatches, 1);
+        assert_eq!(audit.missing_checksums, 1);
+        assert_eq!(audit.checksum_mismatches, 1);
+        assert_eq!(audit.decode_errors, 1);
+        assert_eq!(audit.verification_errors, 8);
+        assert_eq!(audit.problems.len(), 2);
+        assert!(audit.catalog_ready);
         assert!(!audit.retirement_ready);
     }
 }

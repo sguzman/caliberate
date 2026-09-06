@@ -132,7 +132,7 @@ impl Database {
              dependent AS (SELECT book_format_id FROM backed EXCEPT SELECT book_format_id FROM managed),
              mapped_formats AS (SELECT m.book_id, COUNT(DISTINCT r.book_format_id) AS formats, COUNT(DISTINCT d.book_format_id) AS dependent FROM mapped m LEFT JOIN refs r ON r.book_id=m.book_id AND r.book_format_id IS NOT NULL LEFT JOIN dependent d ON d.book_format_id=r.book_format_id GROUP BY m.book_id),
              unlinked AS (SELECT COUNT(*) AS n FROM refs WHERE book_format_id IS NULL),
-             orphaned AS (SELECT COUNT(*) AS n FROM refs r WHERE NOT EXISTS (SELECT 1 FROM source_books sb WHERE sb.source_id=?1 AND sb.book_id=r.book_id))
+             orphaned AS (SELECT COUNT(*) AS n FROM assets a WHERE a.source_id=?1 AND NOT EXISTS (SELECT 1 FROM source_books sb WHERE sb.source_id=?1 AND sb.book_id=a.book_id))
              SELECT
                (SELECT COUNT(*) FROM mapped), (SELECT COUNT(*) FROM refs),
                (SELECT COUNT(*) FROM backed), (SELECT COUNT(*) FROM managed),
@@ -145,16 +145,16 @@ impl Database {
             |row| {
                 Ok(SourceAuditCounts {
                     source_id,
-                    mapped_books: row.get::<_, i64>(0)? as u64,
-                    source_reference_assets: row.get::<_, i64>(1)? as u64,
-                    source_backed_formats: row.get::<_, i64>(2)? as u64,
-                    managed_backed_formats: row.get::<_, i64>(3)? as u64,
-                    source_dependent_formats: row.get::<_, i64>(4)? as u64,
-                    metadata_only_source_books: row.get::<_, i64>(5)? as u64,
-                    fully_managed_source_books: row.get::<_, i64>(6)? as u64,
-                    source_books_with_dependencies: row.get::<_, i64>(7)? as u64,
-                    unlinked_source_assets: row.get::<_, i64>(8)? as u64,
-                    orphan_source_assets: row.get::<_, i64>(9)? as u64,
+                    mapped_books: count_u64(row, 0)?,
+                    source_reference_assets: count_u64(row, 1)?,
+                    source_backed_formats: count_u64(row, 2)?,
+                    managed_backed_formats: count_u64(row, 3)?,
+                    source_dependent_formats: count_u64(row, 4)?,
+                    metadata_only_source_books: count_u64(row, 5)?,
+                    fully_managed_source_books: count_u64(row, 6)?,
+                    source_books_with_dependencies: count_u64(row, 7)?,
+                    unlinked_source_assets: count_u64(row, 8)?,
+                    orphan_source_assets: count_u64(row, 9)?,
                 })
             },
         ).map_err(|err| sqlite_error("audit source counts", err))
@@ -778,6 +778,42 @@ impl Database {
         tx.commit()
             .map_err(|err| sqlite_error("commit canonical materialization chunk", err))?;
         Ok(result)
+    }
+}
+
+fn count_u64(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    u64::try_from(row.get::<_, i64>(index)?).map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::super::Database;
+    use caliberate_core::config::ControlPlane;
+    use rusqlite::params;
+
+    #[test]
+    fn orphan_count_includes_non_reference_source_assets() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/control-plane.toml");
+        let mut config = ControlPlane::load_from_path(config_path).unwrap();
+        config.db.sqlite_path = dir.path().join("library.db");
+        let db = Database::open_with_fts(&config.db, &config.fts).unwrap();
+        let source_id = db
+            .upsert_library_source("fixture", "never-open", None, true)
+            .unwrap();
+        db.add_book("Orphan", "", "", "2026").unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO assets (book_id,book_format_id,source_id,storage_mode,stored_path,source_path,size_bytes,stored_size_bytes,checksum,is_compressed,created_at)
+                 VALUES (1,NULL,?1,'copy','never-open',NULL,0,0,NULL,0,'2026')",
+                params![source_id],
+            )
+            .unwrap();
+        let counts = db.audit_source_counts(source_id).unwrap();
+        assert_eq!(counts.source_reference_assets, 0);
+        assert_eq!(counts.source_backed_formats, 0);
+        assert_eq!(counts.orphan_source_assets, 1);
     }
 }
 

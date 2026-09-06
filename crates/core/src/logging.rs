@@ -13,10 +13,14 @@ pub struct LoggingGuard {
 }
 
 pub fn init(config: &ControlPlane) -> CoreResult<LoggingGuard> {
+    init_with_stdout(config, config.logging.stdout)
+}
+
+pub fn init_with_stdout(config: &ControlPlane, stdout_enabled: bool) -> CoreResult<LoggingGuard> {
     let filter = EnvFilter::try_from_env("RUST_LOG")
         .unwrap_or_else(|_| EnvFilter::new(config.logging.level.clone()));
 
-    let stdout_writer = if config.logging.stdout {
+    let stdout_writer = if stdout_enabled {
         tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
     } else {
         tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::sink)

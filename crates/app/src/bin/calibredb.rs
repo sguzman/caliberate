@@ -456,7 +456,12 @@ impl From<IngestModeValue> for IngestMode {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = CalibredbCli::parse();
-    let bootstrap = caliberate_app::bootstrap::init(&cli.config)?;
+    let bootstrap = caliberate_app::bootstrap::init_with_options(
+        &cli.config,
+        caliberate_app::bootstrap::BootstrapOptions {
+            stdout_logging: Some(!machine_output_requested(&cli.command)),
+        },
+    )?;
     let mut config = bootstrap.config;
     apply_library_override(&mut config, &cli)?;
 
@@ -1463,6 +1468,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn machine_output_requested(command: &Option<CalibredbCommand>) -> bool {
+    match command {
+        Some(CalibredbCommand::List { for_machine, .. })
+        | Some(CalibredbCommand::Search { for_machine, .. }) => *for_machine,
+        Some(CalibredbCommand::Sources {
+            command: SourcesCommand::Audit { for_machine, .. },
+        }) => *for_machine,
+        _ => false,
+    }
+}
+
 fn apply_library_override(
     config: &mut caliberate_core::config::ControlPlane,
     cli: &CalibredbCli,
@@ -1490,6 +1506,39 @@ fn apply_library_override(
         "applied library override"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CalibredbCli, CalibredbCommand, SourcesCommand, machine_output_requested};
+    use clap::Parser;
+
+    #[test]
+    fn machine_output_selection_disables_stdout_tracing_only_for_machine_commands() {
+        let audit = CalibredbCli::try_parse_from([
+            "calibredb",
+            "sources",
+            "audit",
+            "--id",
+            "1",
+            "--for-machine",
+        ])
+        .unwrap();
+        assert!(machine_output_requested(&audit.command));
+        let list = CalibredbCli::try_parse_from(["calibredb", "list", "--for-machine"]).unwrap();
+        assert!(machine_output_requested(&list.command));
+        let human = CalibredbCli::try_parse_from(["calibredb", "sources", "list"]).unwrap();
+        assert!(!machine_output_requested(&human.command));
+        assert!(matches!(
+            audit.command,
+            Some(CalibredbCommand::Sources {
+                command: SourcesCommand::Audit {
+                    for_machine: true,
+                    ..
+                }
+            })
+        ));
+    }
 }
 
 fn is_remote_library(path: &PathBuf) -> bool {
