@@ -657,6 +657,30 @@ Accepted commit: `673cf1373687db711421504c8d8196aad04b9058`.
 
 Real full-corpus rerun is the next acceptance gate.
 
+## Real 0025.1 acceptance: correctness passed, performance failed
+
+The real Windows acceptance against the 105,570-book canonical database completed with all expected counts and zero managed verification defects, but took 1,527.46 seconds (~25m 27s).
+
+Observed real state:
+- mapped_books = 105570
+- source_reference_assets = 106949
+- source_backed_formats = 106949
+- managed_backed_formats = 1
+- source_dependent_formats = 106948
+- metadata_only_source_books = 0
+- fully_managed_source_books = 1
+- source_books_with_dependencies = 105569
+- unlinked_source_assets = 0
+- orphan_source_assets = 0
+- managed_candidates_verified = 1
+- verification_errors = 0
+- catalog_ready = false
+- retirement_ready = false
+
+Therefore correctness acceptance passed, but performance acceptance failed. With only one ~355 KiB managed candidate, the 25-minute runtime is catalog-query dominated.
+
+Task `0025.2-retirement-audit-query-plan` is ready to eliminate the correlated per-mapped-book dependency query shape, align indexes with the final set queries, and add per-metric catalog timing diagnostics.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
