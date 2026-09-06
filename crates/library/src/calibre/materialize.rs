@@ -11,7 +11,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const DEFAULT_PAGE_SIZE: usize = 500;
+/// Hard upper bound for each source page read by the public materializer API.
+const MAX_PAGE_SIZE: usize = 500;
 const ID_CHUNK: usize = 400;
+
+fn bounded_page_size(requested: usize) -> usize {
+    requested.clamp(1, MAX_PAGE_SIZE)
+}
 
 #[derive(Debug, Clone)]
 pub struct CalibreMaterializeOptions {
@@ -48,7 +54,7 @@ pub fn materialize_calibre_source(
     target: &mut Database,
     options: CalibreMaterializeOptions,
 ) -> CoreResult<CalibreMaterializeReport> {
-    let page_size = options.page_size.max(1);
+    let page_size = bounded_page_size(options.page_size);
     let locator = source.library_root().to_string_lossy().into_owned();
     let source_id =
         target.upsert_library_source("calibre", &locator, options.label.as_deref(), true)?;
@@ -439,6 +445,15 @@ mod tests {
     use rusqlite::Connection;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn extreme_page_size_is_bounded_before_sqlite_limit_conversion() {
+        let page_size = bounded_page_size(usize::MAX);
+
+        assert_eq!(page_size, MAX_PAGE_SIZE);
+        assert_eq!(page_size as i64, MAX_PAGE_SIZE as i64);
+        assert!(page_size as i64 > 0);
+    }
 
     fn fixture() -> TempDir {
         let dir = tempfile::tempdir().unwrap();
