@@ -527,6 +527,29 @@ using existing asset policy, verified before asset registration, and reused
 idempotently. Bulk adoption, source retirement/resync, reference deletion, and
 pack/chunk storage remain future work.
 
+## Progressive single-format adoption — integrated
+
+Task `0024-adopt-reference-format` added explicit per-book/per-format adoption from an external reference asset into Caliberate-managed content-addressed storage.
+
+Implemented behavior:
+
+- SHA-256 managed object layout under `paths.library_dir/objects/sha256/<prefix>/...`;
+- identity or zstd physical storage according to existing asset compression policy;
+- temporary-file write, logical checksum/size verification, then publish;
+- existing identical objects are verified and reused;
+- corrupt pre-existing objects are rejected rather than overwritten;
+- adoption is additive: managed `copy` asset is added to the same logical format while the legacy reference asset remains untouched;
+- repeat adoption is idempotent and validates the existing managed representation;
+- server integration proves adopted content is served with external-reference downloads disabled.
+
+Accepted commit: `0fa5d8054773229ef6b2acebdb3f25214dfaacd9`.
+
+Real Windows/WSL human acceptance against the Romanovs EPUB remains pending. Intended real managed root:
+
+```text
+\\wsl$\Ubuntu\mnt\wsl\PHYSICALDRIVE0p1\books\managed
+```
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
