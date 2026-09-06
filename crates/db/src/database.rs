@@ -356,6 +356,7 @@ impl Database {
         if self.fts.enabled {
             self.ensure_fts_schema()?;
         }
+        self.ensure_source_audit_indexes()?;
 
         Ok(())
     }

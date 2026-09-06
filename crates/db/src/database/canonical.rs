@@ -122,42 +122,139 @@ pub struct SourceManagedCandidate {
 }
 
 impl Database {
+    pub(super) fn ensure_source_audit_indexes(&self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_assets_source_mode_format_book
+                     ON assets(source_id, storage_mode, book_format_id, book_id);
+                 CREATE INDEX IF NOT EXISTS idx_assets_format_mode_source_id
+                     ON assets(book_format_id, storage_mode, source_id, id);
+                 CREATE INDEX IF NOT EXISTS idx_assets_source_book
+                     ON assets(source_id, book_id);",
+            )
+            .map_err(|err| sqlite_error("create source audit indexes", err))
+    }
+
     pub fn audit_source_counts(&self, source_id: i64) -> CoreResult<SourceAuditCounts> {
-        self.conn.query_row(
-            "WITH
-             mapped AS (SELECT book_id FROM source_books WHERE source_id=?1),
-             refs AS (SELECT a.* FROM assets a WHERE a.source_id=?1 AND a.storage_mode='reference'),
-             backed AS (SELECT DISTINCT book_format_id FROM refs WHERE book_format_id IS NOT NULL),
-             managed AS (SELECT DISTINCT a.book_format_id FROM assets a JOIN backed b ON b.book_format_id=a.book_format_id WHERE a.storage_mode='copy' AND a.source_id IS NULL),
-             dependent AS (SELECT book_format_id FROM backed EXCEPT SELECT book_format_id FROM managed),
-             mapped_formats AS (SELECT m.book_id, COUNT(DISTINCT r.book_format_id) AS formats, COUNT(DISTINCT d.book_format_id) AS dependent FROM mapped m LEFT JOIN refs r ON r.book_id=m.book_id AND r.book_format_id IS NOT NULL LEFT JOIN dependent d ON d.book_format_id=r.book_format_id GROUP BY m.book_id),
-             unlinked AS (SELECT COUNT(*) AS n FROM refs WHERE book_format_id IS NULL),
-             orphaned AS (SELECT COUNT(*) AS n FROM assets a WHERE a.source_id=?1 AND NOT EXISTS (SELECT 1 FROM source_books sb WHERE sb.source_id=?1 AND sb.book_id=a.book_id))
-             SELECT
-               (SELECT COUNT(*) FROM mapped), (SELECT COUNT(*) FROM refs),
-               (SELECT COUNT(*) FROM backed), (SELECT COUNT(*) FROM managed),
-               (SELECT COUNT(*) FROM dependent),
-               (SELECT COUNT(*) FROM mapped_formats WHERE formats=0),
-               (SELECT COUNT(*) FROM mapped_formats WHERE formats>0 AND dependent=0),
-               (SELECT COUNT(*) FROM mapped_formats WHERE dependent>0),
-               (SELECT n FROM unlinked), (SELECT n FROM orphaned)",
-            params![source_id],
-            |row| {
-                Ok(SourceAuditCounts {
-                    source_id,
-                    mapped_books: count_u64(row, 0)?,
-                    source_reference_assets: count_u64(row, 1)?,
-                    source_backed_formats: count_u64(row, 2)?,
-                    managed_backed_formats: count_u64(row, 3)?,
-                    source_dependent_formats: count_u64(row, 4)?,
-                    metadata_only_source_books: count_u64(row, 5)?,
-                    fully_managed_source_books: count_u64(row, 6)?,
-                    source_books_with_dependencies: count_u64(row, 7)?,
-                    unlinked_source_assets: count_u64(row, 8)?,
-                    orphan_source_assets: count_u64(row, 9)?,
-                })
-            },
-        ).map_err(|err| sqlite_error("audit source counts", err))
+        let mapped_books = self.audit_count(
+            "SELECT COUNT(*) FROM source_books WHERE source_id=?1",
+            source_id,
+        )?;
+        let source_reference_assets = self.audit_count(
+            "SELECT COUNT(*) FROM assets WHERE source_id=?1 AND storage_mode='reference'",
+            source_id,
+        )?;
+        let source_backed_formats = self.audit_count(
+            "SELECT COUNT(DISTINCT book_format_id) FROM assets WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NOT NULL",
+            source_id,
+        )?;
+        let managed_backed_formats = self.audit_count(
+            "SELECT COUNT(DISTINCT reference.book_format_id)
+             FROM assets reference
+             WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+               AND reference.book_format_id IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM assets managed
+                 WHERE managed.book_format_id=reference.book_format_id
+                   AND managed.storage_mode='copy' AND managed.source_id IS NULL
+               )",
+            source_id,
+        )?;
+        let source_dependent_formats = self.audit_count(
+            "SELECT COUNT(*) FROM (
+                 SELECT DISTINCT reference.book_format_id
+                 FROM assets reference
+                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+                   AND reference.book_format_id IS NOT NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM assets managed
+                     WHERE managed.book_format_id=reference.book_format_id
+                       AND managed.storage_mode='copy' AND managed.source_id IS NULL
+                   )
+             )",
+            source_id,
+        )?;
+        let metadata_only_source_books = self.audit_count(
+            "SELECT COUNT(*) FROM source_books mapped
+             WHERE mapped.source_id=?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets reference
+                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+                   AND reference.book_id=mapped.book_id
+                   AND reference.book_format_id IS NOT NULL
+               )",
+            source_id,
+        )?;
+        let fully_managed_source_books = self.audit_count(
+            "SELECT COUNT(*) FROM source_books mapped
+             WHERE mapped.source_id=?1
+               AND EXISTS (
+                 SELECT 1 FROM assets reference
+                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+                   AND reference.book_id=mapped.book_id
+                   AND reference.book_format_id IS NOT NULL
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets dependent
+                 WHERE dependent.source_id=?1 AND dependent.storage_mode='reference'
+                   AND dependent.book_id=mapped.book_id
+                   AND dependent.book_format_id IS NOT NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM assets managed
+                     WHERE managed.book_format_id=dependent.book_format_id
+                       AND managed.storage_mode='copy' AND managed.source_id IS NULL
+                   )
+               )",
+            source_id,
+        )?;
+        let source_books_with_dependencies = self.audit_count(
+            "SELECT COUNT(*) FROM source_books mapped
+             WHERE mapped.source_id=?1
+               AND EXISTS (
+                 SELECT 1 FROM assets dependent
+                 WHERE dependent.source_id=?1 AND dependent.storage_mode='reference'
+                   AND dependent.book_id=mapped.book_id
+                   AND dependent.book_format_id IS NOT NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM assets managed
+                     WHERE managed.book_format_id=dependent.book_format_id
+                       AND managed.storage_mode='copy' AND managed.source_id IS NULL
+                   )
+               )",
+            source_id,
+        )?;
+        let unlinked_source_assets = self.audit_count(
+            "SELECT COUNT(*) FROM assets WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NULL",
+            source_id,
+        )?;
+        let orphan_source_assets = self.audit_count(
+            "SELECT COUNT(*) FROM assets source_asset
+             WHERE source_asset.source_id=?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM source_books mapped
+                 WHERE mapped.source_id=?1 AND mapped.book_id=source_asset.book_id
+               )",
+            source_id,
+        )?;
+        Ok(SourceAuditCounts {
+            source_id,
+            mapped_books,
+            source_reference_assets,
+            source_backed_formats,
+            managed_backed_formats,
+            source_dependent_formats,
+            metadata_only_source_books,
+            fully_managed_source_books,
+            source_books_with_dependencies,
+            unlinked_source_assets,
+            orphan_source_assets,
+        })
+    }
+
+    fn audit_count(&self, sql: &str, source_id: i64) -> CoreResult<u64> {
+        self.conn
+            .query_row(sql, params![source_id], |row| count_u64(row, 0))
+            .map_err(|err| sqlite_error("count source audit rows", err))
     }
 
     pub fn list_source_managed_candidates(
@@ -181,15 +278,15 @@ impl Database {
                 (String::new(), vec![Value::from(source_id)])
             };
         let sql = format!(
-            "WITH source_formats AS (
-                 SELECT DISTINCT book_format_id FROM assets
-                 WHERE source_id=?1 AND storage_mode='reference' AND book_format_id IS NOT NULL
-             )
-             SELECT a.book_id,a.book_format_id,bf.format,a.id,a.stored_path,a.size_bytes,
+            "SELECT a.book_id,a.book_format_id,bf.format,a.id,a.stored_path,a.size_bytes,
                     a.stored_size_bytes,a.checksum,a.is_compressed
-             FROM assets a JOIN source_formats sf ON sf.book_format_id=a.book_format_id
-             JOIN book_formats bf ON bf.id=a.book_format_id
+             FROM assets a JOIN book_formats bf ON bf.id=a.book_format_id
              WHERE a.storage_mode='copy' AND a.source_id IS NULL
+               AND EXISTS (
+                 SELECT 1 FROM assets reference
+                 WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+                   AND reference.book_format_id=a.book_format_id
+               )
                AND NOT EXISTS (
                  SELECT 1 FROM assets earlier
                  WHERE earlier.book_format_id=a.book_format_id

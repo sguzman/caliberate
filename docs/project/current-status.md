@@ -631,7 +631,14 @@ Human Windows acceptance of the integrated source-retirement audit against the 1
 
 The current real library has only one managed replacement (~355 KiB), so the bottleneck is not managed verification volume. The defect is in the catalog aggregate/query-plan path over the ~106,949 source-backed formats.
 
-Task `0025.1-retirement-audit-performance` is ready. It preserves all readiness semantics while replacing the monolithic aggregate CTE with simpler indexable set queries, adding only the composite indexes required by those queries, and emitting coarse machine-mode progress to stderr while preserving clean JSON stdout.
+Task `0025.1-retirement-audit-performance` is implemented on its bounded
+branch. It preserves all readiness semantics while replacing the monolithic
+aggregate CTE with simpler indexable set queries, adding only the composite
+indexes required by those queries (including safe installation for existing
+schema-v11 databases), and emitting coarse machine-mode progress to stderr
+while preserving clean JSON stdout. A 5,000-row synthetic production-path
+regression covers scale without a wall-clock assertion; real-corpus acceptance
+remains pending.
 
 ## Current product priority
 

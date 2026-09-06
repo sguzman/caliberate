@@ -571,4 +571,68 @@ mod tests {
         assert!(audit.catalog_ready);
         assert!(!audit.retirement_ready);
     }
+
+    #[test]
+    fn scaled_audit_uses_production_path_without_materializing_source_ids() {
+        let (_dir, config, db, source_id) = fixture();
+        // Five thousand rows keeps the native Windows suite practical while
+        // exercising the same aggregate production path at useful scale.
+        const BOOKS: i64 = 5_000;
+        let db_path = config.db.sqlite_path.clone();
+        drop(db);
+        let mut connection = rusqlite::Connection::open(&db_path).unwrap();
+        let transaction = connection.transaction().unwrap();
+        // This synthetic-only bulk fixture bypasses the canonical insert
+        // trigger's Calibre title_sort function; the audit reads these rows
+        // without relying on insert-time metadata behavior.
+        transaction
+            .execute_batch("DROP TRIGGER books_insert_trg;")
+            .unwrap();
+        for book_id in 1..=BOOKS {
+            transaction
+                .execute(
+                    "INSERT INTO books(id,title,format,path,created_at) VALUES (?1,?2,'epub','', '2026')",
+                    rusqlite::params![book_id, format!("Scaled {book_id}")],
+                )
+                .unwrap();
+            transaction
+                .execute(
+                    "INSERT INTO book_formats(id,book_id,format,size_bytes) VALUES (?1,?1,'epub',1)",
+                    rusqlite::params![book_id],
+                )
+                .unwrap();
+            transaction
+                .execute(
+                    "INSERT INTO source_books(id,source_id,book_id,external_id) VALUES (?1,?2,?1,?3)",
+                    rusqlite::params![book_id, source_id, book_id.to_string()],
+                )
+                .unwrap();
+            transaction
+                .execute(
+                    "INSERT INTO assets(id,book_id,book_format_id,source_id,storage_mode,stored_path,size_bytes,stored_size_bytes,is_compressed,created_at) VALUES (?1,?1,?1,?2,'reference',?3,1,1,0,'2026')",
+                    rusqlite::params![book_id, source_id, format!("Z:\\never-open\\scaled-{book_id}.epub")],
+                )
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+        let db = Database::open_with_fts(&config.db, &config.fts).unwrap();
+        let audit = audit_source(
+            &db,
+            &config.paths.library_dir,
+            source_id,
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(audit.mapped_books, BOOKS as u64);
+        assert_eq!(audit.source_reference_assets, BOOKS as u64);
+        assert_eq!(audit.source_backed_formats, BOOKS as u64);
+        assert_eq!(audit.managed_backed_formats, 0);
+        assert_eq!(audit.source_dependent_formats, BOOKS as u64);
+        assert_eq!(audit.metadata_only_source_books, 0);
+        assert_eq!(audit.fully_managed_source_books, 0);
+        assert_eq!(audit.source_books_with_dependencies, BOOKS as u64);
+        assert_eq!(audit.unlinked_source_assets, 0);
+        assert_eq!(audit.orphan_source_assets, 0);
+        assert!(!audit.catalog_ready);
+    }
 }

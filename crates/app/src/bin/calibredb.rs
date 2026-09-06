@@ -1185,6 +1185,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for_machine,
             } => {
                 let db = Database::open_with_fts(&config.db, &config.fts)?;
+                if for_machine {
+                    eprintln!("[audit] counting source dependencies...");
+                }
                 let audit = audit_source(
                     &db,
                     &config.paths.library_dir,
@@ -1195,6 +1198,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ..Default::default()
                     },
                 )?;
+                if for_machine {
+                    eprintln!("[audit] catalog counts complete");
+                    if verify_managed {
+                        eprintln!("[audit] verifying managed replacements...");
+                        eprintln!(
+                            "[audit] verified {} managed replacements",
+                            audit.managed_candidates_verified
+                        );
+                    }
+                }
                 if for_machine {
                     println!("{}", source_audit_json(&audit));
                 } else {
