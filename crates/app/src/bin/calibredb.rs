@@ -1370,6 +1370,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("already_adopted={}", result.already_adopted);
                     println!("reused_existing_objects={}", result.reused_existing_objects);
                     println!("failed={}", result.failed);
+                    match result.last_book_format_id {
+                        Some(id) => println!("last_book_format_id={id}"),
+                        None => println!("last_book_format_id="),
+                    }
                     println!(
                         "dependent_formats_before={}",
                         result.dependent_formats_before
@@ -1690,6 +1694,25 @@ mod tests {
             Some(CalibredbCommand::Sources {
                 command: SourcesCommand::Adopt {
                     after_book_format_id: None,
+                    ..
+                }
+            })
+        ));
+        let resumed = CalibredbCli::try_parse_from([
+            "calibredb",
+            "sources",
+            "adopt",
+            "--id",
+            "1",
+            "--after-book-format-id",
+            "123",
+        ])
+        .unwrap();
+        assert!(matches!(
+            resumed.command,
+            Some(CalibredbCommand::Sources {
+                command: SourcesCommand::Adopt {
+                    after_book_format_id: Some(123),
                     ..
                 }
             })
