@@ -816,6 +816,10 @@ No reader TTS implementation was found at restart. The future speech abstraction
 
 The conversion CLI and orchestration exist, but practical cross-format conversion remains largely unimplemented beyond passthrough behavior. Finished core conversion must not require a Calibre installation.
 
+## Bounded bulk source adoption
+
+Task 0026 adds a bounded, sequential `calibredb sources adopt` workflow over source-dependent logical formats. It is dry-run by default, requires `--apply` for source-file reads and managed-storage mutation, delegates each adoption to the accepted single-format adoption service, and resumes from canonical state without a job table or whole-batch transaction. Machine output remains one JSON object on stdout while progress is emitted on stderr.
+
 ## Immediate work queue
 
 1. Add explicit per-book/per-format legacy-reference adoption into Caliberate-managed storage while retaining the legacy reference as fallback.

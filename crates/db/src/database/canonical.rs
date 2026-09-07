@@ -122,6 +122,14 @@ pub struct SourceManagedCandidate {
     pub is_compressed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceAdoptionCandidate {
+    pub book_id: i64,
+    pub book_format_id: i64,
+    pub format: String,
+    pub reference_asset_id: i64,
+}
+
 impl Database {
     pub(super) fn ensure_source_audit_indexes(&self) -> CoreResult<()> {
         self.conn
@@ -300,6 +308,62 @@ impl Database {
             .map_err(|err| sqlite_error("count source audit rows", err));
         timing(name, started.elapsed().as_millis());
         result
+    }
+
+    pub fn list_source_adoption_candidates(
+        &self,
+        source_id: i64,
+        after: Option<(i64, i64)>,
+        page_size: usize,
+    ) -> CoreResult<Vec<SourceAdoptionCandidate>> {
+        let limit = page_size.clamp(1, 500) as i64;
+        let (cursor_clause, params): (String, Vec<Value>) =
+            if let Some((format_id, reference_asset_id)) = after {
+                (
+                    "HAVING (reference.book_format_id > ?2
+                         OR (reference.book_format_id = ?2 AND MIN(reference.id) > ?3))"
+                        .into(),
+                    vec![
+                        Value::from(source_id),
+                        Value::from(format_id),
+                        Value::from(reference_asset_id),
+                    ],
+                )
+            } else {
+                (String::new(), vec![Value::from(source_id)])
+            };
+        let sql = format!(
+            "SELECT reference.book_id,reference.book_format_id,bf.format,MIN(reference.id)
+             FROM assets reference JOIN book_formats bf ON bf.id=reference.book_format_id
+             WHERE reference.source_id=?1 AND reference.storage_mode='reference'
+               AND reference.book_format_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets managed
+                 WHERE managed.book_format_id=reference.book_format_id
+                   AND managed.storage_mode='copy' AND managed.source_id IS NULL
+               )
+             GROUP BY reference.book_format_id {cursor_clause}
+             ORDER BY reference.book_format_id,MIN(reference.id) LIMIT ?{}",
+            params.len() + 1
+        );
+        let mut values = params;
+        values.push(Value::from(limit));
+        let mut statement = self
+            .conn
+            .prepare(&sql)
+            .map_err(|err| sqlite_error("prepare source adoption candidates", err))?;
+        let rows = statement
+            .query_map(params_from_iter(values), |row| {
+                Ok(SourceAdoptionCandidate {
+                    book_id: row.get(0)?,
+                    book_format_id: row.get(1)?,
+                    format: row.get(2)?,
+                    reference_asset_id: row.get(3)?,
+                })
+            })
+            .map_err(|err| sqlite_error("query source adoption candidates", err))?;
+        rows.map(|row| row.map_err(|err| sqlite_error("read source adoption candidate", err)))
+            .collect()
     }
 
     pub fn list_source_managed_candidates(
@@ -1025,6 +1089,34 @@ mod audit_tests {
         assert!(mapped_plan.contains("idx_assets_source_reference_book_format"));
         assert!(dependent_plan.contains("idx_assets_source_reference_book_format"));
         assert!(dependent_plan.contains("idx_assets_managed_copy_format_id"));
+
+        let candidate_sql = "SELECT reference.book_id, reference.book_format_id,
+                bf.format, MIN(reference.id)
+             FROM assets reference
+             JOIN book_formats bf ON bf.id=reference.book_format_id
+             WHERE reference.source_id=?1
+               AND reference.storage_mode='reference'
+               AND reference.book_format_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM assets managed
+                 WHERE managed.book_format_id=reference.book_format_id
+                   AND managed.storage_mode='copy' AND managed.source_id IS NULL
+               )
+             GROUP BY reference.book_format_id
+             ORDER BY reference.book_format_id, MIN(reference.id)
+             LIMIT ?2";
+        let mut statement = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {candidate_sql}"))
+            .unwrap();
+        let candidate_plan = statement
+            .query_map(params![source_id, 500], |row| row.get::<_, String>(3))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(candidate_plan.contains("idx_assets_source_reference_format_book"));
+        assert!(candidate_plan.contains("idx_assets_managed_copy_format_id"));
 
         let membership_sql = "SELECT 1 FROM assets a
              WHERE a.storage_mode='copy' AND a.source_id IS NULL

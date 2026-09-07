@@ -11,6 +11,9 @@ use caliberate_db::database::Database;
 use caliberate_device::detection::{DeviceInfo, detect_devices};
 use caliberate_device::sync::{cleanup_device_orphans, list_device_entries, send_to_device};
 use caliberate_library::adopt::{AdoptFormatRequest, adopt_format};
+use caliberate_library::bulk_adopt::{
+    SourceBulkAdoptOptions, SourceBulkAdoptProgress, bulk_adopt_source,
+};
 use caliberate_library::calibre::{
     CalibreLibraryBackend, CalibreOpenMode,
     materialize::{CalibreMaterializeOptions, materialize_calibre_source},
@@ -246,6 +249,18 @@ enum SourcesCommand {
         id: i64,
         #[arg(long, default_value_t = false)]
         verify_managed: bool,
+        #[arg(long, default_value_t = 50)]
+        problem_limit: usize,
+        #[arg(long, default_value_t = false)]
+        for_machine: bool,
+    },
+    Adopt {
+        #[arg(long)]
+        id: i64,
+        #[arg(long, default_value_t = 25)]
+        max_formats: usize,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
         #[arg(long, default_value_t = 50)]
         problem_limit: usize,
         #[arg(long, default_value_t = false)]
@@ -1287,6 +1302,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            SourcesCommand::Adopt {
+                id,
+                max_formats,
+                apply,
+                problem_limit,
+                for_machine,
+            } => {
+                let db = Database::open_with_fts(&config.db, &config.fts)?;
+                let store = caliberate_assets::managed::ManagedObjectStore::from_config(&config);
+                if for_machine {
+                    eprintln!("[adopt] selecting source-dependent formats...");
+                }
+                let result = bulk_adopt_source(
+                    &db,
+                    &store,
+                    &config.paths.library_dir,
+                    id,
+                    SourceBulkAdoptOptions {
+                        apply,
+                        max_formats,
+                        problem_limit,
+                        ..Default::default()
+                    },
+                    |event| {
+                        if !for_machine {
+                            return;
+                        }
+                        match event {
+                            SourceBulkAdoptProgress::SelectionStarted => {}
+                            SourceBulkAdoptProgress::PageComplete {
+                                selected,
+                                attempted,
+                            } => eprintln!(
+                                "[adopt] page complete: selected {selected}, attempted {attempted}"
+                            ),
+                            SourceBulkAdoptProgress::AdoptionProgress {
+                                attempted,
+                                adopted_new,
+                                failed,
+                            } => eprintln!(
+                                "[adopt] progress: attempted {attempted}, adopted {adopted_new}, failed {failed}"
+                            ),
+                            SourceBulkAdoptProgress::Complete {
+                                selected,
+                                attempted,
+                                adopted_new,
+                                failed,
+                            } => eprintln!(
+                                "[adopt] complete: selected {selected}, attempted {attempted}, adopted {adopted_new}, failed {failed}"
+                            ),
+                        }
+                    },
+                )?;
+                if for_machine {
+                    println!("{}", source_bulk_adopt_json(&result));
+                } else {
+                    println!("source_id={}", result.source_id);
+                    println!("apply={}", result.apply);
+                    println!("selected={}", result.selected);
+                    println!("attempted={}", result.attempted);
+                    println!("adopted_new={}", result.adopted_new);
+                    println!("already_adopted={}", result.already_adopted);
+                    println!("reused_existing_objects={}", result.reused_existing_objects);
+                    println!("failed={}", result.failed);
+                    println!(
+                        "dependent_formats_before={}",
+                        result.dependent_formats_before
+                    );
+                    println!("dependent_formats_after={}", result.dependent_formats_after);
+                    println!(
+                        "managed_backed_formats_before={}",
+                        result.managed_backed_formats_before
+                    );
+                    println!(
+                        "managed_backed_formats_after={}",
+                        result.managed_backed_formats_after
+                    );
+                }
+            }
         },
         Some(CalibredbCommand::Notes { command }) => match command {
             NotesCommand::Add { book_id, text } => {
@@ -1512,7 +1606,8 @@ fn stdout_logging_override(command: &Option<CalibredbCommand>) -> Option<bool> {
         Some(CalibredbCommand::List { for_machine, .. })
         | Some(CalibredbCommand::Search { for_machine, .. }) => *for_machine,
         Some(CalibredbCommand::Sources {
-            command: SourcesCommand::Audit { for_machine, .. },
+            command:
+                SourcesCommand::Audit { for_machine, .. } | SourcesCommand::Adopt { for_machine, .. },
         }) => *for_machine,
         _ => false,
     };
@@ -1576,6 +1671,16 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(stdout_logging_override(&search.command), Some(false));
+        let adopt = CalibredbCli::try_parse_from([
+            "calibredb",
+            "sources",
+            "adopt",
+            "--id",
+            "1",
+            "--for-machine",
+        ])
+        .unwrap();
+        assert_eq!(stdout_logging_override(&adopt.command), Some(false));
         let human = CalibredbCli::try_parse_from(["calibredb", "sources", "list"]).unwrap();
         assert_eq!(stdout_logging_override(&human.command), None);
         assert!(matches!(
@@ -1687,6 +1792,41 @@ fn source_audit_json(
         "verification_errors": audit.verification_errors,
         "retirement_ready": audit.retirement_ready,
         "problems": problems,
+    })
+}
+
+fn source_bulk_adopt_json(
+    result: &caliberate_library::bulk_adopt::SourceBulkAdoptResult,
+) -> serde_json::Value {
+    serde_json::json!({
+        "source_id": result.source_id,
+        "apply": result.apply,
+        "selected": result.selected,
+        "attempted": result.attempted,
+        "adopted_new": result.adopted_new,
+        "already_adopted": result.already_adopted,
+        "reused_existing_objects": result.reused_existing_objects,
+        "failed": result.failed,
+        "logical_bytes_adopted": result.logical_bytes_adopted,
+        "stored_bytes_adopted": result.stored_bytes_adopted,
+        "last_book_format_id": result.last_book_format_id,
+        "dependent_formats_before": result.dependent_formats_before,
+        "dependent_formats_after": result.dependent_formats_after,
+        "managed_backed_formats_before": result.managed_backed_formats_before,
+        "managed_backed_formats_after": result.managed_backed_formats_after,
+        "candidates": result.candidates.iter().map(|candidate| serde_json::json!({
+            "book_id": candidate.book_id,
+            "book_format_id": candidate.book_format_id,
+            "format": candidate.format,
+            "reference_asset_id": candidate.reference_asset_id,
+        })).collect::<Vec<_>>(),
+        "problems": result.problems.iter().map(|problem| serde_json::json!({
+            "book_id": problem.book_id,
+            "book_format_id": problem.book_format_id,
+            "format": problem.format,
+            "reference_asset_id": problem.reference_asset_id,
+            "message": problem.message,
+        })).collect::<Vec<_>>(),
     })
 }
 

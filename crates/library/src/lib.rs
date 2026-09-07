@@ -1,6 +1,7 @@
 //! Library ingest and storage logic.
 
 pub mod adopt;
+pub mod bulk_adopt;
 pub mod calibre;
 pub mod catalog;
 pub mod ingest;
