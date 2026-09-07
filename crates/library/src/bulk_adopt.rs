@@ -17,6 +17,8 @@ pub struct SourceBulkAdoptOptions {
     pub max_formats: usize,
     pub page_size: usize,
     pub problem_limit: usize,
+    /// Resume strictly after this logical format ID without persisting a checkpoint.
+    pub after_book_format_id: Option<i64>,
 }
 
 impl Default for SourceBulkAdoptOptions {
@@ -26,6 +28,7 @@ impl Default for SourceBulkAdoptOptions {
             max_formats: 25,
             page_size: MAX_BULK_ADOPT_PAGE_SIZE,
             problem_limit: 50,
+            after_book_format_id: None,
         }
     }
 }
@@ -115,7 +118,11 @@ where
         problems: Vec::new(),
     };
     progress(SourceBulkAdoptProgress::SelectionStarted);
-    let mut cursor = None;
+    let mut cursor = options
+        .after_book_format_id
+        // The DB cursor is `(book_format_id, reference_asset_id)`. Using the
+        // greatest asset ID makes the external cursor strictly format-only.
+        .map(|format_id| (format_id, i64::MAX));
     while result.selected < max_formats as u64 {
         let remaining = max_formats - result.selected as usize;
         let page =
@@ -330,6 +337,14 @@ mod tests {
         let (_book_two, _) = add_book(&db, target_source, "Two", "missing.epub");
         let (_book_three, _) = add_book(&db, target_source, "Three", &valid_two.to_string_lossy());
         let store = ManagedObjectStore::from_config(&config);
+        let source_path = valid_one.to_string_lossy().to_string();
+        let source_bytes_before = fs::read(&valid_one).unwrap();
+        let source_asset_before = db
+            .list_assets_for_book(1)
+            .unwrap()
+            .into_iter()
+            .find(|asset| asset.source_id == Some(target_source))
+            .unwrap();
         let assets_before = db.list_assets_for_book(1).unwrap().len()
             + db.list_assets_for_book(2).unwrap().len()
             + db.list_assets_for_book(3).unwrap().len();
@@ -385,6 +400,21 @@ mod tests {
         assert_eq!(applied.managed_backed_formats_after, 2);
         assert_eq!(applied.candidates.len(), 3);
         assert_eq!(applied.reused_existing_objects, 1);
+        assert!(valid_one.exists());
+        assert_eq!(fs::read(&valid_one).unwrap(), source_bytes_before);
+        let source_asset_after = db
+            .list_assets_for_book(1)
+            .unwrap()
+            .into_iter()
+            .find(|asset| asset.id == source_asset_before.id)
+            .unwrap();
+        assert_eq!(source_asset_after.storage_mode, "reference");
+        assert_eq!(source_asset_after.source_id, Some(target_source));
+        assert_eq!(
+            source_asset_after.book_format_id,
+            source_asset_before.book_format_id
+        );
+        assert_eq!(source_asset_after.stored_path, source_path);
         assert_eq!(db.list_assets_for_book(1).unwrap().len(), 2);
         assert_eq!(db.list_assets_for_book(2).unwrap().len(), 1);
         assert_eq!(db.list_assets_for_book(3).unwrap().len(), 2);
@@ -407,5 +437,81 @@ mod tests {
         assert_eq!(resumed.dependent_formats_before, 1);
         assert_eq!(resumed.dependent_formats_after, 1);
         assert_eq!(normalize_bulk_limit(usize::MAX), MAX_BULK_ADOPT_FORMATS);
+    }
+
+    #[test]
+    fn stateless_cursor_continues_past_persistent_failures() {
+        let (dir, config, db, _other_source, target_source) = fixture();
+        for index in 1..=3 {
+            add_book(
+                &db,
+                target_source,
+                &format!("Missing {index}"),
+                &format!("missing-{index}.epub"),
+            );
+        }
+        let valid_path = dir.path().join("valid.epub");
+        fs::write(&valid_path, b"valid").unwrap();
+        add_book(&db, target_source, "Valid", &valid_path.to_string_lossy());
+        let store = ManagedObjectStore::from_config(&config);
+
+        let first = bulk_adopt_source(
+            &db,
+            &store,
+            &config.paths.library_dir,
+            target_source,
+            SourceBulkAdoptOptions {
+                apply: true,
+                max_formats: 3,
+                page_size: 3,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(first.selected, 3);
+        assert_eq!(first.failed, 3);
+        assert_eq!(first.adopted_new, 0);
+        assert_eq!(first.last_book_format_id, Some(3));
+        assert_eq!(first.dependent_formats_before, 4);
+        assert_eq!(first.dependent_formats_after, 4);
+
+        let dry_resume = bulk_adopt_source(
+            &db,
+            &store,
+            &config.paths.library_dir,
+            target_source,
+            SourceBulkAdoptOptions {
+                after_book_format_id: first.last_book_format_id,
+                max_formats: 1,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(dry_resume.selected, 1);
+        assert_eq!(dry_resume.attempted, 0);
+        assert_eq!(dry_resume.candidates[0].book_format_id, 4);
+
+        let resumed = bulk_adopt_source(
+            &db,
+            &store,
+            &config.paths.library_dir,
+            target_source,
+            SourceBulkAdoptOptions {
+                apply: true,
+                max_formats: 3,
+                after_book_format_id: first.last_book_format_id,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(resumed.selected, 1);
+        assert_eq!(resumed.failed, 0);
+        assert_eq!(resumed.adopted_new, 1);
+        assert_eq!(resumed.candidates[0].book_format_id, 4);
+        assert_eq!(resumed.dependent_formats_before, 4);
+        assert_eq!(resumed.dependent_formats_after, 3);
     }
 }

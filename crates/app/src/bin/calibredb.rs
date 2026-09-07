@@ -257,6 +257,8 @@ enum SourcesCommand {
     Adopt {
         #[arg(long)]
         id: i64,
+        #[arg(long)]
+        after_book_format_id: Option<i64>,
         #[arg(long, default_value_t = 25)]
         max_formats: usize,
         #[arg(long, default_value_t = false)]
@@ -1304,6 +1306,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             SourcesCommand::Adopt {
                 id,
+                after_book_format_id,
                 max_formats,
                 apply,
                 problem_limit,
@@ -1323,6 +1326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         apply,
                         max_formats,
                         problem_limit,
+                        after_book_format_id,
                         ..Default::default()
                     },
                     |event| {
@@ -1681,6 +1685,15 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(stdout_logging_override(&adopt.command), Some(false));
+        assert!(matches!(
+            adopt.command,
+            Some(CalibredbCommand::Sources {
+                command: SourcesCommand::Adopt {
+                    after_book_format_id: None,
+                    ..
+                }
+            })
+        ));
         let human = CalibredbCli::try_parse_from(["calibredb", "sources", "list"]).unwrap();
         assert_eq!(stdout_logging_override(&human.command), None);
         assert!(matches!(
