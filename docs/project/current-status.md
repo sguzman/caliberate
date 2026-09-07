@@ -769,6 +769,35 @@ Accepted commit: `aedc0e5e2994ffa2b0c80e0d5bfb72e17fc49e3b`.
 
 Real-library mutation remains pending one tiny human-controlled dry-run/apply acceptance.
 
+## Real bounded bulk-adoption acceptance — passed
+
+Human Windows acceptance of task 0026 passed against the real canonical/source library with exactly one applied format.
+
+Accepted real candidate:
+- book_id = 1;
+- book_format_id = 1;
+- format = pdf;
+- reference_asset_id = 1;
+- source path = legacy WSL/UNC Calibre reference;
+- logical source size = 4,774,432 bytes;
+- source SHA-256 = `6A404B4436F9643061A3D2BF45D4204F2CEFA8065BF5622F0318AF7B2F645162`.
+
+Observed behavior:
+- repeated dry-run selected the same candidate and changed no source bytes or asset rows;
+- apply selected/attempted/adopted exactly one format with zero failures;
+- a new Caliberate-owned compressed managed CAS asset was created;
+- the legacy source file remained present with identical SHA-256;
+- the original source reference asset row remained unchanged;
+- source_reference_assets remained 106949;
+- source_backed_formats remained 106949;
+- managed_backed_formats moved 1 -> 2;
+- source_dependent_formats moved 106948 -> 106947;
+- full managed verification passed 2 of 2 candidates with zero verification errors and zero problems.
+
+This establishes the real end-to-end bulk-adoption path: source-specific candidate selection, dry-run safety, one-format mutation through the existing adoption primitive, source preservation, canonical dependency-count movement, and retirement verification.
+
+The next gate is a slightly larger bounded real batch to observe actual failure and CAS-reuse behavior before increasing migration scale further.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
