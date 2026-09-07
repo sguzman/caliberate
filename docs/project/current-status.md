@@ -733,6 +733,28 @@ This closes the retirement-audit correctness/performance gate. The prior 1,527.4
 
 Task `0026-bounded-bulk-source-adoption` is ready as the next migration milestone.
 
+## Bounded bulk source adoption — integrated
+
+Task `0026-bounded-bulk-source-adoption` added the first production migration orchestrator over the accepted single-format adoption primitive.
+
+Integrated behavior:
+- source-dependent logical formats are selected source-specifically and deterministically;
+- the lowest reference asset ID from the requested source is chosen;
+- candidate selection is bounded and keyset-paged;
+- dry-run is the default and performs no source-file reads or managed mutations;
+- `--apply` delegates every mutation to the existing `adopt_format(...)` service;
+- processing is sequential and continues after individual failures;
+- before/after dependency and managed-backed counts are reported;
+- successful formats naturally disappear from later candidate selection;
+- an optional stateless `after_book_format_id` cursor prevents persistent failures from starving later healthy formats without introducing a job/checkpoint table;
+- human and machine output both expose the copyable `last_book_format_id` continuation token;
+- source file bytes and original source-reference rows are covered by explicit preservation tests;
+- machine stdout remains JSON-only and progress remains on stderr.
+
+Accepted commit: `aedc0e5e2994ffa2b0c80e0d5bfb72e17fc49e3b`.
+
+The immediate gate is a tiny real dry-run/apply acceptance against source 1 before increasing migration batch size.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
