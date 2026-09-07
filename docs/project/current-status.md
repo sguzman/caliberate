@@ -706,6 +706,33 @@ Accepted commit: `21c63bdecaadeed3fa7f0c49c8fd9eb3991f85a6`.
 
 Real 105,570-book performance acceptance remains the immediate gate.
 
+## Real retirement-audit performance acceptance — passed
+
+Human Windows acceptance of task 0025.2 passed against the real canonical library.
+
+Observed real result:
+- total runtime: 21.36 seconds;
+- mapped_books = 105570;
+- source_reference_assets = 106949;
+- source_backed_formats = 106949;
+- managed_backed_formats = 1;
+- source_dependent_formats = 106948;
+- metadata_only_source_books = 0;
+- fully_managed_source_books = 1;
+- source_books_with_dependencies = 105569;
+- unlinked_source_assets = 0;
+- orphan_source_assets = 0;
+- managed_candidates_verified = 1;
+- verification_errors = 0;
+- catalog_ready = false;
+- retirement_ready = false.
+
+Per-metric catalog timings were all sub-second: mapped books 5 ms, source reference assets 5 ms, source-backed formats 9 ms, managed-backed formats 14 ms, source-dependent formats 30 ms, mapped books with formats 80 ms, source books with dependencies 134 ms, orphan source assets 121 ms, and derived/unlinked metrics effectively 0 ms.
+
+This closes the retirement-audit correctness/performance gate. The prior 1,527.46-second pathological run was reduced to a practical first corrected run, while the catalog-query work itself is now comfortably sub-second.
+
+Task `0026-bounded-bulk-source-adoption` is ready as the next migration milestone.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
