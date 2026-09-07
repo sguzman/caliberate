@@ -798,6 +798,30 @@ This establishes the real end-to-end bulk-adoption path: source-specific candida
 
 The next gate is a slightly larger bounded real batch to observe actual failure and CAS-reuse behavior before increasing migration scale further.
 
+## Real 10-format bounded adoption batch — passed
+
+Human Windows acceptance extended the integrated 0026 bulk-adoption path from one real format to a bounded 10-format batch.
+
+Observed real result:
+- baseline source_dependent_formats = 106947;
+- baseline managed_backed_formats = 2;
+- dry-run selected 10 candidates;
+- all 10 selected legacy source files were accessible;
+- apply attempted 10 and adopted 10 new managed formats;
+- failures = 0;
+- reused_existing_objects = 0;
+- apply runtime = 7.83 seconds;
+- last_book_format_id = 11;
+- all selected source files and reference rows remained unchanged;
+- source_dependent_formats moved 106947 -> 106937;
+- managed_backed_formats moved 2 -> 12;
+- full retirement verification passed 12 of 12 managed candidates;
+- verification_errors = 0.
+
+This establishes practical bounded migration behavior beyond a single item: deterministic dry-run/apply agreement, source preservation across a multi-format batch, exact readiness-count movement, and successful post-batch managed verification.
+
+The next operational gate is a larger bounded batch before adding new orchestration code. No implementation task is required yet.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
