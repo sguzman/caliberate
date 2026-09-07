@@ -755,6 +755,20 @@ Accepted commit: `aedc0e5e2994ffa2b0c80e0d5bfb72e17fc49e3b`.
 
 The immediate gate is a tiny real dry-run/apply acceptance against source 1 before increasing migration batch size.
 
+## Bulk source adoption — accepted, real batch pending
+
+Task `0026-bounded-bulk-source-adoption` is architecturally accepted and integrated.
+
+The accepted implementation is dry-run by default, bounded, sequential, source-specific, restartable through canonical state plus an optional stateless `after_book_format_id` continuation cursor, and delegates every actual mutation to the existing single-format adoption primitive.
+
+Persistent failure starvation is covered: a later healthy format can be reached by resuming strictly after the last scanned logical format ID. Human and machine output both expose the copyable `last_book_format_id` token.
+
+Synthetic coverage explicitly proves source file bytes and the original reference asset row remain unchanged after successful bulk adoption.
+
+Accepted commit: `aedc0e5e2994ffa2b0c80e0d5bfb72e17fc49e3b`.
+
+Real-library mutation remains pending one tiny human-controlled dry-run/apply acceptance.
+
 ## Current product priority
 
 The near-term product is explicitly the **visual library platform**, not a full Calibre feature port in arbitrary order.
