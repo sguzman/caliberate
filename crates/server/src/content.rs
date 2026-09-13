@@ -51,6 +51,62 @@ pub async fn stream_content(state: &ServerState, content: LibraryContent) -> Res
     response
 }
 
+pub async fn stream_cover(state: &ServerState, content: LibraryContent) -> Response {
+    if !state.config.server.download_enabled {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(path) = cover_sidecar_path(&content.path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let cover = LibraryContent {
+        path: path.to_string_lossy().into_owned(),
+        ..content
+    };
+    let path = match authorized_content_path(state, &cover) {
+        Ok(path) => path,
+        Err(status) => return status.into_response(),
+    };
+    let metadata = match tokio::fs::metadata(&path).await {
+        Ok(metadata) => metadata,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    if metadata.len() > state.config.server.download_max_bytes {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    }
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(file) => file,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let mut response = Body::from_stream(ReaderStream::new(file)).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(cover_content_type(&path)),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&metadata.len().to_string())
+            .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response
+}
+
+fn cover_sidecar_path(content_path: &str) -> Option<PathBuf> {
+    let parent = Path::new(content_path).parent()?;
+    ["cover.jpg", "cover.jpeg", "cover.png", "cover.webp"]
+        .iter()
+        .map(|name| parent.join(name))
+        .find(|path| path.is_file())
+}
+
+fn cover_content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
 pub fn content_type_for_format(format: &str) -> &'static str {
     match format {
         "epub" => "application/epub+zip",
