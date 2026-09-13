@@ -68,7 +68,7 @@ fn attached_state() -> (TempDir, ServerState) {
          CREATE TABLE languages(id INTEGER PRIMARY KEY,lang_code TEXT);
          CREATE TABLE books_languages_link(id INTEGER PRIMARY KEY,book INTEGER,lang_code INTEGER,item_order INTEGER);
          CREATE TABLE identifiers(id INTEGER PRIMARY KEY,book INTEGER,type TEXT,val TEXT);
-         INSERT INTO books VALUES(1,'Attached Two Formats','2026-01-01','2025-01-01',1.0,'Attached Author','Attached Author/Attached Two Formats (1)','attached-1',0,NULL);
+         INSERT INTO books VALUES(1,'Attached Two Formats','2026-01-01','2025-01-01',1.0,'Attached Author','Attached Author/Attached Two Formats (1)','attached-1',1,NULL);
          INSERT INTO books VALUES(2,'Attached Metadata Only','2026-01-02',NULL,1.0,'','','attached-2',0,NULL);
          INSERT INTO data VALUES(10,1,'PDF',10,'Attached Two Formats - Attached Author');
          INSERT INTO data VALUES(11,1,'EPUB',11,'Attached Two Formats - Attached Author');
@@ -96,6 +96,7 @@ fn attached_state() -> (TempDir, ServerState) {
         b"mobi bytes",
     )
     .unwrap();
+    fs::write(book_dir.join("cover.jpg"), b"attached cover bytes").unwrap();
     let backend = CalibreLibraryBackend::open(dir.path()).unwrap();
     let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../config/control-plane.toml");
@@ -470,6 +471,26 @@ async fn attached_json_api_uses_source_formats_and_preserves_metadata_bytes() {
     let (status, _, _) = raw_response(app, "/api/v1/books/1/content/azw3").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(fs::read(dir.path().join("metadata.db")).unwrap(), before);
+    assert!(!dir.path().join("must-not-open.db").exists());
+}
+
+#[tokio::test]
+async fn attached_cover_route_streams_sidecar_without_materializing_book() {
+    let (dir, state) = attached_state();
+    let metadata_before = fs::read(dir.path().join("metadata.db")).unwrap();
+    let (status, content_type, bytes) =
+        raw_response(http::router(state.clone()), "/api/v1/books/1/cover").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "image/jpeg");
+    assert_eq!(bytes, b"attached cover bytes");
+
+    let (status, _, bytes) = raw_response(http::router(state), "/api/v1/books/2/cover").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!bytes.is_empty());
+    assert_eq!(
+        fs::read(dir.path().join("metadata.db")).unwrap(),
+        metadata_before
+    );
     assert!(!dir.path().join("must-not-open.db").exists());
 }
 

@@ -147,11 +147,20 @@ fn authorized_content_path(
 
 #[cfg(test)]
 mod tests {
-    use super::content_type_for_format;
+    use super::{content_type_for_format, cover_content_type, cover_sidecar_path};
+    use std::path::Path;
 
     #[test]
     fn maps_content_types_from_normalized_formats() {
         assert_eq!(content_type_for_format("epub"), "application/epub+zip");
         assert_eq!(content_type_for_format("pdf"), "application/pdf");
+    }
+
+    #[test]
+    fn resolves_supported_cover_sidecars_without_epub_materialization() {
+        let path = Path::new("/library/Author/Book/book.epub");
+        assert_eq!(cover_sidecar_path(path.to_str().unwrap()), None);
+        assert_eq!(cover_content_type(Path::new("cover.jpg")), "image/jpeg");
+        assert_eq!(cover_content_type(Path::new("cover.webp")), "image/webp");
     }
 }
