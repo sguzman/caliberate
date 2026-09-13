@@ -48,6 +48,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/api/v1/search", get(api::search))
         .route("/api/v1/books/{id}", get(api::book_detail))
         .route("/api/v1/books/{id}/formats", get(api::book_formats))
+        .route("/api/v1/books/{id}/cover", get(api::cover))
         .route("/api/v1/books/{id}/content", get(api::primary_content))
         .route(
             "/api/v1/books/{id}/content/{format}",

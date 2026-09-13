@@ -295,6 +295,15 @@ pub async fn book_formats(State(state): State<ServerState>, Path(id): Path<i64>)
     }
 }
 
+pub async fn cover(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
+    let result = state.with_catalog(|catalog| catalog.resolve_content(id));
+    match result {
+        Ok(Some(content)) => content::stream_cover(&state, content).await,
+        Ok(None) => error(StatusCode::NOT_FOUND, "not_found", "cover was not found"),
+        Err(err) => internal_error(&err, "resolve book cover"),
+    }
+}
+
 pub async fn primary_content(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
     resolve_and_stream(state, id, None).await
 }
