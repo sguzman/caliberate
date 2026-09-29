@@ -6,11 +6,10 @@ cd "$repo_root"
 
 config="${CALIBERATE_CONFIG:-$HOME/.config/caliberate/control-plane.toml}"
 server="$repo_root/target/debug/calibre-server"
-server_log="${CALIBERATE_LAN_LOG:-$HOME/.local/state/caliberate/lan-opds-server.log}"
+server_log="${CALIBERATE_LAN_LOG:-$HOME/.local/state/caliberate/lan-library-server.log}"
 
-echo "Starting Caliberate LAN OPDS launcher..."
+echo "Starting Caliberate LAN library launcher..."
 echo "Config: $config"
-
 echo "Building calibre-server..."
 cargo build -p caliberate-app --bin calibre-server
 
@@ -63,25 +62,24 @@ if [[ "$healthy" -ne 1 ]]; then
   exit 1
 fi
 
-echo "Checking OPDS navigation..."
-root_feed="$("$server" --config "$config" --host 127.0.0.1 --port 8080 opds-root 2>/dev/null)"
-if ! grep -q "All Books" <<<"$root_feed" || ! grep -q "Authors" <<<"$root_feed"; then
-  echo "ERROR: OPDS root is reachable but navigation entries are missing."
-  exit 1
-fi
-
-echo "Checking OPDS acquisition links..."
-books_feed="$("$server" --config "$config" --host 127.0.0.1 --port 8080 opds-books 2>/dev/null)"
-if ! grep -q "opds-spec.org/acquisition" <<<"$books_feed"; then
-  echo "ERROR: OPDS books feed is reachable but acquisition links are missing."
-  exit 1
+if command -v curl >/dev/null 2>&1; then
+  echo "Checking browser library..."
+  library_html="$(curl -fsS "http://127.0.0.1:8080/library")"
+  if ! grep -q "Caliberate Library" <<<"$library_html"; then
+    echo "ERROR: /library did not return the Caliberate browser UI."
+    exit 1
+  fi
+  if ! grep -q "Download " <<<"$library_html"; then
+    echo "ERROR: /library has no download links."
+    exit 1
+  fi
+  echo "Browser library check: PASSED."
 fi
 
 echo
-echo "Caliberate LAN OPDS server is HEALTHY."
-echo "OPDS navigation and acquisition checks: PASSED."
-echo "On your iPhone, open:"
-echo "  http://$lan_ip:8080/opds"
+echo "Caliberate LAN library server is HEALTHY."
+echo "Use this in Voice Dream as the web-site URL:"
+echo "  http://$lan_ip:8080/library"
 echo
 echo "Server log: $server_log"
 echo "Leave this terminal open. Press Ctrl+C to stop the server."
