@@ -25,7 +25,12 @@ if [[ -z "$lan_ip" ]]; then
 fi
 
 echo "Starting server on 0.0.0.0:8080..."
-"$server" \\\n  --config "$config" \\\n  --host 0.0.0.0 \\\n  --port 8080 \\\n  >"$server_log" 2>&1 &
+server_args=(
+  --config "$config"
+  --host 0.0.0.0
+  --port 8080
+)
+"$server" "${server_args[@]}" >"$server_log" 2>&1 &
 server_pid=$!
 
 cleanup() {
