@@ -182,6 +182,16 @@ enum CalibredbCommand {
         #[command(subcommand)]
         command: SetCommand,
     },
+    RebasePaths {
+        #[arg(long, default_value = "PHYSICALDRIVE0p1")]
+        marker: String,
+        #[arg(long, default_value = "/drive")]
+        replacement_root: PathBuf,
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
     CheckLibrary,
     Export {
         #[arg(long)]
@@ -1539,6 +1549,130 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Removed {removed} files from device {}", device.name);
             }
         },
+        Some(CalibredbCommand::RebasePaths {
+            marker,
+            replacement_root,
+            apply,
+            report,
+        }) => {
+            let replacement_root = expand_home(&replacement_root)?;
+            if !replacement_root.is_absolute() {
+                return Err(format!(
+                    "replacement root must be absolute: {}",
+                    replacement_root.display()
+                )
+                .into());
+            }
+            if !replacement_root.is_dir() {
+                return Err(format!(
+                    "replacement root does not exist or is not a directory: {}",
+                    replacement_root.display()
+                )
+                .into());
+            }
+
+            let backup_path = if apply {
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs();
+                let backup = PathBuf::from(format!(
+                    "{}.pre-path-rebase-{timestamp}",
+                    config.db.sqlite_path.display()
+                ));
+                std::fs::copy(&config.db.sqlite_path, &backup)?;
+                Some(backup)
+            } else {
+                None
+            };
+
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            let before = db.operational_path_status(&marker)?;
+            let rebase = if apply {
+                Some(db.rebase_operational_paths(&marker, &replacement_root)?)
+            } else {
+                None
+            };
+            let after = rebase
+                .as_ref()
+                .map(|migration| &migration.after)
+                .unwrap_or(&before);
+
+            let sources = db.list_library_sources()?;
+            let assets = db.list_assets()?;
+            let reference_sample = assets.iter().find(|asset| asset.storage_mode == "reference");
+            let managed_sample = assets.iter().find(|asset| asset.storage_mode == "copy");
+
+            let mut lines = Vec::new();
+            lines.push("Caliberate operational path rebase".to_string());
+            lines.push(format!("mode: {}", if apply { "APPLIED" } else { "DRY RUN" }));
+            lines.push(format!("config: {}", cli.config.display()));
+            lines.push(format!("database: {}", config.db.sqlite_path.display()));
+            lines.push(format!("managed library: {}", config.paths.library_dir.display()));
+            lines.push(format!("replacement root: {}", replacement_root.display()));
+            lines.push(format!("marker: {marker}"));
+            if let Some(backup) = &backup_path {
+                lines.push(format!("database backup: {}", backup.display()));
+            }
+            lines.push(String::new());
+            lines.push("old-path counts before:".to_string());
+            lines.push(format!("  books: {}", before.books));
+            lines.push(format!("  assets: {}", before.assets));
+            lines.push(format!("  library sources: {}", before.sources));
+            if let Some(migration) = &rebase {
+                lines.push("updated rows:".to_string());
+                lines.push(format!("  books: {}", migration.books_updated));
+                lines.push(format!("  assets: {}", migration.assets_updated));
+                lines.push(format!("  library sources: {}", migration.sources_updated));
+            }
+            lines.push("old-path counts after:".to_string());
+            lines.push(format!("  books: {}", after.books));
+            lines.push(format!("  assets: {}", after.assets));
+            lines.push(format!("  library sources: {}", after.sources));
+            lines.push(String::new());
+            lines.push("registered sources:".to_string());
+            for source in &sources {
+                lines.push(format!(
+                    "  id={} kind={} locator={}",
+                    source.id, source.kind, source.locator
+                ));
+            }
+            lines.push(String::new());
+            lines.push("sample files:".to_string());
+            for (label, sample) in [
+                ("reference", reference_sample),
+                ("managed-copy", managed_sample),
+            ] {
+                match sample {
+                    Some(asset) => {
+                        let exists = PathBuf::from(&asset.stored_path).is_file();
+                        lines.push(format!(
+                            "  {label}: {} :: {}",
+                            if exists { "OK" } else { "MISSING" },
+                            asset.stored_path
+                        ));
+                    }
+                    None => lines.push(format!("  {label}: NONE")),
+                }
+            }
+            lines.push(String::new());
+            lines.push("assets.source_path provenance: unchanged".to_string());
+
+            let output = format!("{}\n", lines.join("\n"));
+            print!("{output}");
+
+            if let Some(report_path) = report {
+                let report_path = expand_home(&report_path)?;
+                if let Some(parent) = report_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&report_path, output.as_bytes())?;
+                println!("Report written: {}", report_path.display());
+            }
+
+            if apply && after.total() != 0 {
+                return Err("path rebase completed with old operational paths still present".into());
+            }
+        }
         Some(CalibredbCommand::CheckLibrary) => {
             let db = Database::open_with_fts(&config.db, &config.fts)?;
             let assets = db.list_assets()?;
