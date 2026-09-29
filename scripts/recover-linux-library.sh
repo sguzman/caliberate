@@ -14,7 +14,8 @@ fi
 
 mkdir -p "$(dirname "$report")"
 
-cargo run -q -p caliberate-app --bin calibredb -- \
+echo "Building/running Caliberate recovery..."
+cargo run -p caliberate-app --bin calibredb -- \
   --config "$config" \
   rebase-paths \
   --marker PHYSICALDRIVE0p1 \
