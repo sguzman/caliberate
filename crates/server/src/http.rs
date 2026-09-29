@@ -36,6 +36,8 @@ pub fn router(state: ServerState) -> Router {
         .route("/health", get(health))
         .route("/opds", get(opds::opds_root))
         .route("/opds/books", get(opds::opds_books))
+        .route("/opds/search.xml", get(opds::opds_search_description))
+        .route("/opds/{kind}", get(opds::opds_facets))
         .route("/opds/books/{id}", get(opds::opds_book_entry))
         .route("/opds/books/{id}/download", get(opds::opds_book_download))
         .route(
