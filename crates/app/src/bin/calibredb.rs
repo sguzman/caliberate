@@ -1644,7 +1644,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ] {
                 match sample {
                     Some(asset) => {
-                        let exists = PathBuf::from(&asset.stored_path).is_file();
+                        let exists = std::path::Path::new(&asset.stored_path).is_file();
                         lines.push(format!(
                             "  {label}: {} :: {}",
                             if exists { "OK" } else { "MISSING" },
