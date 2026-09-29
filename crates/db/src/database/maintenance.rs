@@ -77,10 +77,17 @@ impl Database {
             )
             .map_err(|err| sqlite_error("rebase library source locators", err))?;
 
+        let after = status_for_connection(&tx, &needle)?;
+        if after.total() != 0 {
+            return Err(CoreError::ConfigValidate(format!(
+                "operational path rebase left {} old paths; transaction rolled back",
+                after.total()
+            )));
+        }
+
         tx.commit()
             .map_err(|err| sqlite_error("commit operational path rebase", err))?;
 
-        let after = status_for_connection(&self.conn, &needle)?;
         Ok(OperationalPathRebaseReport {
             before,
             after,
