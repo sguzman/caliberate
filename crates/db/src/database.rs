@@ -12,11 +12,13 @@ use std::path::Path;
 use tracing::info;
 
 pub mod canonical;
+pub mod maintenance;
 pub use canonical::{
     BookFormatRow, CanonicalAssetImport, CanonicalBookImport, CanonicalFormatImport,
     CanonicalMaterializeBatchResult, LibrarySourceRow, SourceAdoptionCandidate, SourceAuditCounts,
     SourceBookRow, SourceManagedCandidate,
 };
+pub use maintenance::{OperationalPathRebaseReport, OperationalPathStatus};
 
 const SCHEMA_VERSION: i64 = 11;
 
