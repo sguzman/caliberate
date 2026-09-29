@@ -58,8 +58,23 @@ if [[ "$healthy" -ne 1 ]]; then
   exit 1
 fi
 
+echo "Checking OPDS navigation..."
+root_feed="$("$server" --config "$config" --host 127.0.0.1 --port 8080 opds-root 2>/dev/null)"
+if ! grep -q "All Books" <<<"$root_feed" || ! grep -q "Authors" <<<"$root_feed"; then
+  echo "ERROR: OPDS root is reachable but navigation entries are missing."
+  exit 1
+fi
+
+echo "Checking OPDS acquisition links..."
+books_feed="$("$server" --config "$config" --host 127.0.0.1 --port 8080 opds-books 2>/dev/null)"
+if ! grep -q "opds-spec.org/acquisition" <<<"$books_feed"; then
+  echo "ERROR: OPDS books feed is reachable but acquisition links are missing."
+  exit 1
+fi
+
 echo
 echo "Caliberate LAN OPDS server is HEALTHY."
+echo "OPDS navigation and acquisition checks: PASSED."
 echo "On your iPhone, open:"
 echo "  http://$lan_ip:8080/opds"
 echo
