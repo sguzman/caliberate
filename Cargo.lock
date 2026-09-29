@@ -987,6 +987,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
+ "urlencoding",
  "zstd",
 ]
 
