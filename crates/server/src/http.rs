@@ -1,6 +1,6 @@
 //! HTTP server wiring.
 
-use crate::{ServerState, api, auth, opds};
+use crate::{ServerState, api, auth, opds, web_ui};
 use axum::{Router, routing::get};
 use caliberate_core::error::{CoreError, CoreResult};
 use std::net::SocketAddr;
@@ -34,6 +34,12 @@ pub async fn run(state: ServerState) -> CoreResult<()> {
 pub fn router(state: ServerState) -> Router {
     let base = Router::new()
         .route("/health", get(health))
+        .route("/", get(web_ui::library_page))
+        .route("/library", get(web_ui::library_page))
+        .route(
+            "/library/download/{id}/{format}/{filename}",
+            get(web_ui::named_download),
+        )
         .route("/opds", get(opds::opds_root))
         .route("/opds/books", get(opds::opds_books))
         .route("/opds/search.xml", get(opds::opds_search_description))
