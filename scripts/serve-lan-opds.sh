@@ -6,30 +6,66 @@ cd "$repo_root"
 
 config="${CALIBERATE_CONFIG:-$HOME/.config/caliberate/control-plane.toml}"
 server="$repo_root/target/debug/calibre-server"
+server_log="${CALIBERATE_LAN_LOG:-$HOME/.local/state/caliberate/lan-opds-server.log}"
+
+echo "Starting Caliberate LAN OPDS launcher..."
+echo "Config: $config"
 
 if [[ ! -x "$server" ]]; then
   echo "calibre-server binary not found; building it..."
   cargo build -p caliberate-app --bin calibre-server
 fi
 
-lan_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+mkdir -p "$(dirname "$server_log")"
+
+lan_ip="$(
+  ip -4 -o addr show up scope global 2>/dev/null |
+    awk '{split($4,a,"/"); print a[1]; exit}'
+)"
 if [[ -z "$lan_ip" ]]; then
   lan_ip="YOUR-PC-LAN-IP"
 fi
 
+echo "Starting server on 0.0.0.0:8080..."
+"$server"   --config "$config"   --host 0.0.0.0   --port 8080   >"$server_log" 2>&1 &
+server_pid=$!
+
+cleanup() {
+  if kill -0 "$server_pid" 2>/dev/null; then
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+healthy=0
+for _ in $(seq 1 10); do
+  if "$server" --config "$config" --host 127.0.0.1 --port 8080 health >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    echo "ERROR: calibre-server exited during startup."
+    echo "Server log: $server_log"
+    tail -n 30 "$server_log" || true
+    exit 1
+  fi
+  sleep 1
+done
+
+if [[ "$healthy" -ne 1 ]]; then
+  echo "ERROR: calibre-server did not become healthy."
+  echo "Server log: $server_log"
+  tail -n 30 "$server_log" || true
+  exit 1
+fi
+
 echo
-echo "Caliberate LAN OPDS server"
-echo "Config: $config"
-echo "Managed library: /drive/books/managed"
-echo
-echo "On your iPhone, try:"
+echo "Caliberate LAN OPDS server is HEALTHY."
+echo "On your iPhone, open:"
 echo "  http://$lan_ip:8080/opds"
 echo
-echo "The server will stay running in this terminal."
-echo "Press Ctrl+C here when you want to stop it."
-echo
+echo "Server log: $server_log"
+echo "Leave this terminal open. Press Ctrl+C to stop the server."
 
-exec "$server" \
-  --config "$config" \
-  --host 0.0.0.0 \
-  --port 8080
+wait "$server_pid"
