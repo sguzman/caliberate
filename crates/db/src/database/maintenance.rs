@@ -92,7 +92,9 @@ impl Database {
 }
 
 fn migration_needle(marker: &str) -> CoreResult<String> {
-    let marker = marker.trim().trim_end_matches(['/', '\\']);
+    let marker = marker
+        .trim()
+        .trim_end_matches(|ch| ch == '/' || ch == '\\');
     if marker.is_empty() {
         return Err(CoreError::ConfigValidate(
             "path migration marker cannot be empty".to_string(),
