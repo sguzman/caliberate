@@ -5,6 +5,7 @@ pub mod auth;
 pub mod content;
 pub mod http;
 pub mod opds;
+pub mod web_ui;
 
 use caliberate_core::config::ControlPlane;
 use caliberate_core::error::CoreResult;
