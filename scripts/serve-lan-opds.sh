@@ -11,10 +11,8 @@ server_log="${CALIBERATE_LAN_LOG:-$HOME/.local/state/caliberate/lan-opds-server.
 echo "Starting Caliberate LAN OPDS launcher..."
 echo "Config: $config"
 
-if [[ ! -x "$server" ]]; then
-  echo "calibre-server binary not found; building it..."
-  cargo build -p caliberate-app --bin calibre-server
-fi
+echo "Building calibre-server..."
+cargo build -p caliberate-app --bin calibre-server
 
 mkdir -p "$(dirname "$server_log")"
 
