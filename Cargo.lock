@@ -865,6 +865,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "caliberate-daemon"
+version = "0.1.0"
+dependencies = [
+ "caliberate-core",
+ "caliberate-server",
+ "clap",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "caliberate-db"
 version = "0.1.0"
 dependencies = [

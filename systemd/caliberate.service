@@ -1,0 +1,17 @@
+[Unit]
+Description=Caliberate LAN library server
+Documentation=https://github.com/sguzman/caliberate
+After=network.target
+
+[Service]
+Type=exec
+# Match the old launcher: config paths can be relative to the repository root.
+WorkingDirectory=%h/Projects/caliberate
+ExecStart=%h/.cargo/bin/caliberate-daemon --config %h/.config/caliberate/control-plane.toml --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
