@@ -27,11 +27,11 @@ pub async fn run(state: ServerState) -> CoreResult<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|err| {
-        CoreError::Io(
-            "serve http".to_string(),
-            std::io::Error::new(std::io::ErrorKind::Other, err),
-        )
-    })
+            CoreError::Io(
+                "serve http".to_string(),
+                std::io::Error::new(std::io::ErrorKind::Other, err),
+            )
+        })
 }
 
 // systemd sends SIGTERM for a normal service stop. Give active requests time
@@ -40,8 +40,7 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        let mut terminate = signal(SignalKind::terminate())
-            .expect("install SIGTERM handler");
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {},
             _ = terminate.recv() => {},

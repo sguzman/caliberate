@@ -1,0 +1,32 @@
+name: Caliberate daemon
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  daemon:
+    name: Daemon (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format daemon
+        run: cargo fmt --check -p caliberate-daemon
+      - name: Check daemon
+        run: cargo check -p caliberate-daemon --locked
+      - name: Test daemon
+        run: cargo test -p caliberate-daemon --locked
+      - name: Check installable root package
+        run: cargo install --path . --locked --root ./target/daemon-ci-install
