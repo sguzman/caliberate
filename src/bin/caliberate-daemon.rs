@@ -77,7 +77,10 @@ mod tests {
         .expect("valid LAN CLI arguments");
         assert_eq!(args.host.as_deref(), Some("0.0.0.0"));
         assert_eq!(args.port, Some(8080));
-        assert!(args.config.is_absolute());
+        assert_eq!(
+            args.config,
+            std::path::PathBuf::from("/home/example/.config/caliberate/control-plane.toml")
+        );
     }
 
     #[test]
