@@ -23,34 +23,12 @@ pub async fn run(state: ServerState) -> CoreResult<()> {
         "server listening"
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(|err| {
-            CoreError::Io(
-                "serve http".to_string(),
-                std::io::Error::new(std::io::ErrorKind::Other, err),
-            )
-        })
-}
-
-// systemd sends SIGTERM for a normal service stop. Give active requests time
-// to finish rather than terminating the process abruptly.
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {},
-            _ = terminate.recv() => {},
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
-    }
-    info!(component = "server", "shutdown signal received");
+    axum::serve(listener, app).await.map_err(|err| {
+        CoreError::Io(
+            "serve http".to_string(),
+            std::io::Error::new(std::io::ErrorKind::Other, err),
+        )
+    })
 }
 
 pub fn router(state: ServerState) -> Router {
