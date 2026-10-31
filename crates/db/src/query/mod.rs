@@ -47,6 +47,7 @@ impl Default for BookSortField {
 
 #[derive(Debug, Clone)]
 pub struct BookQuery {
+    pub ids: Option<Vec<i64>>,
     pub title: Option<String>,
     pub author: Option<String>,
     pub tag: Option<String>,
@@ -65,6 +66,7 @@ pub struct BookQuery {
 impl Default for BookQuery {
     fn default() -> Self {
         Self {
+            ids: None,
             title: None,
             author: None,
             tag: None,
