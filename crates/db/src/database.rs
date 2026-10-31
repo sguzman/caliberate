@@ -59,6 +59,15 @@ fn query_parts(query: &BookQuery) -> CoreResult<(Vec<&'static str>, Vec<String>,
     let mut conditions = Vec::new();
     let mut params = Vec::new();
 
+    if let Some(ids) = &query.ids {
+        if ids.is_empty() {
+            conditions.push("1=0".to_string());
+        } else {
+            conditions.push(format!("b.id IN ({})", vec!["?"; ids.len()].join(",")));
+            params.extend(ids.iter().copied().map(Value::from));
+        }
+    }
+
     if query.author.is_some() {
         joins.push("LEFT JOIN books_authors_link bal ON bal.book = b.id LEFT JOIN authors a ON a.id = bal.author");
     }

@@ -4,6 +4,7 @@ use caliberate_db::query::{
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LibraryQuery {
+    pub ids: Option<Vec<i64>>,
     pub title: Option<String>,
     pub author: Option<String>,
     pub tag: Option<String>,
@@ -76,6 +77,10 @@ impl LibraryQuery {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn with_ids(mut self, ids: Vec<i64>) -> Self {
+        self.ids = Some(ids);
+        self
+    }
     pub fn with_title(mut self, value: &str) -> Self {
         self.title = Some(value.to_string());
         self
@@ -115,6 +120,7 @@ impl LibraryQuery {
 
     pub(crate) fn to_db_query(&self) -> BookQuery {
         BookQuery {
+            ids: self.ids.clone(),
             title: self.title.clone(),
             author: self.author.clone(),
             tag: self.tag.clone(),

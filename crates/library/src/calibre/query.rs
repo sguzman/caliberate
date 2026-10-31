@@ -7,6 +7,14 @@ const ESC: char = '\\';
 pub(super) fn filters(q: &LibraryQuery) -> CoreResult<(String, Vec<Value>)> {
     let mut c = Vec::new();
     let mut p = Vec::new();
+    if let Some(ids) = &q.ids {
+        if ids.is_empty() {
+            c.push("1=0".to_string());
+        } else {
+            c.push(format!("b.id IN ({})", vec!["?"; ids.len()].join(",")));
+            p.extend(ids.iter().copied().map(Value::from));
+        }
+    }
     if let Some(v) = &q.title {
         c.push(format!("b.title LIKE ? ESCAPE '{ESC}'"));
         p.push(Value::Text(format!("%{}%", like_escape(v))))
