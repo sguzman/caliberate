@@ -587,7 +587,6 @@ async fn corrupt_preferred_zstd_content_terminates_with_body_error() {
     assert!(response.into_body().collect().await.is_err());
 }
 
-
 #[tokio::test]
 async fn browser_library_shows_attached_metadata_and_preserves_author_search() {
     let (dir, state) = attached_state();
@@ -611,8 +610,16 @@ async fn browser_library_shows_attached_metadata_and_preserves_author_search() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let html = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec())
-        .unwrap();
+    let html = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("Attached Two Formats"));
     assert!(html.contains("by Attached Author"));
     assert!(html.contains("Spanish (spa)"));
@@ -647,8 +654,16 @@ async fn browser_library_keeps_prefix_and_marks_unknown_language() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let html = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec())
-        .unwrap();
+    let html = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("Language: not recorded"));
     assert!(html.contains("/proxy/library/download/1/epub/Alpha.epub"));
     assert!(html.contains("value=\"Alpha\""));
