@@ -28,11 +28,11 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Check formatting
+        run: cargo fmt --check
+
       - name: Check workspace
         run: cargo check --workspace --locked
 
       - name: Test workspace
         run: cargo test --workspace --locked
-
-      - name: Check formatting
-        run: cargo fmt --check
