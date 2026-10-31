@@ -63,10 +63,7 @@ fn query_parts(query: &BookQuery) -> CoreResult<(Vec<&'static str>, Vec<String>,
         if ids.is_empty() {
             conditions.push("1=0".to_string());
         } else {
-            conditions.push(format!(
-                "b.id IN ({})",
-                vec!["?"; ids.len()].join(",")
-            ));
+            conditions.push(format!("b.id IN ({})", vec!["?"; ids.len()].join(",")));
             params.extend(ids.iter().copied().map(Value::from));
         }
     }
