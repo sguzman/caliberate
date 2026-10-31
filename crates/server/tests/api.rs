@@ -586,3 +586,70 @@ async fn corrupt_preferred_zstd_content_terminates_with_body_error() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.into_body().collect().await.is_err());
 }
+
+
+#[tokio::test]
+async fn browser_library_shows_attached_metadata_and_preserves_author_search() {
+    let (dir, state) = attached_state();
+    let db = Connection::open(dir.path().join("metadata.db")).unwrap();
+    db.execute_batch(
+        "INSERT INTO languages VALUES(1,'spa');
+         INSERT INTO books_languages_link VALUES(1,1,1,0);
+         INSERT INTO publishers VALUES(1,'Example Press');
+         INSERT INTO books_publishers_link VALUES(1,1,1);",
+    )
+    .unwrap();
+
+    let app = http::router(state);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/library?q=Attached%20Author")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec())
+        .unwrap();
+    assert!(html.contains("Attached Two Formats"));
+    assert!(html.contains("by Attached Author"));
+    assert!(html.contains("Spanish (spa)"));
+    assert!(html.contains("Example Press"));
+    assert!(html.contains("/api/v1/books/1/cover"));
+    assert!(html.contains("Download EPUB"));
+    assert!(html.contains("Download PDF"));
+    assert!(html.contains("Download MOBI"));
+
+    let cover = app
+        .oneshot(
+            Request::get("/api/v1/books/1/cover")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cover.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn browser_library_keeps_prefix_and_marks_unknown_language() {
+    let (_dir, mut state) = state();
+    state.config.server.url_prefix = "/proxy".to_string();
+    let app = http::router(state);
+    let response = app
+        .oneshot(
+            Request::get("/proxy/library?q=Alpha")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec())
+        .unwrap();
+    assert!(html.contains("Language: not recorded"));
+    assert!(html.contains("/proxy/library/download/1/epub/Alpha.epub"));
+    assert!(html.contains("value=\"Alpha\""));
+}
