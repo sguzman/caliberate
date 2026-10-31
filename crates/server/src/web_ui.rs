@@ -39,7 +39,11 @@ pub async fn library_page(
             // Enrich only the visible page, never the entire library.
             let found = catalog.search_books(term)?;
             let total = found.len();
-            let visible = found.into_iter().skip(offset).take(PAGE_SIZE).collect::<Vec<_>>();
+            let visible = found
+                .into_iter()
+                .skip(offset)
+                .take(PAGE_SIZE)
+                .collect::<Vec<_>>();
             let ids = visible.iter().map(|book| book.id).collect::<Vec<_>>();
             let mut summaries: HashMap<i64, LibraryBookSummary> = if ids.is_empty() {
                 HashMap::new()
@@ -107,11 +111,11 @@ pub async fn named_download(
     let mut response = content::stream_content(&state, content_item).await;
     if response.status().is_success() {
         let filename = download_filename(&book.title, &format);
-        if let Ok(value) = HeaderValue::from_str(&format!(
-            "attachment; filename=\"{}\"",
-            filename
-        )) {
-            response.headers_mut().insert(header::CONTENT_DISPOSITION, value);
+        if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", filename))
+        {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, value);
         }
     }
     response
@@ -148,7 +152,11 @@ fn render_library_page(
     body.push_str("@media(max-width:440px){body{padding:10px}.book{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px}.cover{width:76px;height:114px}}");
     body.push_str("</style></head><body>");
     body.push_str("<header class=\"top\"><h1>Caliberate Library</h1><label class=\"theme\">Theme <select id=\"theme\" aria-label=\"Color theme\"><option value=\"system\">System</option><option value=\"light\">Light</option><option value=\"dark\">Dark</option></select></label></header>");
-    let _ = writeln!(body, "<p class=\"muted\">{} books available.</p>", page.total);
+    let _ = writeln!(
+        body,
+        "<p class=\"muted\">{} books available.</p>",
+        page.total
+    );
     let _ = write!(
         body,
         "<form method=\"get\" action=\"{}\"><input name=\"q\" type=\"search\" placeholder=\"Search books\" aria-label=\"Search books\" value=\"",
@@ -228,7 +236,15 @@ fn render_library_page(
             let _ = write!(
                 body,
                 "<span>Tags: {}</span>",
-                html_escape(&book.tags.iter().take(4).cloned().collect::<Vec<_>>().join(", "))
+                html_escape(
+                    &book
+                        .tags
+                        .iter()
+                        .take(4)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             );
         }
         body.push_str("</div><div class=\"downloads\">");
@@ -360,7 +376,14 @@ fn download_filename(title: &str, format_name: &str) -> String {
         .filter(|ch| ch.is_ascii_alphanumeric())
         .collect::<String>()
         .to_ascii_lowercase();
-    format!("{stem}.{}", if extension.is_empty() { "bin" } else { &extension })
+    format!(
+        "{stem}.{}",
+        if extension.is_empty() {
+            "bin"
+        } else {
+            &extension
+        }
+    )
 }
 
 fn html_escape(value: &str) -> String {
@@ -375,7 +398,6 @@ fn html_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{download_filename, human_size, language_label};
-
 
     #[test]
     fn language_codes_are_recognizable_without_guessing_missing_metadata() {
