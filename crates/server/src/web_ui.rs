@@ -374,7 +374,23 @@ fn html_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::download_filename;
+    use super::{download_filename, human_size, language_label};
+
+
+    #[test]
+    fn language_codes_are_recognizable_without_guessing_missing_metadata() {
+        assert_eq!(language_label("spa"), "Spanish (spa)");
+        assert_eq!(language_label("hun"), "Hungarian (hun)");
+        assert_eq!(language_label("eng"), "English (eng)");
+        assert_eq!(language_label("xyz"), "xyz");
+    }
+
+    #[test]
+    fn format_sizes_are_learner_readable() {
+        assert_eq!(human_size(900), "900 B");
+        assert_eq!(human_size(2048), "2.0 KB");
+        assert_eq!(human_size(1_048_576), "1.0 MB");
+    }
 
     #[test]
     fn download_names_have_real_extensions() {
