@@ -18,6 +18,7 @@ const OPDS_NAVIGATION_TYPE: &str =
     "application/atom+xml;profile=opds-catalog;kind=navigation";
 const OPDS_ENTRY_TYPE: &str = "application/atom+xml;type=entry;profile=opds-catalog";
 const OPENSEARCH_TYPE: &str = "application/opensearchdescription+xml";
+const LIBRERA_SEARCH_TYPE: &str = "application/atom+xml";
 
 #[derive(Debug, Deserialize, Default)]
 pub struct BrowseQuery {
@@ -490,6 +491,14 @@ fn common_feed_links(base: &str, self_path: &str, kind: FeedKind) -> Vec<Link<'s
             r#type: OPENSEARCH_TYPE,
             title: Some("Search".to_string()),
         },
+        // Librera Reader only exposes search when rel="search" has the bare Atom type.
+        // Preserve the OpenSearch descriptor above for clients that support it.
+        Link {
+            href: format!("{base}/opds/search?q={{searchTerms}}"),
+            rel: "search",
+            r#type: LIBRERA_SEARCH_TYPE,
+            title: Some("Search books".to_string()),
+        },
     ]
 }
 
@@ -671,12 +680,45 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{page_limits, paged_path};
+    use super::{
+        FeedKind, LIBRERA_SEARCH_TYPE, OPENSEARCH_TYPE, append_link, common_feed_links, page_limits,
+        paged_path,
+    };
 
     #[test]
     fn opds_pages_are_bounded() {
         assert_eq!(page_limits(None, None), (50, 0));
         assert_eq!(page_limits(Some(1000), Some(20)), (100, 20));
+    }
+
+    #[test]
+    fn opds_search_links_support_opensearch_and_librera() {
+        let links = common_feed_links("", "/opds", FeedKind::Navigation);
+        let search = links.iter().filter(|link| link.rel == "search").collect::<Vec<_>>();
+        assert_eq!(search.len(), 2);
+
+        assert!(search.iter().any(|link| {
+            link.r#type == OPENSEARCH_TYPE && link.href == "/opds/search.xml"
+        }));
+
+        let librera_link = search
+            .iter()
+            .find(|link| link.r#type == LIBRERA_SEARCH_TYPE)
+            .expect("Librera-compatible search link");
+        assert_eq!(librera_link.href, "/opds/search?q={searchTerms}");
+
+        let mut xml = String::new();
+        append_link(&mut xml, librera_link, 2);
+        assert!(xml.contains(
+            r#"href="/opds/search?q={searchTerms}" rel="search" type="application/atom+xml""#
+        ));
+
+        let prefixed = common_feed_links("/books", "/opds", FeedKind::Navigation);
+        assert!(prefixed.iter().any(|link| {
+            link.rel == "search"
+                && link.r#type == LIBRERA_SEARCH_TYPE
+                && link.href == "/books/opds/search?q={searchTerms}"
+        }));
     }
 
     #[test]
