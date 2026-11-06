@@ -203,58 +203,30 @@ pub async fn opds_facets(
 }
 
 pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i64>) -> Response {
-    let result = state.with_catalog(|catalog| {
-        let book = catalog.get_book(id)?;
-        let formats = match book.as_ref() {
-            Some(_) => catalog.list_formats(id)?,
-            None => Vec::new(),
-        };
-        Ok((book, formats))
-    });
-    let (book, formats) = match result {
-        Ok(result) => result,
+    // The detail view needs the same full metadata as browse and search, not
+    // the minimal LibraryBook returned by get_book.
+    let book = match state.with_catalog(|catalog| {
+        Ok(catalog
+            .query_summary_page(&LibraryQuery::new().with_ids(vec![id]))?
+            .books
+            .into_iter()
+            .next())
+    }) {
+        Ok(Some(book)) => book,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(err) => {
-            warn!(component = "server", error = %err, "failed to fetch book");
+            warn!(component = "server", error = %err, "failed to fetch OPDS book details");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let Some(book) = book else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
 
     let base = opds_base(&state);
-    let mut links = vec![Link {
-        href: format!("{base}/opds/books/{id}"),
-        rel: "self",
-        r#type: OPDS_ENTRY_TYPE,
-        title: None,
-    }];
-    if formats.is_empty() {
-        links.push(Link {
-            href: format!("{base}/opds/books/{id}/download"),
-            rel: "http://opds-spec.org/acquisition/open-access",
-            r#type: content::content_type_for_format(&book.format),
-            title: Some(format!("Download {}", book.format.to_ascii_uppercase())),
-        });
-    } else {
-        for format in formats {
-            links.push(Link {
-                href: format!("{base}/opds/books/{id}/download/{}", format.format),
-                rel: "http://opds-spec.org/acquisition/open-access",
-                r#type: content::content_type_for_format(&format.format),
-                title: Some(format!("Download {}", format.format.to_ascii_uppercase())),
-            });
-        }
-    }
-    let entry = FeedEntry {
-        id: format!("urn:caliberate:book:{}", book.id),
-        title: book.title,
-        authors: Vec::new(),
-        updated: None,
-        links,
-    };
+    let mut entry = acquisition_entry(&base, &book);
+    // The catalog's Details link points here; don't point a detail card at itself.
+    entry.links.retain(|link| link.rel != "alternate");
+    entry.summary = Some(book_detail_summary(&book));
     respond_feed(
-        "Caliberate Book",
+        &book.title,
         &format!("urn:caliberate:opds:book:{id}"),
         FeedKind::Acquisition,
         &common_feed_links(&base, &format!("/opds/books/{id}"), FeedKind::Acquisition),
@@ -408,6 +380,7 @@ struct FeedEntry {
     title: String,
     authors: Vec<String>,
     updated: Option<String>,
+    summary: Option<String>,
     links: Vec<Link<'static>>,
 }
 
@@ -417,6 +390,7 @@ fn navigation_entry(id: &str, title: &str, href: String, media_type: &'static st
         title: title.to_string(),
         authors: Vec::new(),
         updated: None,
+        summary: None,
         links: vec![Link {
             href,
             rel: "subsection",
@@ -466,8 +440,46 @@ fn acquisition_entry(base: &str, book: &LibraryBookSummary) -> FeedEntry {
             .date_modified
             .clone()
             .or_else(|| book.date_added.clone()),
+        summary: None,
         links,
     }
+}
+
+fn book_detail_summary(book: &LibraryBookSummary) -> String {
+    let mut rows = Vec::new();
+    if let Some(publisher) = book.publisher.as_deref().filter(|value| !value.is_empty()) {
+        rows.push(("Publisher", publisher.to_string()));
+    }
+    if let Some(series) = &book.series {
+        rows.push(("Series", format!("{} ({})", series.name, series.index)));
+    }
+    if let Some(published) = book.pubdate.as_deref().filter(|value| !value.is_empty()) {
+        rows.push(("Published", published.to_string()));
+    }
+    if !book.tags.is_empty() {
+        rows.push(("Tags", book.tags.join(", ")));
+    }
+    if !book.languages.is_empty() {
+        rows.push(("Languages", book.languages.join(", ")));
+    }
+    let formats = if book.formats.is_empty() {
+        book.format.to_ascii_uppercase()
+    } else {
+        book.formats
+            .iter()
+            .map(|item| item.format.to_ascii_uppercase())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if !formats.is_empty() {
+        rows.push(("Formats", formats));
+    }
+
+    // Librera renders Atom summary text through Html.fromHtml. Escape each
+    // metadata value for HTML here; the XML writer escapes the entire fragment.
+    rows.into_iter()
+        .map(|(label, value)| format!("<b>{label}:</b> {}<br/>", xml_escape(&value)))
+        .collect::<String>()
 }
 
 fn common_feed_links(base: &str, self_path: &str, kind: FeedKind) -> Vec<Link<'static>> {
@@ -623,6 +635,13 @@ fn respond_feed(
                 body,
                 "    <author><name>{}</name></author>",
                 xml_escape(author)
+            );
+        }
+        if let Some(summary) = &entry.summary {
+            let _ = writeln!(
+                body,
+                "    <summary type=\"html\">{}</summary>",
+                xml_escape(summary)
             );
         }
         for link in &entry.links {
