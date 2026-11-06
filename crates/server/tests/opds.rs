@@ -116,14 +116,26 @@ async fn opds_search_shows_cover_and_metadata_like_browse() {
     let db = Connection::open(attached.path().join("metadata.db")).expect("open fixture metadata");
     db.execute("UPDATE books SET has_cover = 1 WHERE id = 1", [])
         .expect("mark cover present");
-    db.execute("INSERT INTO publishers(id, name) VALUES(1, 'A & B Books')", [])
-        .expect("insert publisher");
-    db.execute("INSERT INTO books_publishers_link(id, book, publisher) VALUES(1, 1, 1)", [])
-        .expect("link publisher");
-    db.execute("INSERT INTO tags(id, name) VALUES(1, 'History <Europe>')", [])
-        .expect("insert tag");
-    db.execute("INSERT INTO books_tags_link(id, book, tag) VALUES(1, 1, 1)", [])
-        .expect("link tag");
+    db.execute(
+        "INSERT INTO publishers(id, name) VALUES(1, 'A & B Books')",
+        [],
+    )
+    .expect("insert publisher");
+    db.execute(
+        "INSERT INTO books_publishers_link(id, book, publisher) VALUES(1, 1, 1)",
+        [],
+    )
+    .expect("link publisher");
+    db.execute(
+        "INSERT INTO tags(id, name) VALUES(1, 'History <Europe>')",
+        [],
+    )
+    .expect("insert tag");
+    db.execute(
+        "INSERT INTO books_tags_link(id, book, tag) VALUES(1, 1, 1)",
+        [],
+    )
+    .expect("link tag");
     drop(db);
     let cover_bytes = b"fixture-jpeg-cover";
     fs::write(
@@ -144,13 +156,20 @@ async fn opds_search_shows_cover_and_metadata_like_browse() {
 
     let browse = app
         .clone()
-        .oneshot(Request::get("/opds/books?limit=1").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/opds/books?limit=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .expect("browse request");
     assert_eq!(browse.status(), StatusCode::OK);
     let browse_xml = response_text(browse).await;
     let thumbnail = "href=\"/api/v1/books/1/cover\" rel=\"http://opds-spec.org/image/thumbnail\" type=\"image/jpeg\"";
-    assert!(browse_xml.contains(thumbnail), "browse should advertise thumbnail");
+    assert!(
+        browse_xml.contains(thumbnail),
+        "browse should advertise thumbnail"
+    );
 
     let search = app
         .clone()
@@ -163,7 +182,10 @@ async fn opds_search_shows_cover_and_metadata_like_browse() {
         .expect("search request");
     assert_eq!(search.status(), StatusCode::OK);
     let search_xml = response_text(search).await;
-    assert!(search_xml.contains(thumbnail), "search should advertise thumbnail");
+    assert!(
+        search_xml.contains(thumbnail),
+        "search should advertise thumbnail"
+    );
     assert!(search_xml.contains("<author><name>Attached Author</name></author>"));
     assert!(search_xml.contains("/opds/books/1/download/epub"));
     assert!(search_xml.contains("/opds/books/1/download/pdf"));
@@ -177,23 +199,41 @@ async fn opds_search_shows_cover_and_metadata_like_browse() {
         .expect("detail request");
     assert_eq!(detail.status(), StatusCode::OK);
     let detail_xml = response_text(detail).await;
-    assert!(detail_xml.contains(thumbnail), "detail should advertise the same cover");
+    assert!(
+        detail_xml.contains(thumbnail),
+        "detail should advertise the same cover"
+    );
     assert!(detail_xml.contains("<author><name>Attached Author</name></author>"));
-    assert!(detail_xml.contains("<summary type=\"html\">"), "detail should include readable metadata");
+    assert!(
+        detail_xml.contains("<summary type=\"html\">"),
+        "detail should include readable metadata"
+    );
     assert!(detail_xml.contains("&lt;b&gt;Publisher:&lt;/b&gt; A &amp;amp; B Books"));
     assert!(detail_xml.contains("&lt;b&gt;Tags:&lt;/b&gt; History &amp;lt;Europe&amp;gt;"));
     assert!(detail_xml.contains("&lt;b&gt;Formats:&lt;/b&gt; PDF, EPUB, MOBI"));
     assert!(detail_xml.contains("/opds/books/1/download/epub"));
-    assert!(!detail_xml.contains("title=\"Details\""), "detail must not link to itself");
+    assert!(
+        !detail_xml.contains("title=\"Details\""),
+        "detail must not link to itself"
+    );
     assert!(!detail_xml.contains("<title>Caliberate Book</title>"));
 
     let cover = app
-        .oneshot(Request::get("/api/v1/books/1/cover").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/v1/books/1/cover")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .expect("cover request");
     assert_eq!(cover.status(), StatusCode::OK);
     assert_eq!(cover.headers()["content-type"], "image/jpeg");
-    let bytes = cover.into_body().collect().await.expect("cover body").to_bytes();
+    let bytes = cover
+        .into_body()
+        .collect()
+        .await
+        .expect("cover body")
+        .to_bytes();
     assert_eq!(&bytes[..], cover_bytes);
 }
 
