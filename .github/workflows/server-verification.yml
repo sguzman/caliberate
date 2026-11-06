@@ -12,6 +12,7 @@ on:
       - 'crates/assets/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/deploy-librera-opds.sh'
       - '.github/workflows/server-verification.yml'
 
 jobs:
