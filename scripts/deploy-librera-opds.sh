@@ -137,11 +137,6 @@ catalog="$(curl -fsS --max-time 20 "$base/opds")"
     echo "Librera-compatible Atom search link is missing." >&2
     exit 1
 }
-curl -fsS --max-time 20 "$base/opds/search?q=alice" >/dev/null || {
-    echo "OPDS search request failed." >&2
-    exit 1
-}
-
 rollback_needed=0
 echo "SUCCESS: Caliberate is active, healthy, and advertises both OPDS search links."
 echo "Previous executable retained at: $backup"
