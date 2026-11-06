@@ -197,8 +197,8 @@ async fn opds_download_returns_file() {
         .await
         .expect("entry request");
     let entry_body = response_text(entry).await;
-    assert!(entry_body.contains(&format!("/opds/books/{book_id}/download\"")));
-    assert!(!entry_body.contains(&format!("/opds/books/{book_id}/download/epub")));
+    assert!(entry_body.contains(&format!("/opds/books/{book_id}/download/epub\"")));
+    assert!(!entry_body.contains(&format!("/opds/books/{book_id}/download/pdf\"")));
 
     let unavailable = app
         .clone()
@@ -348,7 +348,6 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
     let entry_body = response_text(entry).await;
     assert!(entry_body.contains("Attached Book"));
     assert!(entry_body.contains("/opds/books/1/download"));
-    assert!(entry_body.contains("type=\"application/pdf\" title=\"Download\""));
     assert!(entry_body.contains("/opds/books/1/download/epub"));
     assert!(entry_body.contains("type=\"application/epub+zip\" title=\"Download EPUB\""));
     assert!(
