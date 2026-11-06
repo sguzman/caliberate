@@ -9,6 +9,7 @@ cd "$repo_root"
 unit="caliberate.service"
 installed="$HOME/.cargo/bin/calibre-server"
 compiled="$repo_root/target/release/calibre-server"
+mbx_cargo="$HOME/.local/share/mbx/bin/cargo"
 base="http://127.0.0.1:8080"
 backup=""
 replacement=""
@@ -55,8 +56,8 @@ echo "Checking existing Caliberate service..."
     echo "Refusing deployment: installed calibre-server binary is missing." >&2
     exit 1
 }
-command -v mbx >/dev/null || {
-    echo "Refusing deployment: mbx is unavailable." >&2
+[[ -x "$mbx_cargo" ]] || {
+    echo "Refusing deployment: the mbx Cargo shim is unavailable at $mbx_cargo." >&2
     exit 1
 }
 command -v doas >/dev/null || {
@@ -87,10 +88,10 @@ grep -Fq 'const LIBRERA_SEARCH_TYPE: &str = "application/atom+xml";' crates/serv
     exit 1
 }
 
-echo "Running focused OPDS regression test via mbx..."
-mbx test --locked -p caliberate-server opds_search_links_support_opensearch_and_librera
-echo "Building release calibre-server via mbx..."
-mbx build --locked --release -p caliberate-app --bin calibre-server
+echo "Running focused OPDS regression test via the mbx Cargo shim..."
+"$mbx_cargo" test --locked -p caliberate-server opds_search_links_support_opensearch_and_librera
+echo "Building release calibre-server via the mbx Cargo shim..."
+"$mbx_cargo" build --locked --release -p caliberate-app --bin calibre-server
 [[ -x "$compiled" ]] || {
     echo "Refusing deployment: release binary was not produced at $compiled" >&2
     exit 1
