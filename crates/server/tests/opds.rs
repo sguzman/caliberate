@@ -354,7 +354,8 @@ async fn attached_opds_uses_only_attached_source_and_downloads_native_content() 
         entry_body.find("/opds/books/1/download/epub")
             < entry_body.find("/opds/books/1/download/mobi")
     );
-    assert!(!entry_body.contains("/download/pdf"));
+    assert!(entry_body.contains("/opds/books/1/download/pdf"));
+    assert!(entry_body.contains("type=\"application/pdf\" title=\"Download PDF\""));
 
     let download = app
         .clone()
