@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use caliberate_library::query::{LibraryFacetKind, LibraryQuery, LibrarySortField};
 use caliberate_library::summary::LibraryBookSummary;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use tracing::warn;
 
@@ -295,15 +296,41 @@ pub async fn opds_search(
     let Some(term) = query.q.filter(|term| !term.trim().is_empty()) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let books = match state.with_catalog(|catalog| catalog.search_books(&term)) {
-        Ok(books) => books,
+    let (limit, offset) = page_limits(query.limit, query.offset);
+    let (books, total) = match state.with_catalog(|catalog| {
+        // Preserve search order and paginate before fetching heavier book metadata.
+        // OPDS browsing and web search already expose covers through these summaries.
+        let found = catalog.search_books(&term)?;
+        let total = found.len();
+        let visible = found
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect::<Vec<_>>();
+        let ids = visible.iter().map(|book| book.id).collect::<Vec<_>>();
+        let mut summaries: HashMap<i64, LibraryBookSummary> = if ids.is_empty() {
+            HashMap::new()
+        } else {
+            catalog
+                .query_summary_page(&LibraryQuery::new().with_ids(ids))?
+                .books
+                .into_iter()
+                .map(|book| (book.id, book))
+                .collect()
+        };
+        let books = visible
+            .iter()
+            .filter_map(|book| summaries.remove(&book.id))
+            .collect::<Vec<_>>();
+        Ok((books, total))
+    }) {
+        Ok(result) => result,
         Err(err) => {
-            warn!(component = "server", error = %err, "failed to search books");
+            warn!(component = "server", error = %err, "failed to search OPDS books");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    let total = books.len();
-    let (limit, offset) = page_limits(query.limit, query.offset);
+
     let base = opds_base(&state);
     let encoded = urlencoding::encode(&term);
     let filter_suffix = format!("q={encoded}");
@@ -320,29 +347,8 @@ pub async fn opds_search(
         FeedKind::Acquisition,
     );
     let entries = books
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(|book| FeedEntry {
-            id: format!("urn:caliberate:book:{}", book.id),
-            title: book.title,
-            authors: Vec::new(),
-            updated: None,
-            links: vec![
-                Link {
-                    href: format!("{base}/opds/books/{}", book.id),
-                    rel: "alternate",
-                    r#type: OPDS_ENTRY_TYPE,
-                    title: Some("Details".to_string()),
-                },
-                Link {
-                    href: format!("{base}/opds/books/{}/download", book.id),
-                    rel: "http://opds-spec.org/acquisition/open-access",
-                    r#type: content::content_type_for_format(&book.format),
-                    title: Some(format!("Download {}", book.format.to_ascii_uppercase())),
-                },
-            ],
-        })
+        .iter()
+        .map(|book| acquisition_entry(&base, book))
         .collect::<Vec<_>>();
     respond_feed(
         &format!("Search: {term}"),

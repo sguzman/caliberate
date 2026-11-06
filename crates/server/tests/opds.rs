@@ -111,6 +111,68 @@ async fn opds_books_returns_feed() {
 }
 
 #[tokio::test]
+async fn opds_search_shows_cover_and_metadata_like_browse() {
+    let attached = attached_fixture();
+    let db = Connection::open(attached.path().join("metadata.db")).expect("open fixture metadata");
+    db.execute("UPDATE books SET has_cover = 1 WHERE id = 1", [])
+        .expect("mark cover present");
+    drop(db);
+    let cover_bytes = b"fixture-jpeg-cover";
+    fs::write(
+        attached
+            .path()
+            .join("Attached Author/Attached Book (1)/cover.jpg"),
+        cover_bytes,
+    )
+    .expect("write cover");
+
+    let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../config/control-plane.toml");
+    let mut config = ControlPlane::load_from_path(&config_path).expect("load config");
+    config.server.download_enabled = true;
+    let backend = caliberate_library::calibre::CalibreLibraryBackend::open(attached.path())
+        .expect("open attached library");
+    let app = http::router(ServerState::with_attached_calibre(config, backend));
+
+    let browse = app
+        .clone()
+        .oneshot(Request::get("/opds/books?limit=1").body(Body::empty()).unwrap())
+        .await
+        .expect("browse request");
+    assert_eq!(browse.status(), StatusCode::OK);
+    let browse_xml = response_text(browse).await;
+    let thumbnail = "href=\"/api/v1/books/1/cover\" rel=\"http://opds-spec.org/image/thumbnail\" type=\"image/jpeg\"";
+    assert!(browse_xml.contains(thumbnail), "browse should advertise thumbnail");
+
+    let search = app
+        .clone()
+        .oneshot(
+            Request::get("/opds/search?q=Attached&limit=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("search request");
+    assert_eq!(search.status(), StatusCode::OK);
+    let search_xml = response_text(search).await;
+    assert!(search_xml.contains(thumbnail), "search should advertise thumbnail");
+    assert!(search_xml.contains("<author><name>Attached Author</name></author>"));
+    assert!(search_xml.contains("/opds/books/1/download/epub"));
+    assert!(search_xml.contains("/opds/books/1/download/pdf"));
+    assert!(search_xml.contains("/opds/books/1/download/mobi"));
+    assert!(search_xml.contains("Attached Book"));
+
+    let cover = app
+        .oneshot(Request::get("/api/v1/books/1/cover").body(Body::empty()).unwrap())
+        .await
+        .expect("cover request");
+    assert_eq!(cover.status(), StatusCode::OK);
+    assert_eq!(cover.headers()["content-type"], "image/jpeg");
+    let bytes = cover.into_body().collect().await.expect("cover body").to_bytes();
+    assert_eq!(&bytes[..], cover_bytes);
+}
+
+#[tokio::test]
 async fn opds_format_links_honor_prefix_and_authentication() {
     let attached = attached_fixture();
     let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
