@@ -12,12 +12,11 @@ use tracing::warn;
 
 const DEFAULT_PAGE_SIZE: usize = 50;
 const MAX_PAGE_SIZE: usize = 100;
-const OPDS_ACQUISITION_TYPE: &str =
-    "application/atom+xml;profile=opds-catalog;kind=acquisition";
-const OPDS_NAVIGATION_TYPE: &str =
-    "application/atom+xml;profile=opds-catalog;kind=navigation";
+const OPDS_ACQUISITION_TYPE: &str = "application/atom+xml;profile=opds-catalog;kind=acquisition";
+const OPDS_NAVIGATION_TYPE: &str = "application/atom+xml;profile=opds-catalog;kind=navigation";
 const OPDS_ENTRY_TYPE: &str = "application/atom+xml;type=entry;profile=opds-catalog";
 const OPENSEARCH_TYPE: &str = "application/opensearchdescription+xml";
+const LIBRERA_SEARCH_TYPE: &str = "application/atom+xml";
 
 #[derive(Debug, Deserialize, Default)]
 pub struct BrowseQuery {
@@ -257,11 +256,7 @@ pub async fn opds_book_entry(State(state): State<ServerState>, Path(id): Path<i6
         "Caliberate Book",
         &format!("urn:caliberate:opds:book:{id}"),
         FeedKind::Acquisition,
-        &common_feed_links(
-            &base,
-            &format!("/opds/books/{id}"),
-            FeedKind::Acquisition,
-        ),
+        &common_feed_links(&base, &format!("/opds/books/{id}"), FeedKind::Acquisition),
         std::slice::from_ref(&entry),
     )
 }
@@ -362,9 +357,7 @@ pub async fn opds_search_description(State(state): State<ServerState>) -> Respon
     let base = opds_base(&state);
     let mut body = String::new();
     body.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
-    body.push_str(
-        "<OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\">\n",
-    );
+    body.push_str("<OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\">\n");
     body.push_str("  <ShortName>Caliberate</ShortName>\n");
     body.push_str("  <Description>Search the Caliberate ebook library</Description>\n");
     let _ = writeln!(
@@ -375,9 +368,10 @@ pub async fn opds_search_description(State(state): State<ServerState>) -> Respon
     );
     body.push_str("</OpenSearchDescription>\n");
     let mut response = body.into_response();
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(OPENSEARCH_TYPE));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(OPENSEARCH_TYPE),
+    );
     response
 }
 
@@ -443,10 +437,7 @@ fn acquisition_entry(base: &str, book: &LibraryBookSummary) -> FeedEntry {
     } else {
         for format in &book.formats {
             links.push(Link {
-                href: format!(
-                    "{base}/opds/books/{}/download/{}",
-                    book.id, format.format
-                ),
+                href: format!("{base}/opds/books/{}/download/{}", book.id, format.format),
                 rel: "http://opds-spec.org/acquisition/open-access",
                 r#type: content::content_type_for_format(&format.format),
                 title: Some(format!("Download {}", format.format.to_ascii_uppercase())),
@@ -465,7 +456,10 @@ fn acquisition_entry(base: &str, book: &LibraryBookSummary) -> FeedEntry {
         id: format!("urn:caliberate:book:{}", book.id),
         title: book.title.clone(),
         authors: book.authors.clone(),
-        updated: book.date_modified.clone().or_else(|| book.date_added.clone()),
+        updated: book
+            .date_modified
+            .clone()
+            .or_else(|| book.date_added.clone()),
         links,
     }
 }
@@ -489,6 +483,14 @@ fn common_feed_links(base: &str, self_path: &str, kind: FeedKind) -> Vec<Link<'s
             rel: "search",
             r#type: OPENSEARCH_TYPE,
             title: Some("Search".to_string()),
+        },
+        // Librera Reader only exposes search when rel="search" has the bare Atom type.
+        // Preserve the OpenSearch descriptor above for clients that support it.
+        Link {
+            href: format!("{base}/opds/search?q={{searchTerms}}"),
+            rel: "search",
+            r#type: LIBRERA_SEARCH_TYPE,
+            title: Some("Search books".to_string()),
         },
     ]
 }
@@ -608,12 +610,7 @@ fn respond_feed(
         let _ = writeln!(
             body,
             "    <updated>{}</updated>",
-            xml_escape(
-                entry
-                    .updated
-                    .as_deref()
-                    .unwrap_or("1970-01-01T00:00:00Z")
-            )
+            xml_escape(entry.updated.as_deref().unwrap_or("1970-01-01T00:00:00Z"))
         );
         for author in &entry.authors {
             let _ = writeln!(
@@ -671,12 +668,50 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{page_limits, paged_path};
+    use super::{
+        FeedKind, LIBRERA_SEARCH_TYPE, OPENSEARCH_TYPE, append_link, common_feed_links,
+        page_limits, paged_path,
+    };
 
     #[test]
     fn opds_pages_are_bounded() {
         assert_eq!(page_limits(None, None), (50, 0));
         assert_eq!(page_limits(Some(1000), Some(20)), (100, 20));
+    }
+
+    #[test]
+    fn opds_search_links_support_opensearch_and_librera() {
+        let links = common_feed_links("", "/opds", FeedKind::Navigation);
+        let search = links
+            .iter()
+            .filter(|link| link.rel == "search")
+            .collect::<Vec<_>>();
+        assert_eq!(search.len(), 2);
+
+        assert!(
+            search
+                .iter()
+                .any(|link| { link.r#type == OPENSEARCH_TYPE && link.href == "/opds/search.xml" })
+        );
+
+        let librera_link = search
+            .iter()
+            .find(|link| link.r#type == LIBRERA_SEARCH_TYPE)
+            .expect("Librera-compatible search link");
+        assert_eq!(librera_link.href, "/opds/search?q={searchTerms}");
+
+        let mut xml = String::new();
+        append_link(&mut xml, librera_link, 2);
+        assert!(xml.contains(
+            r#"href="/opds/search?q={searchTerms}" rel="search" type="application/atom+xml""#
+        ));
+
+        let prefixed = common_feed_links("/books", "/opds", FeedKind::Navigation);
+        assert!(prefixed.iter().any(|link| {
+            link.rel == "search"
+                && link.r#type == LIBRERA_SEARCH_TYPE
+                && link.href == "/books/opds/search?q={searchTerms}"
+        }));
     }
 
     #[test]

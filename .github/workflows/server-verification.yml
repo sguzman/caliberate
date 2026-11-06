@@ -1,0 +1,30 @@
+name: Server verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'crates/server/**'
+      - 'crates/core/**'
+      - 'crates/db/**'
+      - 'crates/library/**'
+      - 'crates/assets/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/server-verification.yml'
+
+jobs:
+  server-checks:
+    name: Caliberate server build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check deployment script syntax
+        run: bash -n scripts/deploy-librera-opds.sh
+      - name: Check server
+        run: cargo check -p caliberate-server --locked
+      - name: Test server
+        run: cargo test -p caliberate-server --locked
