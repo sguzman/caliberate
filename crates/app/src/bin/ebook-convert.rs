@@ -7,7 +7,7 @@ use tracing::info;
 #[derive(Debug, Parser)]
 #[command(name = "ebook-convert", version, about = "Caliberate conversion CLI")]
 struct EbookConvertCli {
-    #[arg(long, default_value = "config/control-plane.toml")]
+    #[arg(long, default_value_os_t = caliberate_app::bootstrap::default_config_path())]
     config: PathBuf,
     #[arg(long)]
     input: Option<PathBuf>,

@@ -167,7 +167,23 @@ Desktop GUI entry point.
 
 ## Configuration
 
-The primary runtime config is `config/control-plane.toml`.
+The checked-in development example is `config/control-plane.toml`; installed
+binaries do **not** use it implicitly. All Caliberate entry points default to
+`$XDG_CONFIG_HOME/caliberate/control-plane.toml` (when `XDG_CONFIG_HOME` is
+an absolute path), otherwise `~/.config/caliberate/control-plane.toml`
+(with `APPDATA/caliberate/control-plane.toml` as an additional fallback when
+`HOME` is unavailable). Set `CALIBERATE_CONFIG` to select another default,
+or pass `--config PATH` to override it for a single invocation.
+
+For example, after installing the database CLI:
+
+```bash
+calibredb info
+calibredb add --path ~/Downloads/book.epub
+# To inspect the source-checkout example deliberately:
+calibredb --config config/control-plane.toml check-config
+```
+
 
 It currently covers:
 

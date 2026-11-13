@@ -28,7 +28,7 @@ use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 #[derive(Debug, Parser)]
 #[command(name = "calibredb", version, about = "Caliberate database CLI")]
 struct CalibredbCli {
-    #[arg(long, default_value = "config/control-plane.toml")]
+    #[arg(long, default_value_os_t = caliberate_app::bootstrap::default_config_path())]
     config: PathBuf,
     #[arg(long = "with-library", alias = "library-path")]
     library_path: Option<PathBuf>,
