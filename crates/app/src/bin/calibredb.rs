@@ -1599,15 +1599,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let sources = db.list_library_sources()?;
             let assets = db.list_assets()?;
-            let reference_sample = assets.iter().find(|asset| asset.storage_mode == "reference");
+            let reference_sample = assets
+                .iter()
+                .find(|asset| asset.storage_mode == "reference");
             let managed_sample = assets.iter().find(|asset| asset.storage_mode == "copy");
 
             let mut lines = Vec::new();
             lines.push("Caliberate operational path rebase".to_string());
-            lines.push(format!("mode: {}", if apply { "APPLIED" } else { "DRY RUN" }));
+            lines.push(format!(
+                "mode: {}",
+                if apply { "APPLIED" } else { "DRY RUN" }
+            ));
             lines.push(format!("config: {}", cli.config.display()));
             lines.push(format!("database: {}", config.db.sqlite_path.display()));
-            lines.push(format!("managed library: {}", config.paths.library_dir.display()));
+            lines.push(format!(
+                "managed library: {}",
+                config.paths.library_dir.display()
+            ));
             lines.push(format!("replacement root: {}", replacement_root.display()));
             lines.push(format!("marker: {marker}"));
             if let Some(backup) = &backup_path {
@@ -1670,7 +1678,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if apply && after.total() != 0 {
-                return Err("path rebase completed with old operational paths still present".into());
+                return Err(
+                    "path rebase completed with old operational paths still present".into(),
+                );
             }
         }
         Some(CalibredbCommand::CheckLibrary) => {

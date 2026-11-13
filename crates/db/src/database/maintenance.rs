@@ -99,9 +99,7 @@ impl Database {
 }
 
 fn migration_needle(marker: &str) -> CoreResult<String> {
-    let marker = marker
-        .trim()
-        .trim_end_matches(|ch| ch == '/' || ch == '\\');
+    let marker = marker.trim().trim_end_matches(|ch| ch == '/' || ch == '\\');
     if marker.is_empty() {
         return Err(CoreError::ConfigValidate(
             "path migration marker cannot be empty".to_string(),
@@ -144,12 +142,7 @@ fn status_for_connection(conn: &Connection, needle: &str) -> CoreResult<Operatio
     })
 }
 
-fn count_matching(
-    conn: &Connection,
-    sql: &str,
-    needle: &str,
-    label: &str,
-) -> CoreResult<u64> {
+fn count_matching(conn: &Connection, sql: &str, needle: &str, label: &str) -> CoreResult<u64> {
     let count = conn
         .query_row(sql, params![needle], |row| row.get::<_, i64>(0))
         .map_err(|err| sqlite_error(label, err))?;
