@@ -28,7 +28,7 @@ use caliberate_metadata::extract::{extract_archive_entry, extract_basic};
 #[derive(Debug, Parser)]
 #[command(name = "calibredb", version, about = "Caliberate database CLI")]
 struct CalibredbCli {
-    #[arg(long, default_value = "config/control-plane.toml")]
+    #[arg(long, default_value_os_t = caliberate_app::bootstrap::default_config_path())]
     config: PathBuf,
     #[arg(long = "with-library", alias = "library-path")]
     library_path: Option<PathBuf>,
@@ -1599,15 +1599,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let sources = db.list_library_sources()?;
             let assets = db.list_assets()?;
-            let reference_sample = assets.iter().find(|asset| asset.storage_mode == "reference");
+            let reference_sample = assets
+                .iter()
+                .find(|asset| asset.storage_mode == "reference");
             let managed_sample = assets.iter().find(|asset| asset.storage_mode == "copy");
 
             let mut lines = Vec::new();
             lines.push("Caliberate operational path rebase".to_string());
-            lines.push(format!("mode: {}", if apply { "APPLIED" } else { "DRY RUN" }));
+            lines.push(format!(
+                "mode: {}",
+                if apply { "APPLIED" } else { "DRY RUN" }
+            ));
             lines.push(format!("config: {}", cli.config.display()));
             lines.push(format!("database: {}", config.db.sqlite_path.display()));
-            lines.push(format!("managed library: {}", config.paths.library_dir.display()));
+            lines.push(format!(
+                "managed library: {}",
+                config.paths.library_dir.display()
+            ));
             lines.push(format!("replacement root: {}", replacement_root.display()));
             lines.push(format!("marker: {marker}"));
             if let Some(backup) = &backup_path {
@@ -1670,7 +1678,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if apply && after.total() != 0 {
-                return Err("path rebase completed with old operational paths still present".into());
+                return Err(
+                    "path rebase completed with old operational paths still present".into(),
+                );
             }
         }
         Some(CalibredbCommand::CheckLibrary) => {

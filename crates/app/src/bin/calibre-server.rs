@@ -7,7 +7,7 @@ use std::path::Path;
 #[derive(Debug, Parser)]
 #[command(name = "calibre-server", version, about = "Caliberate content server")]
 struct ServerCli {
-    #[arg(long, default_value = "config/control-plane.toml")]
+    #[arg(long, default_value_os_t = caliberate_app::bootstrap::default_config_path())]
     config: std::path::PathBuf,
     #[arg(long)]
     calibre_library: Option<std::path::PathBuf>,

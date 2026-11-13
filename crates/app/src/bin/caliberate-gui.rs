@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "caliberate-gui", version, about = "Caliberate GUI")]
 struct GuiCli {
-    #[arg(long, default_value = "config/control-plane.toml")]
+    #[arg(long, default_value_os_t = caliberate_app::bootstrap::default_config_path())]
     config: PathBuf,
 }
 
