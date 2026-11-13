@@ -573,9 +573,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source_size = std::fs::metadata(&path)?.len();
             let mut db = Database::open_with_fts(&config.db, &config.fts)?;
             if !force {
-                if let Some(existing) =
-                    find_registered_duplicate(&db, &checksum, source_size)?
-                {
+                if let Some(existing) = find_registered_duplicate(&db, &checksum, source_size)? {
                     println!(
                         "Skipped ingest; identical SHA-256 already exists as book {} (asset {}) at {}. Use --force to add another copy.",
                         existing.book_id, existing.id, existing.stored_path
@@ -584,8 +582,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let store = LocalAssetStore::from_config(&config)
-                .with_unique_copy_destination(force);
+            let store = LocalAssetStore::from_config(&config).with_unique_copy_destination(force);
             let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
             let request = IngestRequest {
                 source_path: &path,
@@ -1821,7 +1818,6 @@ fn apply_library_override(
     Ok(())
 }
 
-
 /** Find matching content in any registered asset, including referenced books.
  *
  * Older imported assets may lack a checksum: compare the size first and then
@@ -1892,10 +1888,9 @@ mod tests {
             Some(CalibredbCommand::Add { force: false, .. })
         ));
 
-        let forced = CalibredbCli::try_parse_from([
-            "calibredb", "add", "--path", "book.epub", "--force",
-        ])
-        .unwrap();
+        let forced =
+            CalibredbCli::try_parse_from(["calibredb", "add", "--path", "book.epub", "--force"])
+                .unwrap();
         assert!(matches!(
             forced.command,
             Some(CalibredbCommand::Add { force: true, .. })
@@ -1912,16 +1907,25 @@ mod tests {
 
         let db = test_database(tmp.path());
         let hash = hash_file_sha256(&original).unwrap();
-        let book_id = db.add_book("Sample", "epub", original.to_str().unwrap(), "now").unwrap();
+        let book_id = db
+            .add_book("Sample", "epub", original.to_str().unwrap(), "now")
+            .unwrap();
         db.add_asset(
-            book_id, "reference", original.to_str().unwrap(), None,
-            17, 17, Some(&hash), false, "now",
+            book_id,
+            "reference",
+            original.to_str().unwrap(),
+            None,
+            17,
+            17,
+            Some(&hash),
+            false,
+            "now",
         )
         .unwrap();
 
-        let match_asset =
-            find_registered_duplicate(&db, &hash_file_sha256(&renamed).unwrap(), 17)
-                .unwrap().expect("same bytes must match");
+        let match_asset = find_registered_duplicate(&db, &hash_file_sha256(&renamed).unwrap(), 17)
+            .unwrap()
+            .expect("same bytes must match");
         assert_eq!(match_asset.book_id, book_id);
     }
 
@@ -1933,10 +1937,19 @@ mod tests {
         fs::write(&original, b"same payload").unwrap();
         fs::write(&incoming, b"same payload").unwrap();
         let db = test_database(tmp.path());
-        let book_id = db.add_book("Old", "epub", original.to_str().unwrap(), "now").unwrap();
+        let book_id = db
+            .add_book("Old", "epub", original.to_str().unwrap(), "now")
+            .unwrap();
         db.add_asset(
-            book_id, "reference", original.to_str().unwrap(), None,
-            12, 12, None, false, "now",
+            book_id,
+            "reference",
+            original.to_str().unwrap(),
+            None,
+            12,
+            12,
+            None,
+            false,
+            "now",
         )
         .unwrap();
         let found =
@@ -1952,10 +1965,19 @@ mod tests {
         fs::write(&incoming, b"compressed sample").unwrap();
         compress_file(&incoming, &compressed, 3).unwrap();
         let db = test_database(tmp.path());
-        let book_id = db.add_book("Old", "epub", compressed.to_str().unwrap(), "now").unwrap();
+        let book_id = db
+            .add_book("Old", "epub", compressed.to_str().unwrap(), "now")
+            .unwrap();
         db.add_asset(
-            book_id, "copy", compressed.to_str().unwrap(), None,
-            17, fs::metadata(&compressed).unwrap().len(), None, true, "now",
+            book_id,
+            "copy",
+            compressed.to_str().unwrap(),
+            None,
+            17,
+            fs::metadata(&compressed).unwrap().len(),
+            None,
+            true,
+            "now",
         )
         .unwrap();
         let found =

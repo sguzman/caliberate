@@ -288,8 +288,7 @@ fn copy_file_exclusive(source: &Path, destination: &Path) -> CoreResult<u64> {
         .create_new(true)
         .open(destination)
         .map_err(|err| CoreError::Io("create distinct managed asset".to_string(), err))?;
-    io::copy(&mut input, &mut output)
-        .map_err(|err| CoreError::Io("copy asset".to_string(), err))
+    io::copy(&mut input, &mut output).map_err(|err| CoreError::Io("copy asset".to_string(), err))
 }
 
 #[cfg(test)]
@@ -347,7 +346,12 @@ mod unique_copy_tests {
             _ => panic!("second compressed copy should succeed"),
         };
         assert_ne!(first.stored_path, second.stored_path);
-        assert!(second.stored_path.extension().is_some_and(|extension| extension == "zst"));
+        assert!(
+            second
+                .stored_path
+                .extension()
+                .is_some_and(|extension| extension == "zst")
+        );
         assert_eq!(
             crate::hashing::hash_zstd_file_sha256(&first.stored_path).unwrap(),
             crate::hashing::hash_file_sha256(&input).unwrap()
