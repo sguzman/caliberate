@@ -1839,18 +1839,15 @@ mod tests {
 
     #[test]
     fn add_force_flag_is_explicit_and_opt_in() {
-        let normal = CalibredbCli::try_parse_from([
-            "calibredb", "add", "--path", "book.epub",
-        ])
-        .unwrap();
+        let normal =
+            CalibredbCli::try_parse_from(["calibredb", "add", "--path", "book.epub"]).unwrap();
         assert!(matches!(
             normal.command,
             Some(CalibredbCommand::Add { force: false, .. })
         ));
-        let forced = CalibredbCli::try_parse_from([
-            "calibredb", "add", "--path", "book.epub", "--force",
-        ])
-        .unwrap();
+        let forced =
+            CalibredbCli::try_parse_from(["calibredb", "add", "--path", "book.epub", "--force"])
+                .unwrap();
         assert!(matches!(
             forced.command,
             Some(CalibredbCommand::Add { force: true, .. })

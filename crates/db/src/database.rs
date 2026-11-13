@@ -5359,11 +5359,26 @@ mod duplicate_checksum_tests {
     fn checksum_lookup_matches_across_distinct_filenames_and_modes() {
         let tmp = tempdir().unwrap();
         let db = Database::open_path(tmp.path().join("library.sqlite"), 5000).unwrap();
-        let id = db.add_book("Existing", "epub", "/books/first.epub", "2026-01-01T00:00:00Z").unwrap();
+        let id = db
+            .add_book(
+                "Existing",
+                "epub",
+                "/books/first.epub",
+                "2026-01-01T00:00:00Z",
+            )
+            .unwrap();
         db.add_asset(
-            id, "reference", "/books/first.epub", None,
-            12, 12, Some("ab1234"), false, "2026-01-01T00:00:00Z",
-        ).unwrap();
+            id,
+            "reference",
+            "/books/first.epub",
+            None,
+            12,
+            12,
+            Some("ab1234"),
+            false,
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
         let match_ = db.find_asset_by_checksum("ab1234").unwrap().unwrap();
         assert_eq!(match_.book_id, id);
         assert_eq!(match_.stored_path, "/books/first.epub");

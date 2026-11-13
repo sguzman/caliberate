@@ -82,9 +82,9 @@ impl LocalAssetStore {
         self.ensure_root()?;
         let metadata = fs::metadata(source)
             .map_err(|err| CoreError::Io("read asset metadata".to_string(), err))?;
-        let file_name = source.file_name().ok_or_else(|| {
-            CoreError::ConfigValidate("asset has no filename".to_string())
-        })?;
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| CoreError::ConfigValidate("asset has no filename".to_string()))?;
         let basename = file_name.to_string_lossy();
         let stem = source.file_stem().unwrap_or(file_name).to_string_lossy();
         let extension = source.extension().map(|ext| ext.to_string_lossy());
@@ -332,7 +332,10 @@ mod forced_storage_tests {
             let tmp = tempdir().unwrap();
             let source = tmp.path().join("book.epub");
             fs::write(&source, b"fixture book contents").unwrap();
-            let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/control-plane.toml");
+            let example = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../config/control-plane.toml"
+            );
             let mut config = ControlPlane::load_from_path(example).unwrap();
             config.paths.library_dir = tmp.path().join("managed");
             config.assets.compress_raw_assets = compress;
@@ -366,7 +369,10 @@ mod forced_storage_tests {
         let tmp = tempdir().unwrap();
         let source = tmp.path().join("book.epub");
         fs::write(&source, b"reference fixture").unwrap();
-        let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/control-plane.toml");
+        let example = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config/control-plane.toml"
+        );
         let mut config = ControlPlane::load_from_path(example).unwrap();
         config.paths.library_dir = tmp.path().join("managed");
         let store = LocalAssetStore::from_config(&config);
