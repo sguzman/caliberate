@@ -2,7 +2,7 @@
 
 use caliberate_core::config::AssetsConfig;
 use caliberate_core::error::{CoreError, CoreResult};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use zstd::stream::{read::Decoder, write::Encoder};
@@ -20,6 +20,25 @@ pub fn compress_file(source: &Path, dest: &Path, level: i32) -> CoreResult<u64> 
         .map_err(|err| CoreError::Io("open asset for compression".to_string(), err))?;
     let output = File::create(dest)
         .map_err(|err| CoreError::Io("create compressed asset".to_string(), err))?;
+    let mut encoder =
+        Encoder::new(output, level).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let written = io::copy(&mut input, &mut encoder)
+        .map_err(|err| CoreError::Io("compress asset".to_string(), err))?;
+    encoder
+        .finish()
+        .map_err(|err| CoreError::Io("finish compression".to_string(), err))?;
+    Ok(written)
+}
+
+/// Compress into a newly created destination without ever overwriting a file.
+pub fn compress_file_exclusive(source: &Path, dest: &Path, level: i32) -> CoreResult<u64> {
+    let mut input = File::open(source)
+        .map_err(|err| CoreError::Io("open asset for compression".to_string(), err))?;
+    let output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest)
+        .map_err(|err| CoreError::Io("create distinct compressed asset".to_string(), err))?;
     let mut encoder =
         Encoder::new(output, level).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
     let written = io::copy(&mut input, &mut encoder)

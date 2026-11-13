@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use caliberate_assets::hashing::{hash_file_sha256, hash_zstd_file_sha256};
 use caliberate_assets::stats::{
     AssetDescriptor, apply_compaction, compute_storage_stats, plan_compaction, verify_assets,
 };
@@ -61,6 +62,9 @@ enum CalibredbCommand {
         path: PathBuf,
         #[arg(long)]
         mode: Option<IngestModeValue>,
+        /// Intentionally add identical content; keep a distinct managed file.
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
     Show {
         #[arg(long)]
@@ -562,15 +566,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.db.sqlite_path.display()
             );
         }
-        Some(CalibredbCommand::Add { path, mode }) => {
-            let store = LocalAssetStore::from_config(&config);
+        Some(CalibredbCommand::Add { path, mode, force }) => {
+            // Hash and check the whole registered library before any managed file is written.
+            // This includes reference-mode assets and imports with different filenames.
+            let checksum = hash_file_sha256(&path)?;
+            let source_size = std::fs::metadata(&path)?.len();
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            if !force {
+                if let Some(existing) = find_registered_duplicate(&db, &checksum, source_size)? {
+                    println!(
+                        "Skipped ingest; identical SHA-256 already exists as book {} (asset {}) at {}. Use --force to add another copy.",
+                        existing.book_id, existing.id, existing.stored_path
+                    );
+                    return Ok(());
+                }
+            }
+
+            let store = LocalAssetStore::from_config(&config).with_unique_copy_destination(force);
             let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
             let request = IngestRequest {
                 source_path: &path,
                 mode: mode.map(Into::into),
             };
             let outcome = ingestor.ingest(request)?;
-            let result = match outcome {
+            let mut result = match outcome {
                 IngestOutcome::Ingested(result) => result,
                 IngestOutcome::Skipped(skip) => {
                     println!(
@@ -581,8 +600,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Ok(());
                 }
             };
+            // Preserve the hash for future library-wide checks even if the config
+            // has hash_on_ingest disabled.
+            if result.asset.checksum.is_none() {
+                result.asset.checksum = Some(checksum);
+            }
 
-            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
             let created_at = time::OffsetDateTime::now_utc().format(
                 &time::format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]Z")?,
             )?;
@@ -1795,10 +1818,181 @@ fn apply_library_override(
     Ok(())
 }
 
+/** Find matching content in any registered asset, including referenced books.
+ *
+ * Older imported assets may lack a checksum: compare the size first and then
+ * hash their bytes (decompressing managed .zst assets if necessary). Never
+ * write metadata to the existing assets as part of this read-only guard.
+ */
+fn find_registered_duplicate(
+    db: &Database,
+    source_sha256: &str,
+    source_size: u64,
+) -> Result<Option<caliberate_db::database::AssetRow>, Box<dyn std::error::Error>> {
+    let assets = db.list_assets()?;
+
+    // Prefer saved hashes: this is fast for all newly imported books.
+    if let Some(asset) = assets.iter().find(|asset| {
+        asset
+            .checksum
+            .as_deref()
+            .is_some_and(|hash| hash.eq_ignore_ascii_case(source_sha256))
+    }) {
+        return Ok(Some(asset.clone()));
+    }
+
+    // Older libraries can have assets without checksums (including references).
+    // Only candidates with matching uncompressed sizes need disk I/O.
+    for asset in assets {
+        if asset.checksum.as_ref().is_some_and(|hash| !hash.is_empty()) {
+            continue;
+        }
+        if asset.size_bytes != 0 && asset.size_bytes != source_size {
+            continue;
+        }
+        let path = Path::new(&asset.stored_path);
+        if !path.is_file() {
+            continue;
+        }
+        let checksum = if asset.is_compressed {
+            hash_zstd_file_sha256(path)?
+        } else {
+            hash_file_sha256(path)?
+        };
+        if checksum.eq_ignore_ascii_case(source_sha256) {
+            return Ok(Some(asset));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CalibredbCli, CalibredbCommand, SourcesCommand, stdout_logging_override};
+    use super::{
+        CalibredbCli, CalibredbCommand, SourcesCommand, find_registered_duplicate,
+        stdout_logging_override,
+    };
+    use caliberate_assets::compression::compress_file;
+    use caliberate_assets::hashing::hash_file_sha256;
+    use caliberate_db::database::Database;
     use clap::Parser;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn add_force_flag_is_opt_in() {
+        let ordinary =
+            CalibredbCli::try_parse_from(["calibredb", "add", "--path", "book.epub"]).unwrap();
+        assert!(matches!(
+            ordinary.command,
+            Some(CalibredbCommand::Add { force: false, .. })
+        ));
+
+        let forced =
+            CalibredbCli::try_parse_from(["calibredb", "add", "--path", "book.epub", "--force"])
+                .unwrap();
+        assert!(matches!(
+            forced.command,
+            Some(CalibredbCommand::Add { force: true, .. })
+        ));
+    }
+
+    #[test]
+    fn detects_registered_identical_bytes_even_with_different_filename() {
+        let tmp = tempdir().unwrap();
+        let original = tmp.path().join("original.epub");
+        let renamed = tmp.path().join("renamed.epub");
+        fs::write(&original, b"epub sample bytes").unwrap();
+        fs::write(&renamed, b"epub sample bytes").unwrap();
+
+        let db = test_database(tmp.path());
+        let hash = hash_file_sha256(&original).unwrap();
+        let book_id = db
+            .add_book("Sample", "epub", original.to_str().unwrap(), "now")
+            .unwrap();
+        db.add_asset(
+            book_id,
+            "reference",
+            original.to_str().unwrap(),
+            None,
+            17,
+            17,
+            Some(&hash),
+            false,
+            "now",
+        )
+        .unwrap();
+
+        let match_asset = find_registered_duplicate(&db, &hash_file_sha256(&renamed).unwrap(), 17)
+            .unwrap()
+            .expect("same bytes must match");
+        assert_eq!(match_asset.book_id, book_id);
+    }
+
+    #[test]
+    fn detects_legacy_reference_without_saved_checksum() {
+        let tmp = tempdir().unwrap();
+        let original = tmp.path().join("original.epub");
+        let incoming = tmp.path().join("other.epub");
+        fs::write(&original, b"same payload").unwrap();
+        fs::write(&incoming, b"same payload").unwrap();
+        let db = test_database(tmp.path());
+        let book_id = db
+            .add_book("Old", "epub", original.to_str().unwrap(), "now")
+            .unwrap();
+        db.add_asset(
+            book_id,
+            "reference",
+            original.to_str().unwrap(),
+            None,
+            12,
+            12,
+            None,
+            false,
+            "now",
+        )
+        .unwrap();
+        let found =
+            find_registered_duplicate(&db, &hash_file_sha256(&incoming).unwrap(), 12).unwrap();
+        assert_eq!(found.unwrap().book_id, book_id);
+    }
+
+    #[test]
+    fn detects_compressed_legacy_asset_without_saved_checksum() {
+        let tmp = tempdir().unwrap();
+        let incoming = tmp.path().join("incoming.epub");
+        let compressed = tmp.path().join("saved.epub.zst");
+        fs::write(&incoming, b"compressed sample").unwrap();
+        compress_file(&incoming, &compressed, 3).unwrap();
+        let db = test_database(tmp.path());
+        let book_id = db
+            .add_book("Old", "epub", compressed.to_str().unwrap(), "now")
+            .unwrap();
+        db.add_asset(
+            book_id,
+            "copy",
+            compressed.to_str().unwrap(),
+            None,
+            17,
+            fs::metadata(&compressed).unwrap().len(),
+            None,
+            true,
+            "now",
+        )
+        .unwrap();
+        let found =
+            find_registered_duplicate(&db, &hash_file_sha256(&incoming).unwrap(), 17).unwrap();
+        assert_eq!(found.unwrap().book_id, book_id);
+    }
+
+    fn test_database(root: &std::path::Path) -> Database {
+        let config_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/control-plane.toml");
+        let mut config =
+            caliberate_core::config::ControlPlane::load_from_path(config_path).unwrap();
+        config.db.sqlite_path = root.join("test.sqlite");
+        Database::open_with_fts(&config.db, &config.fts).unwrap()
+    }
 
     #[test]
     fn machine_output_selection_disables_stdout_tracing_only_for_machine_commands() {
