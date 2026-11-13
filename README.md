@@ -137,6 +137,17 @@ Implemented command families include:
 
 This is the CLI most directly exercising the database, ingest, assets, metadata, and device crates.
 
+When adding a new book with `calibredb add --path /path/to/book.epub`,
+the CLI compares the file's SHA-256 with registered book assets across the
+whole database, even when their filenames differ. If a registered asset has
+no saved hash (such as a legacy reference), a size-filtered on-disk content
+hash is used. An identical match is skipped **before** writing a managed
+file or inserting another book row. Use `--force` to add another copy
+deliberately; managed copy mode chooses a distinct destination name and
+creates it exclusively, so it cannot overwrite an existing managed file.
+This safeguard applies to `calibredb add`; other import pathways may have
+their own duplicate policies.
+
 ### `calibre-server`
 
 Server runner and server management CLI.
