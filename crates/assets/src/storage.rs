@@ -1,10 +1,11 @@
 //! Asset storage abstraction and path policy.
 
-use crate::compression::{compress_file, should_compress_asset};
+use crate::compression::{compress_file, compress_reader_to_writer, should_compress_asset};
 use crate::hashing::{hash_file_sha256, hash_zstd_file_sha256};
 use caliberate_core::config::{ControlPlane, DuplicateCompare, DuplicatePolicy};
 use caliberate_core::error::{CoreError, CoreResult};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -69,6 +70,94 @@ impl LocalAssetStore {
             hash_on_ingest: config.assets.hash_on_ingest,
             compression_level: config.assets.compression_level,
         }
+    }
+
+    /// Bypass duplicate skips without ever clobbering an existing managed file.
+    /// For reference imports there is no managed destination to allocate.
+    pub fn store_forced(&self, source: &Path, mode: StorageMode) -> CoreResult<StoreOutcome> {
+        if mode == StorageMode::Reference {
+            return self.store(source, mode);
+        }
+
+        self.ensure_root()?;
+        let metadata = fs::metadata(source)
+            .map_err(|err| CoreError::Io("read asset metadata".to_string(), err))?;
+        let file_name = source.file_name().ok_or_else(|| {
+            CoreError::ConfigValidate("asset has no filename".to_string())
+        })?;
+        let basename = file_name.to_string_lossy();
+        let stem = source.file_stem().unwrap_or(file_name).to_string_lossy();
+        let extension = source.extension().map(|ext| ext.to_string_lossy());
+        let checksum = if self.hash_on_ingest {
+            Some(hash_file_sha256(source)?)
+        } else {
+            None
+        };
+
+        for attempt in 0..10_000 {
+            let name = if attempt == 0 {
+                basename.to_string()
+            } else if let Some(ext) = &extension {
+                format!("{stem} (copy {}).{ext}", attempt + 1)
+            } else {
+                format!("{stem} (copy {})", attempt + 1)
+            };
+            let name = if self.compress_assets {
+                format!("{name}.zst")
+            } else {
+                name
+            };
+            let dest_path = self.root_dir.join(name);
+            // create_new is atomic: even concurrent forced imports cannot
+            // overwrite an existing file or follow a pre-existing symlink.
+            let output = match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&dest_path)
+            {
+                Ok(output) => output,
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(err) => return Err(CoreError::Io("create forced asset".to_string(), err)),
+            };
+            let written = (|| -> CoreResult<()> {
+                let mut input = File::open(source)
+                    .map_err(|err| CoreError::Io("open forced asset source".to_string(), err))?;
+                if self.compress_assets {
+                    compress_reader_to_writer(&mut input, output, self.compression_level)?;
+                } else {
+                    let mut output = output;
+                    io::copy(&mut input, &mut output)
+                        .map_err(|err| CoreError::Io("copy forced asset".to_string(), err))?;
+                }
+                Ok(())
+            })();
+            if let Err(err) = written {
+                let _ = fs::remove_file(&dest_path);
+                return Err(err);
+            }
+            let stored_size_bytes = fs::metadata(&dest_path)
+                .map_err(|err| CoreError::Io("read forced asset metadata".to_string(), err))?
+                .len();
+            info!(
+                component = "assets",
+                action = "force-new-copy",
+                source = %source.display(),
+                dest = %dest_path.display(),
+                "forced asset stored without overwriting"
+            );
+            return Ok(StoreOutcome::Stored(AssetRecord {
+                storage_mode: StorageMode::Copy,
+                stored_path: dest_path,
+                source_path: Some(source.to_path_buf()),
+                size_bytes: metadata.len(),
+                stored_size_bytes,
+                checksum,
+                is_compressed: self.compress_assets,
+            }));
+        }
+        Err(CoreError::ConfigValidate(
+            "could not allocate a unique managed filename for --force".to_string(),
+        ))
     }
 
     fn ensure_root(&self) -> CoreResult<()> {
@@ -226,5 +315,67 @@ impl LocalAssetStore {
                 Ok(source_hash == dest_hash)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod forced_storage_tests {
+    use super::{AssetStore, LocalAssetStore, StorageMode, StoreOutcome};
+    use crate::hashing::{hash_file_sha256, hash_zstd_file_sha256};
+    use caliberate_core::config::ControlPlane;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn forced_copy_preserves_original_and_allocates_new_filename() {
+        for compress in [false, true] {
+            let tmp = tempdir().unwrap();
+            let source = tmp.path().join("book.epub");
+            fs::write(&source, b"fixture book contents").unwrap();
+            let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/control-plane.toml");
+            let mut config = ControlPlane::load_from_path(example).unwrap();
+            config.paths.library_dir = tmp.path().join("managed");
+            config.assets.compress_raw_assets = compress;
+            let store = LocalAssetStore::from_config(&config);
+
+            let first = match store.store(&source, StorageMode::Copy).unwrap() {
+                StoreOutcome::Stored(asset) => asset,
+                _ => panic!("initial copy must be stored"),
+            };
+            let second = match store.store_forced(&source, StorageMode::Copy).unwrap() {
+                StoreOutcome::Stored(asset) => asset,
+                _ => panic!("forced copy must be stored"),
+            };
+            assert_ne!(first.stored_path, second.stored_path);
+            assert!(first.stored_path.exists());
+            assert!(second.stored_path.exists());
+            let original = hash_file_sha256(&source).unwrap();
+            for asset in [&first, &second] {
+                let persisted = if compress {
+                    hash_zstd_file_sha256(&asset.stored_path).unwrap()
+                } else {
+                    hash_file_sha256(&asset.stored_path).unwrap()
+                };
+                assert_eq!(persisted, original);
+            }
+        }
+    }
+
+    #[test]
+    fn forced_reference_never_copies_or_changes_source() {
+        let tmp = tempdir().unwrap();
+        let source = tmp.path().join("book.epub");
+        fs::write(&source, b"reference fixture").unwrap();
+        let example = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/control-plane.toml");
+        let mut config = ControlPlane::load_from_path(example).unwrap();
+        config.paths.library_dir = tmp.path().join("managed");
+        let store = LocalAssetStore::from_config(&config);
+        let result = match store.store_forced(&source, StorageMode::Reference).unwrap() {
+            StoreOutcome::Stored(asset) => asset,
+            _ => panic!("reference import must be registered"),
+        };
+        assert_eq!(result.stored_path, source);
+        assert!(!result.is_compressed);
+        assert_eq!(fs::read(&source).unwrap(), b"reference fixture");
     }
 }

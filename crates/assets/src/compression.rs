@@ -30,6 +30,22 @@ pub fn compress_file(source: &Path, dest: &Path, level: i32) -> CoreResult<u64> 
     Ok(written)
 }
 
+/// Compress into an already exclusively-created destination file.
+pub fn compress_reader_to_writer(
+    mut source: impl Read,
+    output: impl Write,
+    level: i32,
+) -> CoreResult<u64> {
+    let mut encoder =
+        Encoder::new(output, level).map_err(|err| CoreError::ConfigValidate(err.to_string()))?;
+    let written = io::copy(&mut source, &mut encoder)
+        .map_err(|err| CoreError::Io("compress forced asset".to_string(), err))?;
+    encoder
+        .finish()
+        .map_err(|err| CoreError::Io("finish forced asset compression".to_string(), err))?;
+    Ok(written)
+}
+
 pub fn decompress_file(source: &Path, dest: &Path) -> CoreResult<u64> {
     let input = File::open(source)
         .map_err(|err| CoreError::Io("open compressed asset".to_string(), err))?;

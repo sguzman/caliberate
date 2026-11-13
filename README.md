@@ -180,6 +180,8 @@ For example, after installing the database CLI:
 ```bash
 calibredb info
 calibredb add --path ~/Downloads/book.epub
+# Deliberately keep an identical second copy without overwriting the first:
+calibredb add --path ~/Downloads/book.epub --force
 # To inspect the source-checkout example deliberately:
 calibredb --config config/control-plane.toml check-config
 ```

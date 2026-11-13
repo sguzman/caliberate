@@ -2,10 +2,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::path::PathBuf;
 
+use caliberate_assets::hashing::hash_file_sha256;
 use caliberate_assets::stats::{
     AssetDescriptor, apply_compaction, compute_storage_stats, plan_compaction, verify_assets,
 };
-use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode};
+use caliberate_assets::storage::{AssetStore, LocalAssetStore, StorageMode, StoreOutcome};
 use caliberate_core::config::IngestMode;
 use caliberate_db::database::Database;
 use caliberate_device::detection::{DeviceInfo, detect_devices};
@@ -61,6 +62,10 @@ enum CalibredbCommand {
         path: PathBuf,
         #[arg(long)]
         mode: Option<IngestModeValue>,
+        /// Intentionally import even if an identical book is already in the catalog.
+        /// Never overwrites managed files; a distinct destination is allocated.
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
     Show {
         #[arg(long)]
@@ -484,6 +489,19 @@ impl From<IngestModeValue> for IngestMode {
     }
 }
 
+/// Use an exclusive new destination for forced managed imports.
+struct ForceNewAssetStore(LocalAssetStore);
+
+impl AssetStore for ForceNewAssetStore {
+    fn store(
+        &self,
+        source: &std::path::Path,
+        mode: StorageMode,
+    ) -> caliberate_core::error::CoreResult<StoreOutcome> {
+        self.0.store_forced(source, mode)
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = CalibredbCli::parse();
     let bootstrap = caliberate_app::bootstrap::init_with_options(
@@ -562,15 +580,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.db.sqlite_path.display()
             );
         }
-        Some(CalibredbCommand::Add { path, mode }) => {
+        Some(CalibredbCommand::Add { path, mode, force }) => {
+            // Match bytes rather than names, before touching managed storage.
+            let checksum = hash_file_sha256(&path)?;
+            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            if !force {
+                if let Some(existing) = db.find_asset_by_checksum(&checksum)? {
+                    println!(
+                        "Skipped ingest; identical content is already registered as book {} (asset {}) at {}. Use --force to keep another copy.",
+                        existing.book_id, existing.asset_id, existing.stored_path
+                    );
+                    return Ok(());
+                }
+            }
             let store = LocalAssetStore::from_config(&config);
-            let ingestor = Ingestor::new(std::sync::Arc::new(store), config.clone());
+            let store: std::sync::Arc<dyn AssetStore> = if force {
+                std::sync::Arc::new(ForceNewAssetStore(store))
+            } else {
+                std::sync::Arc::new(store)
+            };
+            let ingestor = Ingestor::new(store, config.clone());
             let request = IngestRequest {
                 source_path: &path,
                 mode: mode.map(Into::into),
             };
             let outcome = ingestor.ingest(request)?;
-            let result = match outcome {
+            let mut result = match outcome {
                 IngestOutcome::Ingested(result) => result,
                 IngestOutcome::Skipped(skip) => {
                     println!(
@@ -582,7 +617,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let mut db = Database::open_with_fts(&config.db, &config.fts)?;
+            // A stored checksum is required for subsequent renamed-file checks,
+            // even if the installed config disables hash_on_ingest.
+            result.asset.checksum = Some(checksum);
             let created_at = time::OffsetDateTime::now_utc().format(
                 &time::format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]Z")?,
             )?;
@@ -1799,6 +1836,26 @@ fn apply_library_override(
 mod tests {
     use super::{CalibredbCli, CalibredbCommand, SourcesCommand, stdout_logging_override};
     use clap::Parser;
+
+    #[test]
+    fn add_force_flag_is_explicit_and_opt_in() {
+        let normal = CalibredbCli::try_parse_from([
+            "calibredb", "add", "--path", "book.epub",
+        ])
+        .unwrap();
+        assert!(matches!(
+            normal.command,
+            Some(CalibredbCommand::Add { force: false, .. })
+        ));
+        let forced = CalibredbCli::try_parse_from([
+            "calibredb", "add", "--path", "book.epub", "--force",
+        ])
+        .unwrap();
+        assert!(matches!(
+            forced.command,
+            Some(CalibredbCommand::Add { force: true, .. })
+        ));
+    }
 
     #[test]
     fn machine_output_selection_disables_stdout_tracing_only_for_machine_commands() {

@@ -213,6 +213,14 @@ pub struct DeleteSummary {
     pub book_deleted: bool,
 }
 
+/// A catalog record with an exact SHA-256 content match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetChecksumMatch {
+    pub asset_id: i64,
+    pub book_id: i64,
+    pub stored_path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AssetRow {
     pub id: i64,
@@ -3207,6 +3215,25 @@ impl Database {
         Ok(())
     }
 
+    /// Search all persisted asset checksums (both managed and referenced books).
+    /// Older entries without a checksum cannot be matched until backfilled.
+    pub fn find_asset_by_checksum(&self, checksum: &str) -> CoreResult<Option<AssetChecksumMatch>> {
+        self.conn
+            .query_row(
+                "SELECT id, book_id, stored_path FROM assets WHERE checksum = ?1 COLLATE NOCASE LIMIT 1",
+                params![checksum],
+                |row| {
+                    Ok(AssetChecksumMatch {
+                        asset_id: row.get(0)?,
+                        book_id: row.get(1)?,
+                        stored_path: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|err| sqlite_error("lookup asset by checksum", err))
+    }
+
     pub fn list_assets(&self) -> CoreResult<Vec<AssetRow>> {
         let mut stmt = self
             .conn
@@ -5320,5 +5347,26 @@ impl Database {
             rating,
             languages,
         })
+    }
+}
+
+#[cfg(test)]
+mod duplicate_checksum_tests {
+    use super::Database;
+    use tempfile::tempdir;
+
+    #[test]
+    fn checksum_lookup_matches_across_distinct_filenames_and_modes() {
+        let tmp = tempdir().unwrap();
+        let db = Database::open_path(tmp.path().join("library.sqlite"), 5000).unwrap();
+        let id = db.add_book("Existing", "epub", "/books/first.epub", "2026-01-01T00:00:00Z").unwrap();
+        db.add_asset(
+            id, "reference", "/books/first.epub", None,
+            12, 12, Some("ab1234"), false, "2026-01-01T00:00:00Z",
+        ).unwrap();
+        let match_ = db.find_asset_by_checksum("ab1234").unwrap().unwrap();
+        assert_eq!(match_.book_id, id);
+        assert_eq!(match_.stored_path, "/books/first.epub");
+        assert!(db.find_asset_by_checksum("different").unwrap().is_none());
     }
 }
